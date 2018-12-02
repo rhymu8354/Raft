@@ -9,6 +9,7 @@
  * © 2018 by Richard Walters
  */
 
+#include <functional>
 #include <memory>
 
 namespace Raft {
@@ -25,6 +26,24 @@ namespace Raft {
         Message(Message&&) noexcept;
         Message& operator=(const Message&) = delete;
         Message& operator=(Message&&) noexcept;
+
+        // Public Class Properties
+    public:
+        /**
+         * This is the factory function called by the Message class internally
+         * to create a new message.
+         *
+         * @note
+         *     Subclasses are expected to replace this with a function which
+         *     will create a subclass of Message, not the base Message alone.
+         *     Otherwise the messages created by the Raft::Server
+         *     implementation may not have all the expected functionality
+         *     needed by the concrete server.
+         *
+         * @return
+         *     A new concrete message object is returned.
+         */
+        static std::function< std::shared_ptr< Message >() > CreateMessage;
 
         // Public Methods
     public:
@@ -43,25 +62,12 @@ namespace Raft {
          */
         bool IsElectionMessage() const;
 
+        // Package-Private properties (public but opaque)
+    public:
         /**
-         * This method forms the message to be a server cluster election
-         * message.
+         * This contains the package-private properties of the instance.
          */
-        void FormElectionMessage();
-
-        // Private properties
-    private:
-        /**
-         * This is the type of structure that contains the private
-         * properties of the instance.  It is defined in the implementation
-         * and declared here to ensure that it is scoped inside the class.
-         */
-        struct Impl;
-
-        /**
-         * This contains the private properties of the instance.
-         */
-        std::unique_ptr< Impl > impl_;
+        std::unique_ptr< struct MessageImpl > impl_;
     };
 
 }

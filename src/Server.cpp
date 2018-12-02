@@ -6,6 +6,8 @@
  * © 2018 by Richard Walters
  */
 
+#include "MessageImpl.hpp"
+
 #include <future>
 #include <mutex>
 #include <Raft/Server.hpp>
@@ -133,8 +135,8 @@ namespace Raft {
                 const auto now = timeKeeper->GetCurrentTime();
                 const auto timeSinceLastLeaderMessage = now - timeOfLastLeaderMessage;
                 if (timeSinceLastLeaderMessage >= shared->configuration.minimumTimeout) {
-                    const auto message = std::make_shared< Message >();
-                    message->FormElectionMessage();
+                    const auto message = Message::CreateMessage();
+                    message->impl_->isElectionMessage = true;
                     shared->diagnosticsSender.SendDiagnosticInformationString(
                         1,
                         "Timeout -- starting new election"
