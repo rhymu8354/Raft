@@ -149,3 +149,23 @@ TEST_F(ServerTests, ElectionStartedAfterProperTimeoutInterval) {
 
     // Assert
 }
+
+TEST_F(ServerTests, ServerVotesForItselfInElectionItStarts) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumTimeout = 0.1;
+    configuration.maximumTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    auto electionBegan = beginElection.get_future();
+    mockTimeKeeper->currentTime = 0.2;
+    const auto message = electionBegan.get();
+
+    // Assert
+    EXPECT_EQ(5, message->impl_->election.candidateId);
+}

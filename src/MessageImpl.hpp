@@ -38,6 +38,10 @@ namespace Raft {
          * This holds message properties for Election type messages.
          */
         struct ElectionDetails {
+            /**
+             * This is the instance ID of the candidate requesting the vote.
+             */
+            unsigned int candidateId = 0;
         };
 
         // Properties
