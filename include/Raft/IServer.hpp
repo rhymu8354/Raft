@@ -9,7 +9,9 @@
  * © 2018 by Richard Walters
  */
 
+#include <functional>
 #include <memory>
+#include <Raft/Message.hpp>
 #include <vector>
 
 namespace Raft {
@@ -36,7 +38,30 @@ namespace Raft {
              * servers in the cluster.
              */
             unsigned int selfInstanceNumber = 0;
+
+            /**
+             * This is the lower bound of the range of time, starting from the
+             * last time the server either started or received a message from
+             * the cluster leader, within which to trigger an election.
+             */
+            double minimumTimeout = 0.15;
+
+            /**
+             * This is the upper bound of the range of time, starting from the
+             * last time the server either started or received a message from
+             * the cluster leader, within which to trigger an election.
+             */
+            double maximumTimeout = 0.3;
         };
+
+        /**
+         * This declares the type of delegate used to request that a message
+         * be sent to another server in the cluster.
+         *
+         * @param[in] message
+         *     This is the message to send.
+         */
+        using SendMessageDelegate = std::function< void(std::shared_ptr< Message > message) >;
 
         // Methods
     public:
@@ -51,6 +76,17 @@ namespace Raft {
          *     was successfully set is returned.
          */
         virtual bool Configure(const Configuration& configuration) = 0;
+
+        /**
+         * This method is called to set up the delegate to be called later
+         * whenever the server wants to send a message to another server in the
+         * cluster.
+         *
+         * @param[in] sendMessageDelegate
+         *     This is the delegate to be called later whenever the server
+         *     wants to send a message to another server in the cluster.
+         */
+        virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) = 0;
     };
 
 }

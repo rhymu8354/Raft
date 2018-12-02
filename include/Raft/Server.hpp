@@ -76,9 +76,26 @@ namespace Raft {
          */
         const Configuration& GetConfiguration() const;
 
+        /**
+         * This method starts the server's worker thread.
+         */
+        void Mobilize();
+
+        /**
+         * This method stops the server's worker thread.
+         */
+        void Demobilize();
+
+        /**
+         * This method blocks until the Coordinator's worker thread executes at
+         * least one more loop.
+         */
+        void WaitForAtLeastOneWorkerLoop();
+
         // IServer
     public:
         virtual bool Configure(const Configuration& configuration) override;
+        virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) override;
 
         // Private properties
     private:

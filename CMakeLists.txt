@@ -7,12 +7,14 @@ set(This Raft)
 
 set(Headers
     include/Raft/IServer.hpp
-    include/Raft/Server.hpp
     include/Raft/LogEntry.hpp
+    include/Raft/Message.hpp
+    include/Raft/Server.hpp
     include/Raft/TimeKeeper.hpp
 )
 
 set(Sources
+    src/Message.cpp
     src/Server.cpp
 )
 
