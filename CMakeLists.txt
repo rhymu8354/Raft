@@ -11,10 +11,12 @@ set(Headers
     include/Raft/Message.hpp
     include/Raft/Server.hpp
     include/Raft/TimeKeeper.hpp
+    src/MessageImpl.hpp
 )
 
 set(Sources
     src/Message.cpp
+    src/MessageImpl.cpp
     src/Server.cpp
 )
 

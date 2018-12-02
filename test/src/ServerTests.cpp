@@ -7,6 +7,8 @@
  * © 2018 by Richard Walters
  */
 
+#include <src/MessageImpl.hpp>
+
 #include <future>
 #include <gtest/gtest.h>
 #include <Raft/Message.hpp>
@@ -56,7 +58,7 @@ struct ServerTests
     // Methods
 
     void ServerSentMessage(std::shared_ptr< Raft::Message > message) {
-        if (message->IsElectionMessage()) {
+        if (message->impl_->type == Raft::MessageImpl::Type::Election) {
             if (!beginElectionWasSet) {
                 beginElectionWasSet = true;
                 beginElection.set_value(message);

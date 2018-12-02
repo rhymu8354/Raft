@@ -14,7 +14,53 @@ namespace Raft {
      * instance.
      */
     struct MessageImpl {
-        bool isElectionMessage = false;
+        // Types
+
+        /**
+         * These are the types of messages for which the message object might
+         * be used.
+         */
+        enum class Type {
+            /**
+             * This is the default type of message, used for messages outside
+             * the scope of Raft.
+             */
+            Unknown,
+
+            /**
+             * This identifies the message as being a "RequestVote RPC" meaning
+             * the server is starting an election and voting for itself.
+             */
+            Election,
+        };
+
+        /**
+         * This holds message properties for Election type messages.
+         */
+        struct ElectionDetails {
+        };
+
+        // Properties
+
+        /**
+         * This indicates for what purpose the message is being sent.
+         */
+        Type type = Type::Unknown;
+
+        /**
+         * This holds properties specific to each type of message.
+         */
+        union {
+            ElectionDetails election;
+        };
+
+        // Methods
+
+        /**
+         * This is the default constructor of the object.
+         */
+        MessageImpl();
+
     };
 
 }

@@ -31,8 +31,4 @@ namespace Raft {
     {
     }
 
-    bool Message::IsElectionMessage() const {
-        return impl_->isElectionMessage;
-    }
-
 }

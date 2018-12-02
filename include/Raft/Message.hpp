@@ -52,16 +52,6 @@ namespace Raft {
          */
         Message();
 
-        /**
-         * This method returns an indication of whether or not the message is
-         * meant to start a cluster leader election.
-         *
-         * @return
-         *     An indication of whether or not the message is
-         *     meant to start a cluster leader election is returned.
-         */
-        bool IsElectionMessage() const;
-
         // Package-Private properties (public but opaque)
     public:
         /**
