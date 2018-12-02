@@ -40,6 +40,11 @@ namespace Raft {
             unsigned int selfInstanceNumber = 0;
 
             /**
+             * This is the last term the server has seen.
+             */
+            unsigned int currentTerm = 0;
+
+            /**
              * This is the lower bound of the range of time, starting from the
              * last time the server either started or received a message from
              * the cluster leader, within which to trigger an election.

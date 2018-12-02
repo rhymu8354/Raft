@@ -39,6 +39,11 @@ namespace Raft {
          */
         struct ElectionDetails {
             /**
+             * This is the term of the new election.
+             */
+            unsigned int term = 0;
+
+            /**
              * This is the instance ID of the candidate requesting the vote.
              */
             unsigned int candidateId = 0;

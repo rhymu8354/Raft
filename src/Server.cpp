@@ -52,6 +52,12 @@ namespace {
          */
         std::shared_ptr< std::promise< void > > workerLoopCompletion;
 
+        /**
+         * This is the time, according to the time keeper, when the server
+         * either started or last received a message from the cluster leader.
+         */
+        double timeOfLastLeaderMessage = 0.0;
+
         // Methods
 
         ServerSharedProperties()
@@ -104,6 +110,29 @@ namespace Raft {
         // Methods
 
         /**
+         * This method samples the current time from the time keeper and stores
+         * it in the timeOfLastLeaderMessage shared property.
+         */
+        void UpdateTimeOfLastLeaderMessage() {
+            std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
+            shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
+        }
+
+        /**
+         * This method returns the amount in time (in seconds) since the server
+         * started or received the last message from a cluster leader.
+         *
+         * @return
+         *     The amount in time (in seconds) since the server started or
+         *     received the last message from a cluster leader is returned.
+         */
+        double GetTimeSinceLastLeaderMessage() {
+            std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
+            const auto now = timeKeeper->GetCurrentTime();
+            return now - shared->timeOfLastLeaderMessage;
+        }
+
+        /**
          * This method checks to see if another thread has requested that we
          * set a promised value once the worker thread has executed one full
          * loop.
@@ -119,6 +148,23 @@ namespace Raft {
         }
 
         /**
+         * This method starts a new election for leader of the server cluster.
+         */
+        void StartElection() {
+            std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
+            const auto message = Message::CreateMessage();
+            message->impl_->type = MessageImpl::Type::Election;
+            message->impl_->election.candidateId = shared->configuration.selfInstanceNumber;
+            message->impl_->election.term = ++shared->configuration.currentTerm;
+            shared->diagnosticsSender.SendDiagnosticInformationString(
+                1,
+                "Timeout -- starting new election"
+            );
+            sendMessageDelegate(message);
+            shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
+        }
+
+        /**
          * This runs in a thread and performs any background tasks required of
          * the Server, such as starting an election if no message is received
          * from the cluster leader before the next timeout.
@@ -128,21 +174,13 @@ namespace Raft {
                 0,
                 "Worker thread started"
             );
-            double timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
+            UpdateTimeOfLastLeaderMessage();
             auto workerAskedToStop = stopWorker.get_future();
             while (workerAskedToStop.wait_for(WORKER_POLLING_PERIOD) != std::future_status::ready) {
                 const auto signalWorkerLoopCompleted = MakeWorkerThreadLoopPromiseIfNeeded();
-                const auto now = timeKeeper->GetCurrentTime();
-                const auto timeSinceLastLeaderMessage = now - timeOfLastLeaderMessage;
+                const auto timeSinceLastLeaderMessage = GetTimeSinceLastLeaderMessage();
                 if (timeSinceLastLeaderMessage >= shared->configuration.minimumTimeout) {
-                    const auto message = Message::CreateMessage();
-                    message->impl_->type = MessageImpl::Type::Election;
-                    message->impl_->election.candidateId = shared->configuration.selfInstanceNumber;
-                    shared->diagnosticsSender.SendDiagnosticInformationString(
-                        1,
-                        "Timeout -- starting new election"
-                    );
-                    sendMessageDelegate(message);
+                    StartElection();
                 }
                 if (signalWorkerLoopCompleted) {
                     shared->workerLoopCompletion->set_value();
