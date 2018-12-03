@@ -39,6 +39,15 @@ namespace {
         }
     };
 
+    /**
+     * This holds information about a message received from the unit under
+     * test.
+     */
+    struct MessageInfo {
+        unsigned int receiverInstanceNumber;
+        std::shared_ptr< Raft::Message > message;
+    };
+
 }
 
 /**
@@ -54,7 +63,7 @@ struct ServerTests
     std::vector< std::string > diagnosticMessages;
     SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate diagnosticsUnsubscribeDelegate;
     const std::shared_ptr< MockTimeKeeper > mockTimeKeeper = std::make_shared< MockTimeKeeper >();
-    std::vector< std::shared_ptr< Raft::Message > > messagesSent;
+    std::vector< MessageInfo > messagesSent;
     std::mutex messagesSentMutex;
     std::condition_variable messagesSentCondition;
 
@@ -69,9 +78,15 @@ struct ServerTests
         );
     }
 
-    void ServerSentMessage(std::shared_ptr< Raft::Message > message) {
+    void ServerSentMessage(
+        std::shared_ptr< Raft::Message > message,
+        unsigned int receiverInstanceNumber
+    ) {
         std::lock_guard< decltype(messagesSentMutex) > lock(messagesSentMutex);
-        messagesSent.push_back(message);
+        MessageInfo messageInfo;
+        messageInfo.message = message;
+        messageInfo.receiverInstanceNumber = receiverInstanceNumber;
+        messagesSent.push_back(std::move(messageInfo));
         messagesSentCondition.notify_one();
     }
 
@@ -101,7 +116,7 @@ struct ServerTests
                 std::shared_ptr< Raft::Message > message,
                 unsigned int receiverInstanceNumber
             ){
-                ServerSentMessage(message);
+                ServerSentMessage(message, receiverInstanceNumber);
             }
         );
     }
@@ -151,12 +166,42 @@ TEST_F(ServerTests, ElectionStartedAfterProperTimeoutInterval) {
     EXPECT_TRUE(AwaitServerMessagesToBeSent(4));
 
     // Assert
-    for (const auto message: messagesSent) {
+    for (const auto messageInfo: messagesSent) {
         EXPECT_EQ(
             Raft::MessageImpl::Type::RequestVote,
-            message->impl_->type
+            messageInfo.message->impl_->type
         );
     }
+}
+
+TEST_F(ServerTests, RequestVoteNotSentToAllServersExceptSelf) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumTimeout = 0.1;
+    configuration.maximumTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    mockTimeKeeper->currentTime = 0.2;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_EQ(4, messagesSent.size());
+    std::set< unsigned int > instances(
+        configuration.instanceNumbers.begin(),
+        configuration.instanceNumbers.end()
+    );
+    for (const auto messageInfo: messagesSent) {
+        (void)instances.erase(messageInfo.receiverInstanceNumber);
+    }
+    EXPECT_EQ(
+        std::set< unsigned int >{ configuration.selfInstanceNumber },
+        instances
+    );
 }
 
 TEST_F(ServerTests, ServerVotesForItselfInElectionItStarts) {
@@ -175,8 +220,8 @@ TEST_F(ServerTests, ServerVotesForItselfInElectionItStarts) {
     (void)AwaitServerMessagesToBeSent(4);
 
     // Assert
-    for (auto message: messagesSent) {
-        EXPECT_EQ(5, message->impl_->requestVote.candidateId);
+    for (auto messageInfo: messagesSent) {
+        EXPECT_EQ(5, messageInfo.message->impl_->requestVote.candidateId);
     }
 }
 
@@ -196,8 +241,8 @@ TEST_F(ServerTests, ServerIncrementsTermInElectionItStarts) {
     (void)AwaitServerMessagesToBeSent(4);
 
     // Assert
-    for (const auto message: messagesSent) {
-        EXPECT_EQ(1, message->impl_->requestVote.term);
+    for (const auto messageInfo: messagesSent) {
+        EXPECT_EQ(1, messageInfo.message->impl_->requestVote.term);
     }
 }
 
