@@ -12,6 +12,7 @@
 #include <mutex>
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
+#include <set>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <thread>
 
@@ -57,6 +58,24 @@ namespace {
          * either started or last received a message from the cluster leader.
          */
         double timeOfLastLeaderMessage = 0.0;
+
+        /**
+         * This indicates whether or not the server is currently the leader of
+         * the cluster.
+         */
+        bool isLeader = false;
+
+        /**
+         * During an election, this is the number of votes we have received
+         * for ourselves.
+         */
+        size_t votesForUs = 0;
+
+        /**
+         * During an election, this holds the unique identifiers of all servers
+         * from whom we're still awaiting a RequestVote response.
+         */
+        std::set< unsigned int > awaitingVotesFrom;
 
         // Methods
 
@@ -152,15 +171,23 @@ namespace Raft {
          */
         void StartElection() {
             std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
+            shared->votesForUs = 1;
             const auto message = Message::CreateMessage();
-            message->impl_->type = MessageImpl::Type::Election;
-            message->impl_->election.candidateId = shared->configuration.selfInstanceNumber;
-            message->impl_->election.term = ++shared->configuration.currentTerm;
+            message->impl_->type = MessageImpl::Type::RequestVote;
+            message->impl_->requestVote.candidateId = shared->configuration.selfInstanceNumber;
+            message->impl_->requestVote.term = ++shared->configuration.currentTerm;
             shared->diagnosticsSender.SendDiagnosticInformationString(
                 1,
                 "Timeout -- starting new election"
             );
-            sendMessageDelegate(message);
+            shared->awaitingVotesFrom.clear();
+            for (auto instance: shared->configuration.instanceNumbers) {
+                if (instance == shared->configuration.selfInstanceNumber) {
+                    continue;
+                }
+                (void)shared->awaitingVotesFrom.insert(instance);
+                sendMessageDelegate(message, instance);
+            }
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
         }
 
@@ -222,15 +249,6 @@ namespace Raft {
         return impl_->shared->configuration;
     }
 
-    bool Server::Configure(const Configuration& configuration) {
-        impl_->shared->configuration = configuration;
-        return true;
-    }
-
-    void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
-        impl_->sendMessageDelegate = sendMessageDelegate;
-    }
-
     void Server::Mobilize() {
         impl_->worker = std::thread(&Impl::Worker, impl_.get());
     }
@@ -249,6 +267,37 @@ namespace Raft {
         auto workerLoopWasCompleted = impl_->shared->workerLoopCompletion->get_future();
         lock.unlock();
         workerLoopWasCompleted.wait();
+    }
+
+    bool Server::Configure(const Configuration& configuration) {
+        impl_->shared->configuration = configuration;
+        return true;
+    }
+
+    void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
+        impl_->sendMessageDelegate = sendMessageDelegate;
+    }
+
+    void Server::ReceiveMessage(
+        std::shared_ptr< Message > message,
+        unsigned int senderInstanceNumber
+    ) {
+        switch (message->impl_->type) {
+            case MessageImpl::Type::RequestVoteResults: {
+                (void)impl_->shared->awaitingVotesFrom.erase(senderInstanceNumber);
+                ++impl_->shared->votesForUs;
+                if (impl_->shared->votesForUs >= impl_->shared->configuration.instanceNumbers.size() / 2 + 1) {
+                    impl_->shared->isLeader = true;
+                }
+            } break;
+
+            default: {
+            } break;
+        }
+    }
+
+    bool Server::IsLeader() {
+        return impl_->shared->isLeader;
     }
 
 }

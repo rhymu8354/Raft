@@ -65,8 +65,17 @@ namespace Raft {
          *
          * @param[in] message
          *     This is the message to send.
+         *
+         * @param[in] receiverInstanceNumber
+         *     This is the unique identifier of the server to whom to send the
+         *     message.
          */
-        using SendMessageDelegate = std::function< void(std::shared_ptr< Message > message) >;
+        using SendMessageDelegate = std::function<
+            void(
+                std::shared_ptr< Message > message,
+                unsigned int receiverInstanceNumber
+            )
+        >;
 
         // Methods
     public:
@@ -92,6 +101,32 @@ namespace Raft {
          *     wants to send a message to another server in the cluster.
          */
         virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) = 0;
+
+        /**
+         * This method is called whenever the server receives a message
+         * from another server in the cluster.
+         *
+         * @param[in] message
+         *     This is the message received from another server in the cluster.
+         *
+         * @param[in] senderInstanceNumber
+         *     This is the unique identifier of the server that sent the
+         *     message.
+         */
+        virtual void ReceiveMessage(
+            std::shared_ptr< Message > message,
+            unsigned int senderInstanceNumber
+        ) = 0;
+
+        /**
+         * This method returns an indication of whether or not the server is
+         * currently the leader of the cluster.
+         *
+         * @return
+         *     An indication of whether or not the server is
+         *     currently the leader of the cluster is returned.
+         */
+        virtual bool IsLeader() = 0;
     };
 
 }

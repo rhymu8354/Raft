@@ -31,13 +31,20 @@ namespace Raft {
              * This identifies the message as being a "RequestVote RPC" meaning
              * the server is starting an election and voting for itself.
              */
-            Election,
+            RequestVote,
+
+            /**
+             * This identifies the message as being a "RequestVote RPC results"
+             * meaning the server is responding to a "RequestVote RPC" message,
+             * where another server started an election.
+             */
+            RequestVoteResults,
         };
 
         /**
-         * This holds message properties for Election type messages.
+         * This holds message properties for RequestVote type messages.
          */
-        struct ElectionDetails {
+        struct RequestVoteDetails {
             /**
              * This is the term of the new election.
              */
@@ -47,6 +54,21 @@ namespace Raft {
              * This is the instance ID of the candidate requesting the vote.
              */
             unsigned int candidateId = 0;
+        };
+
+        /**
+         * This holds message properties for RequestVoteResults type messages.
+         */
+        struct RequestVoteResultsDetails {
+            /**
+             * This is the current term in effect at the sender.
+             */
+            unsigned int term = 0;
+
+            /**
+             * This is true if the sender granted their vote to the candidate.
+             */
+            bool voteGranted = false;
         };
 
         // Properties
@@ -60,7 +82,8 @@ namespace Raft {
          * This holds properties specific to each type of message.
          */
         union {
-            ElectionDetails election;
+            RequestVoteDetails requestVote;
+            RequestVoteResultsDetails requestVoteResults;
         };
 
         // Methods

@@ -96,6 +96,11 @@ namespace Raft {
     public:
         virtual bool Configure(const Configuration& configuration) override;
         virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) override;
+        virtual void ReceiveMessage(
+            std::shared_ptr< Message > message,
+            unsigned int senderInstanceNumber
+        ) override;
+        virtual bool IsLeader() override;
 
         // Private properties
     private:
