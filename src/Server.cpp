@@ -13,8 +13,10 @@
 #include <mutex>
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
+#include <random>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <thread>
+#include <time.h>
 
 namespace {
 
@@ -64,10 +66,22 @@ namespace {
         std::mutex mutex;
 
         /**
+         * This is a standard C++ Mersenne Twister pseudo-random number
+         * generator, used to pick election timeouts.
+         */
+        std::mt19937 rng;
+
+        /**
          * If this is not nullptr, then the worker thread should set the result
          * once it executes a full loop.
          */
         std::shared_ptr< std::promise< void > > workerLoopCompletion;
+
+        /**
+         * This is the maximum amount of time to wait, between messages from
+         * the cluster leader, before calling a new election.
+         */
+        double currentElectionTimeout = 0.0;
 
         /**
          * This is the time, according to the time keeper, when the server
@@ -144,12 +158,19 @@ namespace Raft {
         // Methods
 
         /**
-         * This method samples the current time from the time keeper and stores
-         * it in the timeOfLastLeaderMessage shared property.
+         * This method is called whenever a message is received from the
+         * cluster leader, or when the server starts an election, or starts up
+         * initially.  It samples the current time from the time keeper and
+         * stores it in the timeOfLastLeaderMessage shared property.  It also
+         * picks a new election timeout.
          */
         void UpdateTimeOfLastLeaderMessage() {
             std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
+            shared->currentElectionTimeout = std::uniform_real_distribution<>(
+                shared->configuration.minimumElectionTimeout,
+                shared->configuration.maximumElectionTimeout
+            )(shared->rng);
         }
 
         /**
@@ -282,7 +303,7 @@ namespace Raft {
                 const auto signalWorkerLoopCompleted = MakeWorkerThreadLoopPromiseIfNeeded();
                 const auto now = timeKeeper->GetCurrentTime();
                 const auto timeSinceLastLeaderMessage = GetTimeSinceLastLeaderMessage(now);
-                if (timeSinceLastLeaderMessage >= shared->configuration.minimumElectionTimeout) {
+                if (timeSinceLastLeaderMessage >= shared->currentElectionTimeout) {
                     StartElection(now);
                 }
                 DoRetransmissions(now);
@@ -309,6 +330,7 @@ namespace Raft {
     Server::Server()
         : impl_(new Impl())
     {
+        impl_->shared->rng.seed((int)time(NULL));
     }
 
     SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate Server::SubscribeToDiagnostics(
@@ -327,6 +349,14 @@ namespace Raft {
     }
 
     void Server::Mobilize() {
+        if (impl_->worker.joinable()) {
+            return;
+        }
+        impl_->shared->instances.clear();
+        impl_->shared->isLeader = false;
+        impl_->shared->timeOfLastLeaderMessage = 0.0;
+        impl_->shared->votesForUs = 0;
+        impl_->stopWorker = std::promise< void >();
         impl_->worker = std::thread(&Impl::Worker, impl_.get());
     }
 

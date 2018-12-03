@@ -92,6 +92,12 @@ namespace Raft {
          */
         void WaitForAtLeastOneWorkerLoop();
 
+        /**
+         * This method puts the server back into the state it was in when
+         * first mobilized.
+         */
+        void Reset();
+
         // IServer
     public:
         virtual bool Configure(const Configuration& configuration) override;

@@ -9,8 +9,10 @@
 
 #include <src/MessageImpl.hpp>
 
+#include <algorithm>
 #include <condition_variable>
 #include <gtest/gtest.h>
+#include <limits>
 #include <mutex>
 #include <Raft/Message.hpp>
 #include <Raft/Server.hpp>
@@ -148,7 +150,19 @@ TEST_F(ServerTests, InitialConfiguration) {
     );
 }
 
-TEST_F(ServerTests, ElectionStartedAfterProperTimeoutInterval) {
+TEST_F(ServerTests, MobilizeTwiceDoesNotCrash) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    server.Configure(configuration);
+    server.Mobilize();
+
+    // Act
+    server.Mobilize();
+}
+
+TEST_F(ServerTests, ElectionNeverStartsBeforeMinimumTimeoutInterval) {
     // Arrange
     Raft::Server::Configuration configuration;
     configuration.instanceNumbers = {2, 5, 6, 7, 11};
@@ -156,13 +170,30 @@ TEST_F(ServerTests, ElectionStartedAfterProperTimeoutInterval) {
     configuration.minimumElectionTimeout = 0.1;
     configuration.maximumElectionTimeout = 0.2;
     server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    server.Mobilize();
-    mockTimeKeeper->currentTime = 0.0999;
+    mockTimeKeeper->currentTime = configuration.minimumElectionTimeout - 0.001;
     server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
     EXPECT_EQ(0, messagesSent.size());
-    mockTimeKeeper->currentTime = 0.2;
+}
+
+TEST_F(ServerTests, ElectionAlwaysStartedWithinMaximumTimeoutInterval) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     EXPECT_TRUE(AwaitServerMessagesToBeSent(4));
 
     // Assert
@@ -172,6 +203,59 @@ TEST_F(ServerTests, ElectionStartedAfterProperTimeoutInterval) {
             messageInfo.message->impl_->type
         );
     }
+}
+
+TEST_F(ServerTests, ElectionStartsAfterRandomIntervalBetweenMinimumAndMaximum) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    const auto binInterval = 0.01;
+    std::vector< size_t > bins(
+        (size_t)(
+            (configuration.maximumElectionTimeout - configuration.minimumElectionTimeout)
+            / binInterval
+        )
+    );
+    for (size_t i = 0; i < 100; ++i) {
+        messagesSent.clear();
+        mockTimeKeeper->currentTime = 0.0;
+        server.Demobilize();
+        server.Mobilize();
+        server.WaitForAtLeastOneWorkerLoop();
+        mockTimeKeeper->currentTime = configuration.minimumElectionTimeout + binInterval;
+        for (
+            size_t j = 0;
+            mockTimeKeeper->currentTime <= configuration.maximumElectionTimeout;
+            ++j, mockTimeKeeper->currentTime += binInterval
+        ) {
+            server.WaitForAtLeastOneWorkerLoop();
+            if (!messagesSent.empty()) {
+                if (bins.size() <= j) {
+                    bins.resize(j + 1);
+                }
+                ++bins[j];
+                break;
+            }
+        }
+    }
+
+    // Assert
+    bins.resize(bins.size() - 1);
+    size_t smallestBin = std::numeric_limits< size_t >::max();
+    size_t largestBin = std::numeric_limits< size_t >::min();
+    for (auto bin: bins) {
+        smallestBin = std::min(smallestBin, bin);
+        largestBin = std::max(largestBin, bin);
+    }
+    EXPECT_LE(largestBin - smallestBin, 20);
 }
 
 TEST_F(ServerTests, RequestVoteNotSentToAllServersExceptSelf) {
