@@ -555,7 +555,69 @@ TEST_F(ServerTests, ServerRegularRetransmissions) {
     }
 }
 
-TEST_F(ServerTests, ServerDoesNotReceiveMajorityVoteInElection) {
+TEST_F(ServerTests, ServerDoesNotReceiveAnyVotesInElection) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime = 0.2;
+    (void)AwaitServerMessagesToBeSent(4);
+
+    // Act
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            const auto message = Raft::Message::CreateMessage();
+            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+            message->impl_->requestVoteResults.term = 1;
+            message->impl_->requestVoteResults.voteGranted = false;
+            server.ReceiveMessage(message, instance);
+        }
+    }
+
+    // Assert
+    EXPECT_FALSE(server.IsLeader());
+}
+
+TEST_F(ServerTests, ServerAlmostWinsElection) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime = 0.2;
+    (void)AwaitServerMessagesToBeSent(4);
+
+    // Act
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            const auto message = Raft::Message::CreateMessage();
+            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+            if (
+                (instance == 2)
+                || (instance == 6)
+                || (instance == 11)
+            ) {
+                message->impl_->requestVoteResults.term = 1;
+                message->impl_->requestVoteResults.voteGranted = false;
+            } else {
+                message->impl_->requestVoteResults.term = 0;
+                message->impl_->requestVoteResults.voteGranted = true;
+            }
+            server.ReceiveMessage(message, instance);
+        }
+    }
+
+    // Assert
+    EXPECT_FALSE(server.IsLeader());
 }
 
 TEST_F(ServerTests, TimeoutBeforeAllVotesReceivedInElection) {

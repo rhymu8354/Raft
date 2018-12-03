@@ -391,9 +391,11 @@ namespace Raft {
             case MessageImpl::Type::RequestVoteResults: {
                 auto& instance = impl_->shared->instances[senderInstanceNumber];
                 instance.awaitingVote = false;
-                ++impl_->shared->votesForUs;
-                if (impl_->shared->votesForUs >= impl_->shared->configuration.instanceNumbers.size() / 2 + 1) {
-                    impl_->shared->isLeader = true;
+                if (message->impl_->requestVoteResults.voteGranted) {
+                    ++impl_->shared->votesForUs;
+                    if (impl_->shared->votesForUs >= impl_->shared->configuration.instanceNumbers.size() / 2 + 1) {
+                        impl_->shared->isLeader = true;
+                    }
                 }
             } break;
 
