@@ -217,7 +217,7 @@ TEST_F(ServerTests, ElectionStartsAfterRandomIntervalBetweenMinimumAndMaximum) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    const auto binInterval = 0.01;
+    const auto binInterval = 0.001;
     std::vector< size_t > bins(
         (size_t)(
             (configuration.maximumElectionTimeout - configuration.minimumElectionTimeout)
