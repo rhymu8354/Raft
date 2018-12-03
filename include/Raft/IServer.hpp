@@ -49,14 +49,20 @@ namespace Raft {
              * last time the server either started or received a message from
              * the cluster leader, within which to trigger an election.
              */
-            double minimumTimeout = 0.15;
+            double minimumElectionTimeout = 0.15;
 
             /**
              * This is the upper bound of the range of time, starting from the
              * last time the server either started or received a message from
              * the cluster leader, within which to trigger an election.
              */
-            double maximumTimeout = 0.3;
+            double maximumElectionTimeout = 0.3;
+
+            /**
+             * This is the maximum amount of time to wait for a response to an
+             * RPC request, before retransmitting the request.
+             */
+            double rpcTimeout = 0.015;
         };
 
         /**

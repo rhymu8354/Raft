@@ -153,8 +153,8 @@ TEST_F(ServerTests, ElectionStartedAfterProperTimeoutInterval) {
     Raft::Server::Configuration configuration;
     configuration.instanceNumbers = {2, 5, 6, 7, 11};
     configuration.selfInstanceNumber = 5;
-    configuration.minimumTimeout = 0.1;
-    configuration.maximumTimeout = 0.2;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
     server.Configure(configuration);
 
     // Act
@@ -179,8 +179,8 @@ TEST_F(ServerTests, RequestVoteNotSentToAllServersExceptSelf) {
     Raft::Server::Configuration configuration;
     configuration.instanceNumbers = {2, 5, 6, 7, 11};
     configuration.selfInstanceNumber = 5;
-    configuration.minimumTimeout = 0.1;
-    configuration.maximumTimeout = 0.2;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
@@ -209,8 +209,8 @@ TEST_F(ServerTests, ServerVotesForItselfInElectionItStarts) {
     Raft::Server::Configuration configuration;
     configuration.instanceNumbers = {2, 5, 6, 7, 11};
     configuration.selfInstanceNumber = 5;
-    configuration.minimumTimeout = 0.1;
-    configuration.maximumTimeout = 0.2;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
@@ -230,8 +230,8 @@ TEST_F(ServerTests, ServerIncrementsTermInElectionItStarts) {
     Raft::Server::Configuration configuration;
     configuration.instanceNumbers = {2, 5, 6, 7, 11};
     configuration.selfInstanceNumber = 5;
-    configuration.minimumTimeout = 0.1;
-    configuration.maximumTimeout = 0.2;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
@@ -251,8 +251,8 @@ TEST_F(ServerTests, ServerDoesReceiveUnanimousVoteInElection) {
     Raft::Server::Configuration configuration;
     configuration.instanceNumbers = {2, 5, 6, 7, 11};
     configuration.selfInstanceNumber = 5;
-    configuration.minimumTimeout = 0.1;
-    configuration.maximumTimeout = 0.2;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
@@ -279,8 +279,8 @@ TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
     Raft::Server::Configuration configuration;
     configuration.instanceNumbers = {2, 5, 6, 7, 11};
     configuration.selfInstanceNumber = 5;
-    configuration.minimumTimeout = 0.1;
-    configuration.maximumTimeout = 0.2;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
@@ -305,6 +305,170 @@ TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
 
     // Assert
     EXPECT_TRUE(server.IsLeader());
+}
+
+TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    configuration.rpcTimeout = 0.01;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    (void)AwaitServerMessagesToBeSent(4);
+    for (auto instance: configuration.instanceNumbers) {
+        switch (instance) {
+            case 6:
+            case 7:
+            case 11: {
+                const auto message = Raft::Message::CreateMessage();
+                message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+                if (instance == 11) {
+                    message->impl_->requestVoteResults.term = 1;
+                    message->impl_->requestVoteResults.voteGranted = false;
+                } else {
+                    message->impl_->requestVoteResults.term = 0;
+                    message->impl_->requestVoteResults.voteGranted = true;
+                }
+                server.ReceiveMessage(message, instance);
+            }
+        }
+    }
+
+    // Act
+    messagesSent.clear();
+    mockTimeKeeper->currentTime += configuration.rpcTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_GE(messagesSent.size(), 1);
+    EXPECT_EQ(1, messagesSent.size());
+    EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
+    EXPECT_EQ(
+        Raft::MessageImpl::Type::RequestVote,
+        messagesSent[0].message->impl_->type
+    );
+    EXPECT_EQ(
+        configuration.selfInstanceNumber,
+        messagesSent[0].message->impl_->requestVote.candidateId
+    );
+    EXPECT_EQ(
+        1,
+        messagesSent[0].message->impl_->requestVote.term
+    );
+}
+
+TEST_F(ServerTests, ServerDoesNotRetransmitTooQuickly) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    configuration.rpcTimeout = 0.01;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    (void)AwaitServerMessagesToBeSent(4);
+    for (auto instance: configuration.instanceNumbers) {
+        switch (instance) {
+            case 6:
+            case 7:
+            case 11: {
+                const auto message = Raft::Message::CreateMessage();
+                message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+                if (instance == 11) {
+                    message->impl_->requestVoteResults.term = 1;
+                    message->impl_->requestVoteResults.voteGranted = false;
+                } else {
+                    message->impl_->requestVoteResults.term = 0;
+                    message->impl_->requestVoteResults.voteGranted = true;
+                }
+                server.ReceiveMessage(message, instance);
+            }
+        }
+    }
+
+    // Act
+    messagesSent.clear();
+    mockTimeKeeper->currentTime += configuration.rpcTimeout - 0.0001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_EQ(0, messagesSent.size());
+}
+
+TEST_F(ServerTests, ServerRegularRetransmissions) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    configuration.rpcTimeout = 0.01;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    (void)AwaitServerMessagesToBeSent(4);
+    for (auto instance: configuration.instanceNumbers) {
+        switch (instance) {
+            case 6:
+            case 7:
+            case 11: {
+                const auto message = Raft::Message::CreateMessage();
+                message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+                if (instance == 11) {
+                    message->impl_->requestVoteResults.term = 1;
+                    message->impl_->requestVoteResults.voteGranted = false;
+                } else {
+                    message->impl_->requestVoteResults.term = 0;
+                    message->impl_->requestVoteResults.voteGranted = true;
+                }
+                server.ReceiveMessage(message, instance);
+            }
+        }
+    }
+
+    // Act
+    messagesSent.clear();
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout + configuration.rpcTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+    EXPECT_EQ(1, messagesSent.size());
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout + configuration.rpcTimeout * 2 - 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+    EXPECT_EQ(1, messagesSent.size());
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout + configuration.rpcTimeout * 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+    EXPECT_EQ(2, messagesSent.size());
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout + configuration.rpcTimeout * 3 - 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+    EXPECT_EQ(2, messagesSent.size());
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout + configuration.rpcTimeout * 3 + 0.003;
+    server.WaitForAtLeastOneWorkerLoop();
+    EXPECT_EQ(3, messagesSent.size());
+
+    // Assert
+    for (const auto& messageSent: messagesSent) {
+        EXPECT_EQ(2, messageSent.receiverInstanceNumber);
+        EXPECT_EQ(
+            Raft::MessageImpl::Type::RequestVote,
+            messageSent.message->impl_->type
+        );
+        EXPECT_EQ(
+            configuration.selfInstanceNumber,
+            messageSent.message->impl_->requestVote.candidateId
+        );
+        EXPECT_EQ(
+            1,
+            messageSent.message->impl_->requestVote.term
+        );
+    }
 }
 
 TEST_F(ServerTests, ServerDoesNotReceiveMajorityVoteInElection) {

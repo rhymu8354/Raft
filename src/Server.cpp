@@ -9,20 +9,36 @@
 #include "MessageImpl.hpp"
 
 #include <future>
+#include <map>
 #include <mutex>
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
-#include <set>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <thread>
 
 namespace {
 
     /**
-     * This is the amount of time to wait between polling for various
-     * conditions in the worker thread of the server.
+     * This holds information that one server holds about another server.
      */
-    const std::chrono::milliseconds WORKER_POLLING_PERIOD = std::chrono::milliseconds(50);
+    struct InstanceInfo {
+        /**
+         * During an election, this indicates whether or not we're still
+         * awaiting a RequestVote response from this instance.
+         */
+        bool awaitingVote = false;
+
+        /**
+         * This is the time, according to the time keeper, that a request was
+         * last sent to the instance.
+         */
+        double timeLastRequestSent = 0.0;
+
+        /**
+         * This is the last request sent to the instance.
+         */
+        std::shared_ptr< Raft::Message > lastRequest;
+    };
 
     /**
      * This contains the private properties of a Server class instance
@@ -72,10 +88,9 @@ namespace {
         size_t votesForUs = 0;
 
         /**
-         * During an election, this holds the unique identifiers of all servers
-         * from whom we're still awaiting a RequestVote response.
+         * This holds information this server tracks about the other servers.
          */
-        std::set< unsigned int > awaitingVotesFrom;
+        std::map< unsigned int, InstanceInfo > instances;
 
         // Methods
 
@@ -141,13 +156,15 @@ namespace Raft {
          * This method returns the amount in time (in seconds) since the server
          * started or received the last message from a cluster leader.
          *
+         * @param[in] now
+         *     This is the current time according to the time keeper.
+         *
          * @return
          *     The amount in time (in seconds) since the server started or
          *     received the last message from a cluster leader is returned.
          */
-        double GetTimeSinceLastLeaderMessage() {
+        double GetTimeSinceLastLeaderMessage(double now) {
             std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
-            const auto now = timeKeeper->GetCurrentTime();
             return now - shared->timeOfLastLeaderMessage;
         }
 
@@ -167,9 +184,36 @@ namespace Raft {
         }
 
         /**
-         * This method starts a new election for leader of the server cluster.
+         * This method sends the given message to the instance with the given
+         * unique identifier.
+         *
+         * @param[in] message
+         *     This is the message to send.
+         *
+         * @param[in] instanceNumber
+         *     This is the unique identifier of the recipient of the message.
+         *
+         * @param[in] now
+         *     This is the current time, according to the time keeper.
          */
-        void StartElection() {
+        void SendMessage(
+            std::shared_ptr< Message > message,
+            unsigned int instanceNumber,
+            double now
+        ) {
+            auto& instance = shared->instances[instanceNumber];
+            instance.timeLastRequestSent = now;
+            instance.lastRequest = message;
+            sendMessageDelegate(message, instanceNumber);
+        }
+
+        /**
+         * This method starts a new election for leader of the server cluster.
+         *
+         * @param[in] now
+         *     This is the current time according to the time keeper.
+         */
+        void StartElection(double now) {
             std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
             shared->votesForUs = 1;
             const auto message = Message::CreateMessage();
@@ -180,15 +224,41 @@ namespace Raft {
                 1,
                 "Timeout -- starting new election"
             );
-            shared->awaitingVotesFrom.clear();
-            for (auto instance: shared->configuration.instanceNumbers) {
-                if (instance == shared->configuration.selfInstanceNumber) {
+            for (auto& instanceEntry: shared->instances) {
+                instanceEntry.second.awaitingVote = false;
+            }
+            for (auto instanceNumber: shared->configuration.instanceNumbers) {
+                if (instanceNumber == shared->configuration.selfInstanceNumber) {
                     continue;
                 }
-                (void)shared->awaitingVotesFrom.insert(instance);
-                sendMessageDelegate(message, instance);
+                auto& instance = shared->instances[instanceNumber];
+                instance.awaitingVote = true;
+                SendMessage(message, instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
+        }
+
+        /**
+         * This method retransmits any RPC messages for which no response has
+         * yet been received.
+         *
+         * @param[in] now
+         *     This is the current time according to the time keeper.
+         */
+        void DoRetransmissions(double now) {
+            std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
+            for (auto& instanceEntry: shared->instances) {
+                if (
+                    instanceEntry.second.awaitingVote
+                    && (now - instanceEntry.second.timeLastRequestSent >= shared->configuration.rpcTimeout)
+                ) {
+                    SendMessage(
+                        instanceEntry.second.lastRequest,
+                        instanceEntry.first,
+                        now
+                    );
+                }
+            }
         }
 
         /**
@@ -203,12 +273,19 @@ namespace Raft {
             );
             UpdateTimeOfLastLeaderMessage();
             auto workerAskedToStop = stopWorker.get_future();
-            while (workerAskedToStop.wait_for(WORKER_POLLING_PERIOD) != std::future_status::ready) {
+            const auto rpcTimeoutMilliseconds = (int)(shared->configuration.rpcTimeout * 1000.0);
+            while (
+                workerAskedToStop.wait_for(
+                    std::chrono::milliseconds(rpcTimeoutMilliseconds)
+                ) != std::future_status::ready
+            ) {
                 const auto signalWorkerLoopCompleted = MakeWorkerThreadLoopPromiseIfNeeded();
-                const auto timeSinceLastLeaderMessage = GetTimeSinceLastLeaderMessage();
-                if (timeSinceLastLeaderMessage >= shared->configuration.minimumTimeout) {
-                    StartElection();
+                const auto now = timeKeeper->GetCurrentTime();
+                const auto timeSinceLastLeaderMessage = GetTimeSinceLastLeaderMessage(now);
+                if (timeSinceLastLeaderMessage >= shared->configuration.minimumElectionTimeout) {
+                    StartElection(now);
                 }
+                DoRetransmissions(now);
                 if (signalWorkerLoopCompleted) {
                     shared->workerLoopCompletion->set_value();
                     shared->workerLoopCompletion = nullptr;
@@ -284,7 +361,8 @@ namespace Raft {
     ) {
         switch (message->impl_->type) {
             case MessageImpl::Type::RequestVoteResults: {
-                (void)impl_->shared->awaitingVotesFrom.erase(senderInstanceNumber);
+                auto& instance = impl_->shared->instances[senderInstanceNumber];
+                instance.awaitingVote = false;
                 ++impl_->shared->votesForUs;
                 if (impl_->shared->votesForUs >= impl_->shared->configuration.instanceNumbers.size() / 2 + 1) {
                     impl_->shared->isLeader = true;
