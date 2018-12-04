@@ -397,6 +397,24 @@ namespace Raft {
         return impl_->shared->configuration;
     }
 
+    void Server::WaitForAtLeastOneWorkerLoop() {
+        std::unique_lock< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->shared->workerLoopCompletion = std::make_shared< std::promise< void > >();
+        auto workerLoopWasCompleted = impl_->shared->workerLoopCompletion->get_future();
+        impl_->workerAskedToStopOrWakeUp.notify_one();
+        lock.unlock();
+        workerLoopWasCompleted.wait();
+    }
+
+    bool Server::Configure(const Configuration& configuration) {
+        impl_->shared->configuration = configuration;
+        return true;
+    }
+
+    void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
+        impl_->sendMessageDelegate = sendMessageDelegate;
+    }
+
     void Server::Mobilize() {
         if (impl_->worker.joinable()) {
             return;
@@ -418,24 +436,6 @@ namespace Raft {
         impl_->workerAskedToStopOrWakeUp.notify_one();
         lock.unlock();
         impl_->worker.join();
-    }
-
-    void Server::WaitForAtLeastOneWorkerLoop() {
-        std::unique_lock< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->shared->workerLoopCompletion = std::make_shared< std::promise< void > >();
-        auto workerLoopWasCompleted = impl_->shared->workerLoopCompletion->get_future();
-        impl_->workerAskedToStopOrWakeUp.notify_one();
-        lock.unlock();
-        workerLoopWasCompleted.wait();
-    }
-
-    bool Server::Configure(const Configuration& configuration) {
-        impl_->shared->configuration = configuration;
-        return true;
-    }
-
-    void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
-        impl_->sendMessageDelegate = sendMessageDelegate;
     }
 
     void Server::ReceiveMessage(

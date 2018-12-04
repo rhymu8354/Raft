@@ -109,6 +109,16 @@ namespace Raft {
         virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) = 0;
 
         /**
+         * This method starts the server's worker thread.
+         */
+        virtual void Mobilize() = 0;
+
+        /**
+         * This method stops the server's worker thread.
+         */
+        virtual void Demobilize() = 0;
+
+        /**
          * This method is called whenever the server receives a message
          * from another server in the cluster.
          *
