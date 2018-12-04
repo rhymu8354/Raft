@@ -31,4 +31,8 @@ namespace Raft {
     {
     }
 
+    std::string Message::Serialize() {
+        return "";
+    }
+
 }

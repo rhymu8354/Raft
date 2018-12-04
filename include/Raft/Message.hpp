@@ -52,6 +52,16 @@ namespace Raft {
          */
         Message();
 
+        /**
+         * This method returns a string which can be used to construct a new
+         * message with the exact same contents as this message.
+         *
+         * @return
+         *     A string which can be used to construct a new message with the
+         *     exact same contents as this message is returned.
+         */
+        virtual std::string Serialize();
+
         // Package-Private properties (public but opaque)
     public:
         /**
