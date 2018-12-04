@@ -39,6 +39,12 @@ namespace Raft {
              * where another server started an election.
              */
             RequestVoteResults,
+
+            /**
+             * This is sent by leader periodically to prevent followers from
+             * starting new elections.
+             */
+            HeartBeat,
         };
 
         /**
@@ -71,6 +77,16 @@ namespace Raft {
             bool voteGranted = false;
         };
 
+        /**
+         * This holds message properties for Heartbeat type messages.
+         */
+        struct HeartbeatDetails {
+            /**
+             * This is the current term in effect at the sender.
+             */
+            unsigned int term = 0;
+        };
+
         // Properties
 
         /**
@@ -84,6 +100,7 @@ namespace Raft {
         union {
             RequestVoteDetails requestVote;
             RequestVoteResultsDetails requestVoteResults;
+            HeartbeatDetails heartbeat;
         };
 
         // Methods

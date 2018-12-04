@@ -102,6 +102,18 @@ namespace {
         size_t votesForUs = 0;
 
         /**
+         * This indicates whether or not the server has voted for another
+         * server to be the leader this term.
+         */
+        bool votedThisTerm = false;
+
+        /**
+         * If the server has voted for another server to be the leader this
+         * term, this is the unique identifier of the server for whom we voted.
+         */
+        unsigned int votedFor = 0;
+
+        /**
          * This holds information this server tracks about the other servers.
          */
         std::map< unsigned int, InstanceInfo > instances;
@@ -170,7 +182,7 @@ namespace Raft {
          * stores it in the timeOfLastLeaderMessage shared property.  It also
          * picks a new election timeout.
          */
-        void UpdateTimeOfLastLeaderMessage() {
+        void ResetElectionTimer() {
             std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
             shared->currentElectionTimeout = std::uniform_real_distribution<>(
@@ -251,6 +263,31 @@ namespace Raft {
         }
 
         /**
+         * This method sends a heartbeat message to all other servers in the
+         * server cluster.
+         *
+         * @param[in] now
+         *     This is the current time according to the time keeper.
+         */
+        void SendHeartBeats(double now) {
+            std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
+            const auto message = Message::CreateMessage();
+            message->impl_->type = MessageImpl::Type::HeartBeat;
+            message->impl_->heartbeat.term = shared->configuration.currentTerm;
+            shared->diagnosticsSender.SendDiagnosticInformationString(
+                0,
+                "Sending heartbeat"
+            );
+            for (auto instanceNumber: shared->configuration.instanceNumbers) {
+                if (instanceNumber == shared->configuration.selfInstanceNumber) {
+                    continue;
+                }
+                SendMessage(message, instanceNumber, now);
+            }
+            shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
+        }
+
+        /**
          * This method retransmits any RPC messages for which no response has
          * yet been received.
          *
@@ -274,6 +311,18 @@ namespace Raft {
         }
 
         /**
+         * This method updates the server state to make the server a
+         * "follower", as in not seeking election, and not the leader.
+         */
+        void RevertToFollower() {
+            for (auto& instanceEntry: shared->instances) {
+                instanceEntry.second.awaitingVote = false;
+            }
+            shared->isLeader = false;
+            ResetElectionTimer();
+        }
+
+        /**
          * This runs in a thread and performs any background tasks required of
          * the Server, such as starting an election if no message is received
          * from the cluster leader before the next timeout.
@@ -283,7 +332,7 @@ namespace Raft {
                 0,
                 "Worker thread started"
             );
-            UpdateTimeOfLastLeaderMessage();
+            ResetElectionTimer();
             const auto rpcTimeoutMilliseconds = (int)(shared->configuration.rpcTimeout * 1000.0);
             auto workerAskedToStop = stopWorker.get_future();
             std::unique_lock< decltype(shared->mutex) > lock(shared->mutex);
@@ -296,8 +345,14 @@ namespace Raft {
                 lock.unlock();
                 const auto now = timeKeeper->GetCurrentTime();
                 const auto timeSinceLastLeaderMessage = GetTimeSinceLastLeaderMessage(now);
-                if (timeSinceLastLeaderMessage >= shared->currentElectionTimeout) {
-                    StartElection(now);
+                if (shared->isLeader) {
+                    if (timeSinceLastLeaderMessage >= shared->configuration.minimumElectionTimeout / 2) {
+                        SendHeartBeats(now);
+                    }
+                } else {
+                    if (timeSinceLastLeaderMessage >= shared->currentElectionTimeout) {
+                        StartElection(now);
+                    }
                 }
                 DoRetransmissions(now);
                 lock.lock();
@@ -387,7 +442,49 @@ namespace Raft {
         std::shared_ptr< Message > message,
         unsigned int senderInstanceNumber
     ) {
+        const auto now = impl_->timeKeeper->GetCurrentTime();
         switch (message->impl_->type) {
+            case MessageImpl::Type::RequestVote: {
+                if (impl_->shared->configuration.currentTerm < message->impl_->requestVote.term) {
+                    impl_->shared->configuration.currentTerm = message->impl_->requestVote.term;
+                }
+                const auto response = Message::CreateMessage();
+                response->impl_->type = MessageImpl::Type::RequestVoteResults;
+                response->impl_->requestVoteResults.term = impl_->shared->configuration.currentTerm;
+                if (impl_->shared->configuration.currentTerm > message->impl_->requestVote.term) {
+                    impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        1,
+                        "Rejecting vote for server %u (old term %u < %u)",
+                        senderInstanceNumber,
+                        message->impl_->requestVote.term,
+                        impl_->shared->configuration.currentTerm
+                    );
+                    response->impl_->requestVoteResults.voteGranted = false;
+                } else if (
+                    impl_->shared->votedThisTerm
+                    && (impl_->shared->votedFor != senderInstanceNumber)
+                ) {
+                    impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        1,
+                        "Rejecting vote for server %u (already voted for %u)",
+                        senderInstanceNumber,
+                        impl_->shared->votedFor
+                    );
+                    response->impl_->requestVoteResults.voteGranted = false;
+                } else {
+                    response->impl_->requestVoteResults.voteGranted = true;
+                    impl_->shared->votedThisTerm = true;
+                    impl_->shared->votedFor = senderInstanceNumber;
+                    impl_->RevertToFollower();
+                }
+                impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1,
+                    "Voting for server %u",
+                    senderInstanceNumber
+                );
+                impl_->SendMessage(response, senderInstanceNumber, now);
+            } break;
+
             case MessageImpl::Type::RequestVoteResults: {
                 auto& instance = impl_->shared->instances[senderInstanceNumber];
                 instance.awaitingVote = false;
@@ -396,6 +493,12 @@ namespace Raft {
                     if (impl_->shared->votesForUs >= impl_->shared->configuration.instanceNumbers.size() / 2 + 1) {
                         impl_->shared->isLeader = true;
                     }
+                }
+            } break;
+
+            case MessageImpl::Type::HeartBeat: {
+                if (impl_->shared->configuration.currentTerm < message->impl_->heartbeat.term) {
+                    impl_->RevertToFollower();
                 }
             } break;
 
