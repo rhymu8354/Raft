@@ -202,6 +202,7 @@ TEST_F(ServerTests, ElectionAlwaysStartedWithinMaximumTimeoutInterval) {
             Raft::MessageImpl::Type::RequestVote,
             messageInfo.message->impl_->type
         );
+        EXPECT_EQ(1, messageInfo.message->impl_->requestVote.term);
     }
 }
 
@@ -620,11 +621,69 @@ TEST_F(ServerTests, ServerAlmostWinsElection) {
     EXPECT_FALSE(server.IsLeader());
 }
 
-TEST_F(ServerTests, TimeoutBeforeAllVotesReceivedInElection) {
+TEST_F(ServerTests, TimeoutBeforeMajorityVoteOrNewLeaderHeartbeat) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            const auto message = Raft::Message::CreateMessage();
+            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+            message->impl_->requestVoteResults.term = 1;
+            message->impl_->requestVoteResults.voteGranted = false;
+            server.ReceiveMessage(message, instance);
+        }
+    }
+    messagesSent.clear();
+
+    // Act
+    mockTimeKeeper->currentTime += configuration.maximumElectionTimeout;
+    EXPECT_TRUE(AwaitServerMessagesToBeSent(4));
+
+    // Assert
+    for (const auto messageInfo: messagesSent) {
+        EXPECT_EQ(
+            Raft::MessageImpl::Type::RequestVote,
+            messageInfo.message->impl_->type
+        );
+        EXPECT_EQ(2, messageInfo.message->impl_->requestVote.term);
+    }
 }
 
-TEST_F(ServerTests, ReceiveElectionRequestWhenAlreadyVoted) {
+TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermNoVotePending) {
 }
 
-TEST_F(ServerTests, ReceiveElectionRequestWhenNoVotePending) {
+TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForAnother) {
+}
+
+TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForSame) {
+}
+
+TEST_F(ServerTests, ReceiveVoteRequestLesserTerm) {
+}
+
+TEST_F(ServerTests, ReceiveVoteRequestGreaterTerm) {
+}
+
+TEST_F(ServerTests, DoNotStartVoteWhenAlreadyLeader) {
+}
+
+TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived) {
+}
+
+TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameOrGreaterTermHeartbeatReceived) {
+}
+
+TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
+}
+
+TEST_F(ServerTests, ReplyWithFailureAnyHeartbeatFromPreviousTerm) {
 }
