@@ -9,8 +9,8 @@
  * © 2018 by Richard Walters
  */
 
-#include <functional>
 #include <memory>
+#include <string>
 
 namespace Raft {
 
@@ -26,24 +26,6 @@ namespace Raft {
         Message(Message&&) noexcept;
         Message& operator=(const Message&) = delete;
         Message& operator=(Message&&) noexcept;
-
-        // Public Class Properties
-    public:
-        /**
-         * This is the factory function called by the Message class internally
-         * to create a new message.
-         *
-         * @note
-         *     Subclasses are expected to replace this with a function which
-         *     will create a subclass of Message, not the base Message alone.
-         *     Otherwise the messages created by the Raft::Server
-         *     implementation may not have all the expected functionality
-         *     needed by the concrete server.
-         *
-         * @return
-         *     A new concrete message object is returned.
-         */
-        static std::function< std::shared_ptr< Message >() > CreateMessage;
 
         // Public Methods
     public:

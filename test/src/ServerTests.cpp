@@ -100,6 +100,7 @@ struct ServerTests
             0
         );
         server.SetTimeKeeper(mockTimeKeeper);
+        server.SetCreateMessageDelegate([]{ return std::make_shared< Raft::Message >(); });
         server.SetSendMessageDelegate(
             [this](
                 std::shared_ptr< Raft::Message > message,
@@ -337,7 +338,7 @@ TEST_F(ServerTests, ServerDoesReceiveUnanimousVoteInElection) {
     // Act
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = Raft::Message::CreateMessage();
+            const auto message = std::make_shared< Raft::Message >();
             message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
             message->impl_->requestVoteResults.term = 1;
             message->impl_->requestVoteResults.voteGranted = true;
@@ -365,7 +366,7 @@ TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
     // Act
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = Raft::Message::CreateMessage();
+            const auto message = std::make_shared< Raft::Message >();
             message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
             if (instance == 11) {
                 message->impl_->requestVoteResults.term = 1;
@@ -400,7 +401,7 @@ TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
             case 6:
             case 7:
             case 11: {
-                const auto message = Raft::Message::CreateMessage();
+                const auto message = std::make_shared< Raft::Message >();
                 message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
                 if (instance == 11) {
                     message->impl_->requestVoteResults.term = 1;
@@ -455,7 +456,7 @@ TEST_F(ServerTests, ServerDoesNotRetransmitTooQuickly) {
             case 6:
             case 7:
             case 11: {
-                const auto message = Raft::Message::CreateMessage();
+                const auto message = std::make_shared< Raft::Message >();
                 message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
                 if (instance == 11) {
                     message->impl_->requestVoteResults.term = 1;
@@ -496,7 +497,7 @@ TEST_F(ServerTests, ServerRegularRetransmissions) {
             case 6:
             case 7:
             case 11: {
-                const auto message = Raft::Message::CreateMessage();
+                const auto message = std::make_shared< Raft::Message >();
                 message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
                 if (instance == 11) {
                     message->impl_->requestVoteResults.term = 1;
@@ -562,7 +563,7 @@ TEST_F(ServerTests, ServerDoesNotReceiveAnyVotesInElection) {
     // Act
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = Raft::Message::CreateMessage();
+            const auto message = std::make_shared< Raft::Message >();
             message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
             message->impl_->requestVoteResults.term = 1;
             message->impl_->requestVoteResults.voteGranted = false;
@@ -590,7 +591,7 @@ TEST_F(ServerTests, ServerAlmostWinsElection) {
     // Act
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = Raft::Message::CreateMessage();
+            const auto message = std::make_shared< Raft::Message >();
             message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
             if (
                 (instance == 2)
@@ -625,7 +626,7 @@ TEST_F(ServerTests, TimeoutBeforeMajorityVoteOrNewLeaderHeartbeat) {
     server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = Raft::Message::CreateMessage();
+            const auto message = std::make_shared< Raft::Message >();
             message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
             message->impl_->requestVoteResults.term = 1;
             message->impl_->requestVoteResults.voteGranted = false;
@@ -660,7 +661,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermNoVotePending) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    const auto message = Raft::Message::CreateMessage();
+    const auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
     message->impl_->requestVote.term = 0;
     message->impl_->requestVote.candidateId = 2;
@@ -687,7 +688,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForAnother) {
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
-    auto message = Raft::Message::CreateMessage();
+    auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
     message->impl_->requestVote.term = 1;
     message->impl_->requestVote.candidateId = 2;
@@ -696,7 +697,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForAnother) {
     messagesSent.clear();
 
     // Act
-    message = Raft::Message::CreateMessage();
+    message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
     message->impl_->requestVote.term = 1;
     message->impl_->requestVote.candidateId = 6;
@@ -723,7 +724,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForSame) {
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
-    auto message = Raft::Message::CreateMessage();
+    auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
     message->impl_->requestVote.term = 1;
     message->impl_->requestVote.candidateId = 2;
@@ -731,7 +732,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForSame) {
     messagesSent.clear();
 
     // Act
-    message = Raft::Message::CreateMessage();
+    message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
     message->impl_->requestVote.term = 1;
     message->impl_->requestVote.candidateId = 2;
@@ -761,7 +762,7 @@ TEST_F(ServerTests, ReceiveVoteRequestLesserTerm) {
     server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = Raft::Message::CreateMessage();
+            const auto message = std::make_shared< Raft::Message >();
             message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
             message->impl_->requestVoteResults.term = 1;
             message->impl_->requestVoteResults.voteGranted = true;
@@ -772,7 +773,7 @@ TEST_F(ServerTests, ReceiveVoteRequestLesserTerm) {
     messagesSent.clear();
 
     // Act
-    const auto message = Raft::Message::CreateMessage();
+    const auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
     message->impl_->requestVote.term = 0;
     message->impl_->requestVote.candidateId = 2;
@@ -799,7 +800,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenFollower) {
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
-    const auto message = Raft::Message::CreateMessage();
+    const auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
     message->impl_->requestVote.term = 1;
     message->impl_->requestVote.candidateId = 2;
@@ -831,7 +832,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenCandidate) {
     messagesSent.clear();
 
     // Act
-    const auto message = Raft::Message::CreateMessage();
+    const auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
     message->impl_->requestVote.term = 2;
     message->impl_->requestVote.candidateId = 2;
@@ -864,7 +865,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenLeader) {
     server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = Raft::Message::CreateMessage();
+            const auto message = std::make_shared< Raft::Message >();
             message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
             message->impl_->requestVoteResults.term = 1;
             message->impl_->requestVoteResults.voteGranted = true;
@@ -874,7 +875,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenLeader) {
     messagesSent.clear();
 
     // Act
-    const auto message = Raft::Message::CreateMessage();
+    const auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
     message->impl_->requestVote.term = 2;
     message->impl_->requestVote.candidateId = 2;
@@ -906,7 +907,7 @@ TEST_F(ServerTests, DoNotStartVoteWhenAlreadyLeader) {
     server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = Raft::Message::CreateMessage();
+            const auto message = std::make_shared< Raft::Message >();
             message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
             message->impl_->requestVoteResults.term = 1;
             message->impl_->requestVoteResults.voteGranted = true;
@@ -942,7 +943,7 @@ TEST_F(ServerTests, AfterRevertToFollowerDoNotStartNewElectionBeforeMinimumTimeo
     server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = Raft::Message::CreateMessage();
+            const auto message = std::make_shared< Raft::Message >();
             message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
             message->impl_->requestVoteResults.term = 1;
             message->impl_->requestVoteResults.voteGranted = true;
@@ -951,7 +952,7 @@ TEST_F(ServerTests, AfterRevertToFollowerDoNotStartNewElectionBeforeMinimumTimeo
     }
     mockTimeKeeper->currentTime += configuration.maximumElectionTimeout * 5;
     messagesSent.clear();
-    const auto message = Raft::Message::CreateMessage();
+    const auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
     message->impl_->requestVote.term = 2;
     message->impl_->requestVote.candidateId = 2;
@@ -981,7 +982,7 @@ TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived
     server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = Raft::Message::CreateMessage();
+            const auto message = std::make_shared< Raft::Message >();
             message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
             message->impl_->requestVoteResults.term = 1;
             message->impl_->requestVoteResults.voteGranted = true;
@@ -991,7 +992,7 @@ TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived
     messagesSent.clear();
 
     // Act
-    const auto message = Raft::Message::CreateMessage();
+    const auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
     message->impl_->heartbeat.term = 2;
     server.ReceiveMessage(message, 2);
@@ -1016,7 +1017,7 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameOrGreaterTermHeartbea
     messagesSent.clear();
 
     // Act
-    const auto message = Raft::Message::CreateMessage();
+    const auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
     message->impl_->heartbeat.term = 2;
     server.ReceiveMessage(message, 2);
@@ -1042,7 +1043,7 @@ TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
     server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = Raft::Message::CreateMessage();
+            const auto message = std::make_shared< Raft::Message >();
             message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
             message->impl_->requestVoteResults.term = 1;
             message->impl_->requestVoteResults.voteGranted = true;

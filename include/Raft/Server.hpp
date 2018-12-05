@@ -91,6 +91,7 @@ namespace Raft {
         // IServer
     public:
         virtual bool Configure(const Configuration& configuration) override;
+        virtual void SetCreateMessageDelegate(CreateMessageDelegate createMessageDelegate) override;
         virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) override;
         virtual void Mobilize() override;
         virtual void Demobilize() override;

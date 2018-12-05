@@ -204,6 +204,12 @@ namespace Raft {
         SendMessageDelegate sendMessageDelegate;
 
         /**
+         * This is the delegate to be called later whenever the server
+         * wants to create a message object.
+         */
+        CreateMessageDelegate createMessageDelegate;
+
+        /**
          * This thread performs any background tasks required of the
          * server, such as starting an election if no message is received
          * from the cluster leader before the next timeout.
@@ -274,7 +280,7 @@ namespace Raft {
          */
         void StartElection(double now) {
             shared->votesForUs = 1;
-            const auto message = Message::CreateMessage();
+            const auto message = createMessageDelegate();
             message->impl_->type = MessageImpl::Type::RequestVote;
             message->impl_->requestVote.candidateId = shared->configuration.selfInstanceNumber;
             message->impl_->requestVote.term = ++shared->configuration.currentTerm;
@@ -304,7 +310,7 @@ namespace Raft {
          *     This is the current time according to the time keeper.
          */
         void QueueHeartBeatsToBeSent(double now) {
-            const auto message = Message::CreateMessage();
+            const auto message = createMessageDelegate();
             message->impl_->type = MessageImpl::Type::HeartBeat;
             message->impl_->heartbeat.term = shared->configuration.currentTerm;
             shared->diagnosticsSender.SendDiagnosticInformationString(
@@ -474,6 +480,11 @@ namespace Raft {
         return true;
     }
 
+    void Server::SetCreateMessageDelegate(CreateMessageDelegate createMessageDelegate) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->createMessageDelegate = createMessageDelegate;
+    }
+
     void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->sendMessageDelegate = sendMessageDelegate;
@@ -514,7 +525,7 @@ namespace Raft {
                 if (impl_->shared->configuration.currentTerm < message->impl_->requestVote.term) {
                     impl_->shared->configuration.currentTerm = message->impl_->requestVote.term;
                 }
-                const auto response = Message::CreateMessage();
+                const auto response = impl_->createMessageDelegate();
                 response->impl_->type = MessageImpl::Type::RequestVoteResults;
                 response->impl_->requestVoteResults.term = impl_->shared->configuration.currentTerm;
                 if (impl_->shared->configuration.currentTerm > message->impl_->requestVote.term) {

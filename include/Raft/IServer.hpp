@@ -83,6 +83,17 @@ namespace Raft {
             )
         >;
 
+        /**
+         * This declares the type of delegate used to create a new message
+         * object.
+         *
+         * @return
+         *     A new concrete message object is returned.
+         */
+        using CreateMessageDelegate = std::function<
+            std::shared_ptr< Message >()
+        >;
+
         // Methods
     public:
         /**
@@ -96,6 +107,16 @@ namespace Raft {
          *     was successfully set is returned.
          */
         virtual bool Configure(const Configuration& configuration) = 0;
+
+        /**
+         * This method is called to set up the delegate to be called whenever
+         * the server wants to create a message object.
+         *
+         * @param[in] createMessageDelegate
+         *     This is the delegate to be called later whenever the server
+         *     wants to create a message object.
+         */
+        virtual void SetCreateMessageDelegate(CreateMessageDelegate createMessageDelegate) = 0;
 
         /**
          * This method is called to set up the delegate to be called later
