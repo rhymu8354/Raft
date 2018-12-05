@@ -345,6 +345,7 @@ TEST_F(ServerTests, ServerDoesReceiveUnanimousVoteInElection) {
             server.ReceiveMessage(message, instance);
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     EXPECT_TRUE(server.IsLeader());
@@ -378,6 +379,7 @@ TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
             server.ReceiveMessage(message, instance);
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     EXPECT_TRUE(server.IsLeader());
@@ -414,6 +416,7 @@ TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
             }
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Act
     messagesSent.clear();
@@ -469,6 +472,7 @@ TEST_F(ServerTests, ServerDoesNotRetransmitTooQuickly) {
             }
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Act
     messagesSent.clear();
@@ -510,6 +514,7 @@ TEST_F(ServerTests, ServerRegularRetransmissions) {
             }
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Act
     messagesSent.clear();
@@ -570,6 +575,7 @@ TEST_F(ServerTests, ServerDoesNotReceiveAnyVotesInElection) {
             server.ReceiveMessage(message, instance);
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     EXPECT_FALSE(server.IsLeader());
@@ -607,6 +613,7 @@ TEST_F(ServerTests, ServerAlmostWinsElection) {
             server.ReceiveMessage(message, instance);
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     EXPECT_FALSE(server.IsLeader());
@@ -633,6 +640,7 @@ TEST_F(ServerTests, TimeoutBeforeMajorityVoteOrNewLeaderHeartbeat) {
             server.ReceiveMessage(message, instance);
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
 
     // Act
@@ -729,6 +737,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForSame) {
     message->impl_->requestVote.term = 1;
     message->impl_->requestVote.candidateId = 2;
     server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
 
     // Act
@@ -737,6 +746,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForSame) {
     message->impl_->requestVote.term = 1;
     message->impl_->requestVote.candidateId = 2;
     server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
@@ -837,6 +847,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenCandidate) {
     message->impl_->requestVote.term = 2;
     message->impl_->requestVote.candidateId = 2;
     server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime += configuration.minimumElectionTimeout - 0.001;
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -872,6 +883,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenLeader) {
             server.ReceiveMessage(message, instance);
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
 
     // Act
@@ -914,6 +926,7 @@ TEST_F(ServerTests, DoNotStartVoteWhenAlreadyLeader) {
             server.ReceiveMessage(message, instance);
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
 
     // Arrange
@@ -950,6 +963,7 @@ TEST_F(ServerTests, AfterRevertToFollowerDoNotStartNewElectionBeforeMinimumTimeo
             server.ReceiveMessage(message, instance);
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime += configuration.maximumElectionTimeout * 5;
     messagesSent.clear();
     const auto message = std::make_shared< Raft::Message >();
@@ -989,6 +1003,7 @@ TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived
             server.ReceiveMessage(message, instance);
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
 
     // Act
@@ -996,6 +1011,7 @@ TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived
     message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
     message->impl_->heartbeat.term = 2;
     server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     EXPECT_EQ(0, messagesSent.size());
@@ -1021,6 +1037,7 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameOrGreaterTermHeartbea
     message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
     message->impl_->heartbeat.term = 2;
     server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime += configuration.minimumElectionTimeout - 0.001;
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1050,6 +1067,7 @@ TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
             server.ReceiveMessage(message, instance);
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
 
     // Act
