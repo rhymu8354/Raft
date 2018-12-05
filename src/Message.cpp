@@ -8,6 +8,7 @@
 
 #include "MessageImpl.hpp"
 
+#include <Json/Value.hpp>
 #include <Raft/Message.hpp>
 
 namespace Raft {
@@ -22,7 +23,29 @@ namespace Raft {
     }
 
     std::string Message::Serialize() {
-        return "";
+        auto json = Json::Object({});
+        switch (impl_->type) {
+            case MessageImpl::Type::RequestVote: {
+                json["type"] = "RequestVote";
+                json["term"] = (int)impl_->requestVote.term;
+                json["candidateId"] = (int)impl_->requestVote.candidateId;
+            } break;
+
+            case MessageImpl::Type::RequestVoteResults: {
+                json["type"] = "RequestVoteResults";
+                json["term"] = (int)impl_->requestVoteResults.term;
+                json["voteGranted"] = impl_->requestVoteResults.voteGranted;
+            } break;
+
+            case MessageImpl::Type::HeartBeat: {
+                json["type"] = "HeartBeat";
+                json["term"] = (int)impl_->heartbeat.term;
+            } break;
+
+            default: {
+            } break;
+        }
+        return json.ToEncoding();
     }
 
 }

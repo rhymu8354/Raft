@@ -6,6 +6,7 @@ cmake_minimum_required(VERSION 3.8)
 set(This RaftTests)
 
 set(Sources
+    src/MessageTests.cpp
     src/ServerTests.cpp
 )
 
@@ -18,6 +19,7 @@ target_include_directories(${This} PRIVATE ..)
 
 target_link_libraries(${This} PUBLIC
     gtest_main
+    Json
     Raft
     SystemAbstractions
 )
