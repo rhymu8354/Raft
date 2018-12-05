@@ -11,6 +11,7 @@
 #include <future>
 #include <map>
 #include <mutex>
+#include <queue>
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
 #include <random>
@@ -43,6 +44,23 @@ namespace {
     };
 
     /**
+     * This holds information used to store a message to be sent, and later to
+     * send the message.
+     */
+    struct MessageToBeSent {
+        /**
+         * This is the message to be sent.
+         */
+        std::shared_ptr< Raft::Message > message;
+
+        /**
+         * This is the unique identifier of the server to which to send the
+         * message.
+         */
+        unsigned int receiverInstanceNumber;
+    };
+
+    /**
      * This contains the private properties of a Server class instance
      * that may live longer than the Server class instance itself.
      */
@@ -56,20 +74,26 @@ namespace {
         SystemAbstractions::DiagnosticsSender diagnosticsSender;
 
         /**
-         * This holds all configuration items for the server.
-         */
-        Raft::IServer::Configuration configuration;
-
-        /**
          * This is used to synchronize access to the properties below.
          */
         std::mutex mutex;
+
+        /**
+         * This holds all configuration items for the server.
+         */
+        Raft::IServer::Configuration configuration;
 
         /**
          * This is a standard C++ Mersenne Twister pseudo-random number
          * generator, used to pick election timeouts.
          */
         std::mt19937 rng;
+
+        /**
+         * This holds messages to be sent to other servers by the worker
+         * thread.
+         */
+        std::queue< MessageToBeSent > messagesToBeSent;
 
         /**
          * If this is not nullptr, then the worker thread should set the result
@@ -125,6 +149,30 @@ namespace {
         {
         }
     };
+
+    /**
+     * This function sends the given messages to other servers, using the given
+     * delegate.
+     *
+     * @param[in] sendMessageDelegate
+     *     This is the delegate to use to send messages to other servers.
+     *
+     * @param[in,out] messagesToBeSent
+     *     This holds the messages to be sent, and is consumed by the function.
+     */
+    void SendMessages(
+        Raft::IServer::SendMessageDelegate sendMessageDelegate,
+        std::queue< MessageToBeSent >&& messagesToBeSent
+    ) {
+        while (!messagesToBeSent.empty()) {
+            const auto& messageToBeSent = messagesToBeSent.front();
+            sendMessageDelegate(
+                messageToBeSent.message,
+                messageToBeSent.receiverInstanceNumber
+            );
+            messagesToBeSent.pop();
+        }
+    }
 
 }
 
@@ -183,28 +231,11 @@ namespace Raft {
          * picks a new election timeout.
          */
         void ResetElectionTimer() {
-            std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
             shared->currentElectionTimeout = std::uniform_real_distribution<>(
                 shared->configuration.minimumElectionTimeout,
                 shared->configuration.maximumElectionTimeout
             )(shared->rng);
-        }
-
-        /**
-         * This method returns the amount in time (in seconds) since the server
-         * started or received the last message from a cluster leader.
-         *
-         * @param[in] now
-         *     This is the current time according to the time keeper.
-         *
-         * @return
-         *     The amount in time (in seconds) since the server started or
-         *     received the last message from a cluster leader is returned.
-         */
-        double GetTimeSinceLastLeaderMessage(double now) {
-            std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
-            return now - shared->timeOfLastLeaderMessage;
         }
 
         /**
@@ -220,7 +251,7 @@ namespace Raft {
          * @param[in] now
          *     This is the current time, according to the time keeper.
          */
-        void SendMessage(
+        void QueueMessageToBeSent(
             std::shared_ptr< Message > message,
             unsigned int instanceNumber,
             double now
@@ -228,7 +259,11 @@ namespace Raft {
             auto& instance = shared->instances[instanceNumber];
             instance.timeLastRequestSent = now;
             instance.lastRequest = message;
-            sendMessageDelegate(message, instanceNumber);
+            MessageToBeSent messageToBeSent;
+            messageToBeSent.message = message;
+            messageToBeSent.receiverInstanceNumber = instanceNumber;
+            shared->messagesToBeSent.push(std::move(messageToBeSent));
+            workerAskedToStopOrWakeUp.notify_one();
         }
 
         /**
@@ -238,7 +273,6 @@ namespace Raft {
          *     This is the current time according to the time keeper.
          */
         void StartElection(double now) {
-            std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
             shared->votesForUs = 1;
             const auto message = Message::CreateMessage();
             message->impl_->type = MessageImpl::Type::RequestVote;
@@ -257,7 +291,7 @@ namespace Raft {
                 }
                 auto& instance = shared->instances[instanceNumber];
                 instance.awaitingVote = true;
-                SendMessage(message, instanceNumber, now);
+                QueueMessageToBeSent(message, instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
         }
@@ -269,8 +303,7 @@ namespace Raft {
          * @param[in] now
          *     This is the current time according to the time keeper.
          */
-        void SendHeartBeats(double now) {
-            std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
+        void QueueHeartBeatsToBeSent(double now) {
             const auto message = Message::CreateMessage();
             message->impl_->type = MessageImpl::Type::HeartBeat;
             message->impl_->heartbeat.term = shared->configuration.currentTerm;
@@ -282,7 +315,7 @@ namespace Raft {
                 if (instanceNumber == shared->configuration.selfInstanceNumber) {
                     continue;
                 }
-                SendMessage(message, instanceNumber, now);
+                QueueMessageToBeSent(message, instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
         }
@@ -294,20 +327,41 @@ namespace Raft {
          * @param[in] now
          *     This is the current time according to the time keeper.
          */
-        void DoRetransmissions(double now) {
-            std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
+        void QueueRetransmissionsToBeSent(double now) {
             for (auto& instanceEntry: shared->instances) {
                 if (
                     instanceEntry.second.awaitingVote
                     && (now - instanceEntry.second.timeLastRequestSent >= shared->configuration.rpcTimeout)
                 ) {
-                    SendMessage(
+                    QueueMessageToBeSent(
                         instanceEntry.second.lastRequest,
                         instanceEntry.first,
                         now
                     );
                 }
             }
+        }
+
+        /**
+         * This method is called in order to send any messages queued up to be
+         * sent to other servers.
+         *
+         * @param[in] lock
+         *     This is the object holding the mutex protecting the shared
+         *     properties of the server.
+         */
+        void SendQueuedMessages(
+            std::unique_lock< decltype(shared->mutex) >& lock
+        ) {
+            decltype(shared->messagesToBeSent) messagesToBeSent;
+            messagesToBeSent.swap(shared->messagesToBeSent);
+            auto sendMessageDelegateCopy = sendMessageDelegate;
+            lock.unlock();
+            SendMessages(
+                sendMessageDelegateCopy,
+                std::move(messagesToBeSent)
+            );
+            lock.lock();
         }
 
         /**
@@ -328,6 +382,7 @@ namespace Raft {
          * from the cluster leader before the next timeout.
          */
         void Worker() {
+            std::unique_lock< decltype(shared->mutex) > lock(shared->mutex);
             shared->diagnosticsSender.SendDiagnosticInformationString(
                 0,
                 "Worker thread started"
@@ -335,27 +390,32 @@ namespace Raft {
             ResetElectionTimer();
             const auto rpcTimeoutMilliseconds = (int)(shared->configuration.rpcTimeout * 1000.0);
             auto workerAskedToStop = stopWorker.get_future();
-            std::unique_lock< decltype(shared->mutex) > lock(shared->mutex);
             while (workerAskedToStop.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
                 (void)workerAskedToStopOrWakeUp.wait_for(
                     lock,
-                    std::chrono::milliseconds(rpcTimeoutMilliseconds)
+                    std::chrono::milliseconds(rpcTimeoutMilliseconds),
+                    [this, &workerAskedToStop]{
+                        return (
+                            (workerAskedToStop.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+                            || (shared->workerLoopCompletion != nullptr)
+                            || !shared->messagesToBeSent.empty()
+                        );
+                    }
                 );
                 const auto signalWorkerLoopCompleted = (shared->workerLoopCompletion != nullptr);
-                lock.unlock();
                 const auto now = timeKeeper->GetCurrentTime();
-                const auto timeSinceLastLeaderMessage = GetTimeSinceLastLeaderMessage(now);
+                const auto timeSinceLastLeaderMessage = now - shared->timeOfLastLeaderMessage;
                 if (shared->isLeader) {
                     if (timeSinceLastLeaderMessage >= shared->configuration.minimumElectionTimeout / 2) {
-                        SendHeartBeats(now);
+                        QueueHeartBeatsToBeSent(now);
                     }
                 } else {
                     if (timeSinceLastLeaderMessage >= shared->currentElectionTimeout) {
                         StartElection(now);
                     }
                 }
-                DoRetransmissions(now);
-                lock.lock();
+                QueueRetransmissionsToBeSent(now);
+                SendQueuedMessages(lock);
                 if (signalWorkerLoopCompleted) {
                     shared->workerLoopCompletion->set_value();
                     shared->workerLoopCompletion = nullptr;
@@ -390,10 +450,12 @@ namespace Raft {
     }
 
     void Server::SetTimeKeeper(std::shared_ptr< TimeKeeper > timeKeeper) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->timeKeeper = timeKeeper;
     }
 
     auto Server::GetConfiguration() const -> const Configuration& {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         return impl_->shared->configuration;
     }
 
@@ -407,15 +469,18 @@ namespace Raft {
     }
 
     bool Server::Configure(const Configuration& configuration) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->shared->configuration = configuration;
         return true;
     }
 
     void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->sendMessageDelegate = sendMessageDelegate;
     }
 
     void Server::Mobilize() {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         if (impl_->worker.joinable()) {
             return;
         }
@@ -428,10 +493,10 @@ namespace Raft {
     }
 
     void Server::Demobilize() {
+        std::unique_lock< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         if (!impl_->worker.joinable()) {
             return;
         }
-        std::unique_lock< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->stopWorker.set_value();
         impl_->workerAskedToStopOrWakeUp.notify_one();
         lock.unlock();
@@ -442,6 +507,7 @@ namespace Raft {
         std::shared_ptr< Message > message,
         unsigned int senderInstanceNumber
     ) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         const auto now = impl_->timeKeeper->GetCurrentTime();
         switch (message->impl_->type) {
             case MessageImpl::Type::RequestVote: {
@@ -482,7 +548,7 @@ namespace Raft {
                     "Voting for server %u",
                     senderInstanceNumber
                 );
-                impl_->SendMessage(response, senderInstanceNumber, now);
+                impl_->QueueMessageToBeSent(response, senderInstanceNumber, now);
             } break;
 
             case MessageImpl::Type::RequestVoteResults: {
@@ -508,6 +574,7 @@ namespace Raft {
     }
 
     bool Server::IsLeader() {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         return impl_->shared->isLeader;
     }
 

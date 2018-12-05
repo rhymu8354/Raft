@@ -66,30 +66,17 @@ struct ServerTests
     SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate diagnosticsUnsubscribeDelegate;
     const std::shared_ptr< MockTimeKeeper > mockTimeKeeper = std::make_shared< MockTimeKeeper >();
     std::vector< MessageInfo > messagesSent;
-    std::mutex messagesSentMutex;
-    std::condition_variable messagesSentCondition;
 
     // Methods
-
-    bool AwaitServerMessagesToBeSent(size_t numMessages) {
-        std::unique_lock< decltype(messagesSentMutex) > lock(messagesSentMutex);
-        return messagesSentCondition.wait_for(
-            lock,
-            std::chrono::milliseconds(1000),
-            [this, numMessages]{ return messagesSent.size() >= numMessages; }
-        );
-    }
 
     void ServerSentMessage(
         std::shared_ptr< Raft::Message > message,
         unsigned int receiverInstanceNumber
     ) {
-        std::lock_guard< decltype(messagesSentMutex) > lock(messagesSentMutex);
         MessageInfo messageInfo;
         messageInfo.message = message;
         messageInfo.receiverInstanceNumber = receiverInstanceNumber;
         messagesSent.push_back(std::move(messageInfo));
-        messagesSentCondition.notify_one();
     }
 
     // ::testing::Test
@@ -194,9 +181,10 @@ TEST_F(ServerTests, ElectionAlwaysStartedWithinMaximumTimeoutInterval) {
 
     // Act
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
-    EXPECT_TRUE(AwaitServerMessagesToBeSent(4));
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
+    EXPECT_EQ(4, messagesSent.size());
     for (const auto messageInfo: messagesSent) {
         EXPECT_EQ(
             Raft::MessageImpl::Type::RequestVote,
@@ -271,7 +259,7 @@ TEST_F(ServerTests, RequestVoteNotSentToAllServersExceptSelf) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    mockTimeKeeper->currentTime = 0.2;
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
@@ -301,10 +289,11 @@ TEST_F(ServerTests, ServerVotesForItselfInElectionItStarts) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    mockTimeKeeper->currentTime = 0.2;
-    (void)AwaitServerMessagesToBeSent(4);
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
+    EXPECT_EQ(4, messagesSent.size());
     for (auto messageInfo: messagesSent) {
         EXPECT_EQ(5, messageInfo.message->impl_->requestVote.candidateId);
     }
@@ -322,10 +311,11 @@ TEST_F(ServerTests, ServerIncrementsTermInElectionItStarts) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    mockTimeKeeper->currentTime = 0.2;
-    (void)AwaitServerMessagesToBeSent(4);
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
+    EXPECT_EQ(4, messagesSent.size());
     for (const auto messageInfo: messagesSent) {
         EXPECT_EQ(1, messageInfo.message->impl_->requestVote.term);
     }
@@ -341,7 +331,7 @@ TEST_F(ServerTests, ServerDoesReceiveUnanimousVoteInElection) {
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
-    mockTimeKeeper->currentTime = 0.2;
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -369,8 +359,8 @@ TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
-    mockTimeKeeper->currentTime = 0.2;
-    (void)AwaitServerMessagesToBeSent(4);
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Act
     for (auto instance: configuration.instanceNumbers) {
@@ -404,7 +394,7 @@ TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
-    (void)AwaitServerMessagesToBeSent(4);
+    server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         switch (instance) {
             case 6:
@@ -459,7 +449,7 @@ TEST_F(ServerTests, ServerDoesNotRetransmitTooQuickly) {
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
-    (void)AwaitServerMessagesToBeSent(4);
+    server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         switch (instance) {
             case 6:
@@ -500,7 +490,7 @@ TEST_F(ServerTests, ServerRegularRetransmissions) {
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
-    (void)AwaitServerMessagesToBeSent(4);
+    server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         switch (instance) {
             case 6:
@@ -566,8 +556,8 @@ TEST_F(ServerTests, ServerDoesNotReceiveAnyVotesInElection) {
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
-    mockTimeKeeper->currentTime = 0.2;
-    (void)AwaitServerMessagesToBeSent(4);
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Act
     for (auto instance: configuration.instanceNumbers) {
@@ -594,8 +584,8 @@ TEST_F(ServerTests, ServerAlmostWinsElection) {
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
-    mockTimeKeeper->currentTime = 0.2;
-    (void)AwaitServerMessagesToBeSent(4);
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Act
     for (auto instance: configuration.instanceNumbers) {
@@ -646,7 +636,7 @@ TEST_F(ServerTests, TimeoutBeforeMajorityVoteOrNewLeaderHeartbeat) {
 
     // Act
     mockTimeKeeper->currentTime += configuration.maximumElectionTimeout;
-    EXPECT_TRUE(AwaitServerMessagesToBeSent(4));
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     for (const auto messageInfo: messagesSent) {
@@ -675,6 +665,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermNoVotePending) {
     message->impl_->requestVote.term = 0;
     message->impl_->requestVote.candidateId = 2;
     server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
@@ -701,6 +692,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForAnother) {
     message->impl_->requestVote.term = 1;
     message->impl_->requestVote.candidateId = 2;
     server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
 
     // Act
@@ -709,6 +701,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForAnother) {
     message->impl_->requestVote.term = 1;
     message->impl_->requestVote.candidateId = 6;
     server.ReceiveMessage(message, 6);
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
@@ -764,7 +757,7 @@ TEST_F(ServerTests, ReceiveVoteRequestLesserTerm) {
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
-    mockTimeKeeper->currentTime = 0.2;
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
@@ -775,6 +768,7 @@ TEST_F(ServerTests, ReceiveVoteRequestLesserTerm) {
             server.ReceiveMessage(message, instance);
         }
     }
+    server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
 
     // Act
@@ -783,6 +777,7 @@ TEST_F(ServerTests, ReceiveVoteRequestLesserTerm) {
     message->impl_->requestVote.term = 0;
     message->impl_->requestVote.candidateId = 2;
     server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
@@ -809,6 +804,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenFollower) {
     message->impl_->requestVote.term = 1;
     message->impl_->requestVote.candidateId = 2;
     server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
@@ -864,7 +860,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenLeader) {
     server.Configure(configuration);
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
-    mockTimeKeeper->currentTime = 0.2;
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
@@ -883,6 +879,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenLeader) {
     message->impl_->requestVote.term = 2;
     message->impl_->requestVote.candidateId = 2;
     server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
@@ -959,6 +956,7 @@ TEST_F(ServerTests, AfterRevertToFollowerDoNotStartNewElectionBeforeMinimumTimeo
     message->impl_->requestVote.term = 2;
     message->impl_->requestVote.candidateId = 2;
     server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
 
     // Act
