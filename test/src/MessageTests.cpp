@@ -31,6 +31,23 @@ TEST(MessageTests, SerializeRequestVote) {
     );
 }
 
+TEST(MessageTests, DeserializeRequestVote) {
+    // Arrange
+    const auto serializedMessage = Json::Object({
+        {"type", "RequestVote"},
+        {"term", 42},
+        {"candidateId", 5}
+    }).ToEncoding();
+
+    // Act
+    const auto message = std::make_shared < Raft::Message >(serializedMessage);
+
+    // Act
+    EXPECT_EQ(Raft::MessageImpl::Type::RequestVote, message->impl_->type);
+    EXPECT_EQ(42, message->impl_->requestVote.term);
+    EXPECT_EQ(5, message->impl_->requestVote.candidateId);
+}
+
 TEST(MessageTests, SerializeRequestVoteResponse) {
     // Arrange
     const auto message = std::make_shared < Raft::Message >();
@@ -49,6 +66,23 @@ TEST(MessageTests, SerializeRequestVoteResponse) {
     );
 }
 
+TEST(MessageTests, DeserializeRequestVoteResults) {
+    // Arrange
+    const auto serializedMessage = Json::Object({
+        {"type", "RequestVoteResults"},
+        {"term", 16},
+        {"voteGranted", true}
+    }).ToEncoding();
+
+    // Act
+    const auto message = std::make_shared < Raft::Message >(serializedMessage);
+
+    // Act
+    EXPECT_EQ(Raft::MessageImpl::Type::RequestVoteResults, message->impl_->type);
+    EXPECT_EQ(16, message->impl_->requestVoteResults.term);
+    EXPECT_TRUE(message->impl_->requestVoteResults.voteGranted);
+}
+
 TEST(MessageTests, SerializeHeartBeat) {
     // Arrange
     const auto message = std::make_shared < Raft::Message >();
@@ -63,4 +97,41 @@ TEST(MessageTests, SerializeHeartBeat) {
         }),
         Json::Value::FromEncoding(message->Serialize())
     );
+}
+
+TEST(MessageTests, DeserializeHeartBeat) {
+    // Arrange
+    const auto serializedMessage = Json::Object({
+        {"type", "HeartBeat"},
+        {"term", 8},
+    }).ToEncoding();
+
+    // Act
+    const auto message = std::make_shared < Raft::Message >(serializedMessage);
+
+    // Act
+    EXPECT_EQ(Raft::MessageImpl::Type::HeartBeat, message->impl_->type);
+    EXPECT_EQ(8, message->impl_->heartbeat.term);
+}
+
+TEST(MessageTests, SerializeUnknown) {
+    // Arrange
+    const auto message = std::make_shared < Raft::Message >();
+
+    // Act
+    EXPECT_EQ(
+        Json::Object({}),
+        Json::Value::FromEncoding(message->Serialize())
+    );
+}
+
+TEST(MessageTests, DeserializeGarbage) {
+    // Arrange
+    const auto serializedMessage = "admLUL PogChamp";
+
+    // Act
+    const auto message = std::make_shared < Raft::Message >(serializedMessage);
+
+    // Act
+    EXPECT_EQ(Raft::MessageImpl::Type::Unknown, message->impl_->type);
 }

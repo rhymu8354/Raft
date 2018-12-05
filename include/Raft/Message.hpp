@@ -31,8 +31,12 @@ namespace Raft {
     public:
         /**
          * This is the constructor of the class.
+         *
+         * @param[in] serialization
+         *     If not empty, this is the serialized form of the message, used
+         *     to initialize the type and properties of the message.
          */
-        Message();
+        Message(const std::string& serialization = "");
 
         /**
          * This method returns a string which can be used to construct a new

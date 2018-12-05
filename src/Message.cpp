@@ -17,9 +17,23 @@ namespace Raft {
     Message::Message(Message&&) noexcept = default;
     Message& Message::operator=(Message&&) noexcept = default;
 
-    Message::Message()
+    Message::Message(const std::string& serialization)
         : impl_(new MessageImpl())
     {
+        const auto json = Json::Value::FromEncoding(serialization);
+        const auto type = (std::string)json["type"];
+        if (type == "RequestVote") {
+            impl_->type = MessageImpl::Type::RequestVote;
+            impl_->requestVote.term = (unsigned int)(int)json["term"];
+            impl_->requestVote.candidateId = (unsigned int)(int)json["candidateId"];
+        } else if (type == "RequestVoteResults") {
+            impl_->type = MessageImpl::Type::RequestVoteResults;
+            impl_->requestVoteResults.term = (unsigned int)(int)json["term"];
+            impl_->requestVoteResults.voteGranted = json["voteGranted"];
+        } else if (type == "HeartBeat") {
+            impl_->type = MessageImpl::Type::HeartBeat;
+            impl_->heartbeat.term = (unsigned int)(int)json["term"];
+        }
     }
 
     std::string Message::Serialize() {
