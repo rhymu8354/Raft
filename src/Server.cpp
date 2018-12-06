@@ -8,6 +8,7 @@
 
 #include "MessageImpl.hpp"
 
+#include <algorithm>
 #include <future>
 #include <map>
 #include <mutex>
@@ -279,15 +280,25 @@ namespace Raft {
          *     This is the current time according to the time keeper.
          */
         void StartElection(double now) {
+            // Start a new term.
+            ++shared->configuration.currentTerm;
+
+            // Set ourselves up as a candidate in this term (vote for
+            // ourselves).
+            shared->votedThisTerm = true;
+            shared->votedFor = shared->configuration.selfInstanceNumber;
             shared->votesForUs = 1;
+            shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                1,
+                "Timeout -- starting new election (term %u)",
+                shared->configuration.currentTerm
+            );
+
+            // Send out initial vote requests.
             const auto message = createMessageDelegate();
             message->impl_->type = MessageImpl::Type::RequestVote;
             message->impl_->requestVote.candidateId = shared->configuration.selfInstanceNumber;
-            message->impl_->requestVote.term = ++shared->configuration.currentTerm;
-            shared->diagnosticsSender.SendDiagnosticInformationString(
-                1,
-                "Timeout -- starting new election"
-            );
+            message->impl_->requestVote.term = shared->configuration.currentTerm;
             for (auto& instanceEntry: shared->instances) {
                 instanceEntry.second.awaitingVote = false;
             }
@@ -313,9 +324,10 @@ namespace Raft {
             const auto message = createMessageDelegate();
             message->impl_->type = MessageImpl::Type::HeartBeat;
             message->impl_->heartbeat.term = shared->configuration.currentTerm;
-            shared->diagnosticsSender.SendDiagnosticInformationString(
+            shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
-                "Sending heartbeat"
+                "Sending heartbeat (term %u)",
+                shared->configuration.currentTerm
             );
             for (auto instanceNumber: shared->configuration.instanceNumbers) {
                 if (instanceNumber == shared->configuration.selfInstanceNumber) {
@@ -522,12 +534,12 @@ namespace Raft {
         const auto now = impl_->timeKeeper->GetCurrentTime();
         switch (message->impl_->type) {
             case MessageImpl::Type::RequestVote: {
-                if (impl_->shared->configuration.currentTerm < message->impl_->requestVote.term) {
-                    impl_->shared->configuration.currentTerm = message->impl_->requestVote.term;
-                }
                 const auto response = impl_->createMessageDelegate();
                 response->impl_->type = MessageImpl::Type::RequestVoteResults;
-                response->impl_->requestVoteResults.term = impl_->shared->configuration.currentTerm;
+                response->impl_->requestVoteResults.term = std::max(
+                    impl_->shared->configuration.currentTerm,
+                    message->impl_->requestVote.term
+                );
                 if (impl_->shared->configuration.currentTerm > message->impl_->requestVote.term) {
                     impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                         1,
@@ -538,44 +550,88 @@ namespace Raft {
                     );
                     response->impl_->requestVoteResults.voteGranted = false;
                 } else if (
-                    impl_->shared->votedThisTerm
+                    (impl_->shared->configuration.currentTerm == message->impl_->requestVote.term)
+                    && impl_->shared->votedThisTerm
                     && (impl_->shared->votedFor != senderInstanceNumber)
                 ) {
                     impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                         1,
-                        "Rejecting vote for server %u (already voted for %u)",
+                        "Rejecting vote for server %u (already voted for %u for term %u -- we are in term %u)",
                         senderInstanceNumber,
-                        impl_->shared->votedFor
+                        impl_->shared->votedFor,
+                        message->impl_->requestVote.term,
+                        impl_->shared->configuration.currentTerm
                     );
                     response->impl_->requestVoteResults.voteGranted = false;
                 } else {
+                    impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        1,
+                        "Voting for server %u for term %u (we were in term %u)",
+                        senderInstanceNumber,
+                        message->impl_->requestVote.term,
+                        impl_->shared->configuration.currentTerm
+                    );
                     response->impl_->requestVoteResults.voteGranted = true;
                     impl_->shared->votedThisTerm = true;
                     impl_->shared->votedFor = senderInstanceNumber;
+                    impl_->shared->configuration.currentTerm = message->impl_->requestVote.term;
                     impl_->RevertToFollower();
                 }
-                impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                    1,
-                    "Voting for server %u",
-                    senderInstanceNumber
-                );
                 impl_->QueueMessageToBeSent(response, senderInstanceNumber, now);
             } break;
 
             case MessageImpl::Type::RequestVoteResults: {
                 auto& instance = impl_->shared->instances[senderInstanceNumber];
-                instance.awaitingVote = false;
                 if (message->impl_->requestVoteResults.voteGranted) {
-                    ++impl_->shared->votesForUs;
-                    if (impl_->shared->votesForUs >= impl_->shared->configuration.instanceNumbers.size() / 2 + 1) {
-                        impl_->shared->isLeader = true;
+                    if (instance.awaitingVote) {
+                        ++impl_->shared->votesForUs;
+                        impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            1,
+                            "Server %u voted for us in term %u (%zu/%zu)",
+                            senderInstanceNumber,
+                            impl_->shared->configuration.currentTerm,
+                            impl_->shared->votesForUs,
+                            impl_->shared->configuration.instanceNumbers.size()
+                        );
+                        if (impl_->shared->votesForUs >= impl_->shared->configuration.instanceNumbers.size() / 2 + 1) {
+                            impl_->shared->isLeader = true;
+                            impl_->shared->diagnosticsSender.SendDiagnosticInformationString(
+                                2,
+                                "Received majority vote -- assuming leadership"
+                            );
+                        }
+                    } else {
+                        impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            1,
+                            "Repeat vote from server %u in term %u ignored",
+                            senderInstanceNumber,
+                            message->impl_->requestVoteResults.term
+                        );
                     }
+                } else {
+                    impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        1,
+                        "Server %u refused to voted for us in term %u",
+                        senderInstanceNumber,
+                        impl_->shared->configuration.currentTerm
+                    );
                 }
+                instance.awaitingVote = false;
             } break;
 
             case MessageImpl::Type::HeartBeat: {
+                impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1,
+                    "Received heartbeat from server %u in term %u (we are in term %u)",
+                    senderInstanceNumber,
+                    message->impl_->heartbeat.term,
+                    impl_->shared->configuration.currentTerm
+                );
                 if (impl_->shared->configuration.currentTerm < message->impl_->heartbeat.term) {
+                    impl_->shared->configuration.currentTerm = message->impl_->heartbeat.term;
                     impl_->RevertToFollower();
+                } else if (impl_->shared->configuration.currentTerm == message->impl_->heartbeat.term) {
+                    impl_->ResetElectionTimer();
                 }
             } break;
 

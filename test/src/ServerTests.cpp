@@ -803,6 +803,7 @@ TEST_F(ServerTests, ReceiveVoteRequestLesserTerm) {
 TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenFollower) {
     // Arrange
     Raft::Server::Configuration configuration;
+    configuration.currentTerm = 0;
     configuration.instanceNumbers = {2, 5, 6, 7, 11};
     configuration.selfInstanceNumber = 5;
     configuration.minimumElectionTimeout = 0.1;
@@ -1091,4 +1092,178 @@ TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
             EXPECT_NE(0, heartbeatsReceivedPerInstance[instanceNumber]);
         }
     }
+}
+
+TEST_F(ServerTests, RepeatVotesShouldNotCount) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            const auto message = std::make_shared< Raft::Message >();
+            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+            message->impl_->requestVoteResults.term = 1;
+            if (instance == 2) {
+                message->impl_->requestVoteResults.voteGranted = true;
+            } else {
+                message->impl_->requestVoteResults.voteGranted = false;
+            }
+            server.ReceiveMessage(message, instance);
+        }
+    }
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    const auto message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+    message->impl_->requestVoteResults.term = 1;
+    message->impl_->requestVoteResults.voteGranted = true;
+    server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_FALSE(server.IsLeader());
+}
+
+TEST_F(ServerTests, UpdateTermWhenReceivingHeartBeat) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    const auto message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+    message->impl_->heartbeat.term = 2;
+    server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_EQ(2, server.GetConfiguration().currentTerm);
+}
+
+TEST_F(ServerTests, ReceivingHeartBeatFromSameTermShouldResetElectionTimeout) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    while (mockTimeKeeper->currentTime <= configuration.maximumElectionTimeout * 2) {
+        const auto message = std::make_shared< Raft::Message >();
+        message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+        message->impl_->heartbeat.term = 2;
+        server.ReceiveMessage(message, 2);
+        mockTimeKeeper->currentTime += 0.001;
+        server.WaitForAtLeastOneWorkerLoop();
+        ASSERT_TRUE(messagesSent.empty());
+    }
+
+    // Assert
+}
+
+TEST_F(ServerTests, IgnoreHeartBeatFromOldTerm) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    auto message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+    message->impl_->heartbeat.term = 2;
+    server.ReceiveMessage(message, 2);
+
+    // Act
+    message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+    message->impl_->heartbeat.term = 1;
+    server.ReceiveMessage(message, 2);
+
+    // Assert
+    EXPECT_EQ(2, server.GetConfiguration().currentTerm);
+}
+
+TEST_F(ServerTests, ReceivingHeartBeatFromOldTermShouldNotResetElectionTimeout) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.currentTerm = 42;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    bool electionStarted = false;
+    while (mockTimeKeeper->currentTime <= configuration.maximumElectionTimeout * 2) {
+        const auto message = std::make_shared< Raft::Message >();
+        message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+        message->impl_->heartbeat.term = 13;
+        server.ReceiveMessage(message, 2);
+        mockTimeKeeper->currentTime += 0.001;
+        server.WaitForAtLeastOneWorkerLoop();
+        if (!messagesSent.empty()) {
+            electionStarted = true;
+            break;
+        }
+    }
+
+    // Assert
+    ASSERT_TRUE(electionStarted);
+}
+
+TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermRequestVoteReceived) {
+    // Arrange
+    Raft::Server::Configuration configuration;
+    configuration.currentTerm = 0;
+    configuration.instanceNumbers = {2, 5, 6, 7, 11};
+    configuration.selfInstanceNumber = 5;
+    configuration.minimumElectionTimeout = 0.1;
+    configuration.maximumElectionTimeout = 0.2;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+    messagesSent.clear();
+
+    // Act
+    const auto message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
+    message->impl_->requestVote.term = 3;
+    message->impl_->requestVote.candidateId = 2;
+    server.ReceiveMessage(message, 2);
+    server.WaitForAtLeastOneWorkerLoop();
+    messagesSent.clear();
+    mockTimeKeeper->currentTime += configuration.minimumElectionTimeout - 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_EQ(0, messagesSent.size());
+    EXPECT_FALSE(server.IsLeader());
+    EXPECT_EQ(3, server.GetConfiguration().currentTerm);
 }
