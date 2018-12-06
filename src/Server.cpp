@@ -274,34 +274,36 @@ namespace Raft {
         }
 
         /**
-         * This method starts a new election for leader of the server cluster.
-         *
-         * @param[in] now
-         *     This is the current time according to the time keeper.
+         * This method sets the server up as a candidate in the current term
+         * and records that it voted for itself and is awaiting votes from all
+         * the other servers.
          */
-        void StartElection(double now) {
-            // Start a new term.
-            ++shared->configuration.currentTerm;
-
-            // Set ourselves up as a candidate in this term (vote for
-            // ourselves).
+        void StepUpAsCandidate() {
             shared->votedThisTerm = true;
             shared->votedFor = shared->configuration.selfInstanceNumber;
             shared->votesForUs = 1;
+            for (auto& instanceEntry: shared->instances) {
+                instanceEntry.second.awaitingVote = false;
+            }
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
                 "Timeout -- starting new election (term %u)",
                 shared->configuration.currentTerm
             );
+        }
 
-            // Send out initial vote requests.
+        /**
+         * This method sends out the first requests for the other servers in
+         * the cluster to vote for this server.
+         *
+         * @param[in] now
+         *     This is the current time according to the time keeper.
+         */
+        void SendInitialVoteRequests(double now) {
             const auto message = createMessageDelegate();
             message->impl_->type = MessageImpl::Type::RequestVote;
             message->impl_->requestVote.candidateId = shared->configuration.selfInstanceNumber;
             message->impl_->requestVote.term = shared->configuration.currentTerm;
-            for (auto& instanceEntry: shared->instances) {
-                instanceEntry.second.awaitingVote = false;
-            }
             for (auto instanceNumber: shared->configuration.instanceNumbers) {
                 if (instanceNumber == shared->configuration.selfInstanceNumber) {
                     continue;
@@ -311,6 +313,18 @@ namespace Raft {
                 QueueMessageToBeSent(message, instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
+        }
+
+        /**
+         * This method starts a new election for leader of the server cluster.
+         *
+         * @param[in] now
+         *     This is the current time according to the time keeper.
+         */
+        void StartElection(double now) {
+            ++shared->configuration.currentTerm;
+            StepUpAsCandidate();
+            SendInitialVoteRequests(now);
         }
 
         /**
@@ -399,7 +413,7 @@ namespace Raft {
          * for another server in the cluster.
          *
          * @param[in] message
-         *     This is the message received from another server in the cluster.
+         *     This contains the details of the message received.
          *
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
@@ -457,6 +471,157 @@ namespace Raft {
         }
 
         /**
+         * This method is called whenever the server receives a response to
+         * a vote request.
+         *
+         * @param[in] message
+         *     This contains the details of the message received.
+         *
+         * @param[in] senderInstanceNumber
+         *     This is the unique identifier of the server that sent the
+         *     message.
+         */
+        void OnReceiveRequestVoteResults(
+            const MessageImpl::RequestVoteResultsDetails& messageDetails,
+            unsigned int senderInstanceNumber
+        ) {
+            auto& instance = shared->instances[senderInstanceNumber];
+            if (messageDetails.voteGranted) {
+                if (instance.awaitingVote) {
+                    ++shared->votesForUs;
+                    shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        1,
+                        "Server %u voted for us in term %u (%zu/%zu)",
+                        senderInstanceNumber,
+                        shared->configuration.currentTerm,
+                        shared->votesForUs,
+                        shared->configuration.instanceNumbers.size()
+                    );
+                    if (shared->votesForUs >= shared->configuration.instanceNumbers.size() / 2 + 1) {
+                        shared->isLeader = true;
+                        shared->diagnosticsSender.SendDiagnosticInformationString(
+                            2,
+                            "Received majority vote -- assuming leadership"
+                        );
+                    }
+                } else {
+                    shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        1,
+                        "Repeat vote from server %u in term %u ignored",
+                        senderInstanceNumber,
+                        messageDetails.term
+                    );
+                }
+            } else {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1,
+                    "Server %u refused to voted for us in term %u",
+                    senderInstanceNumber,
+                    shared->configuration.currentTerm
+                );
+            }
+            instance.awaitingVote = false;
+        }
+
+        /**
+         * This method is called whenever the server receives a heartbeat
+         * message from the cluster leader.
+         *
+         * @param[in] message
+         *     This contains the details of the message received.
+         *
+         * @param[in] senderInstanceNumber
+         *     This is the unique identifier of the server that sent the
+         *     message.
+         */
+        void OnReceiveHeartBeat(
+            const MessageImpl::HeartbeatDetails& messageDetails,
+            unsigned int senderInstanceNumber
+        ) {
+            shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                1,
+                "Received heartbeat from server %u in term %u (we are in term %u)",
+                senderInstanceNumber,
+                messageDetails.term,
+                shared->configuration.currentTerm
+            );
+            if (shared->configuration.currentTerm < messageDetails.term) {
+                shared->configuration.currentTerm = messageDetails.term;
+                RevertToFollower();
+            } else if (shared->configuration.currentTerm == messageDetails.term) {
+                ResetElectionTimer();
+            }
+        }
+
+        /**
+         * This method is used by the worker thread to suspend itself until
+         * more work needs to be done.
+         *
+         * @param[in,out] lock
+         *     This is the object used to manage the shared properties mutex in
+         *     the worker thread.
+         *
+         * @param[in,out] workerAskedToStop
+         *     This is the receiving end of the promise made by the overall
+         *     class to tell the worker thread to stop.
+         */
+        void WaitForWork(
+            std::unique_lock< decltype(shared->mutex) >& lock,
+            std::future< void >& workerAskedToStop
+        ) {
+            const auto rpcTimeoutMilliseconds = (int)(
+                shared->configuration.rpcTimeout * 1000.0
+            );
+            (void)workerAskedToStopOrWakeUp.wait_for(
+                lock,
+                std::chrono::milliseconds(rpcTimeoutMilliseconds),
+                [this, &workerAskedToStop]{
+                    return (
+                        (
+                            workerAskedToStop.wait_for(std::chrono::seconds(0))
+                            == std::future_status::ready
+                        )
+                        || (shared->workerLoopCompletion != nullptr)
+                        || !shared->messagesToBeSent.empty()
+                    );
+                }
+            );
+        }
+
+        /**
+         * This is the logic to perform once per worker thread loop.
+         *
+         * @param[in,out] lock
+         *     This is the object used to manage the shared properties mutex in
+         *     the worker thread.
+         */
+        void WorkerLoopBody(
+            std::unique_lock< decltype(shared->mutex) >& lock
+        ) {
+            const auto now = timeKeeper->GetCurrentTime();
+            const auto timeSinceLastLeaderMessage = (
+                now - shared->timeOfLastLeaderMessage
+            );
+            if (shared->isLeader) {
+                if (
+                    timeSinceLastLeaderMessage
+                    >= shared->configuration.minimumElectionTimeout / 2
+                ) {
+                    QueueHeartBeatsToBeSent(now);
+                }
+            } else {
+                if (
+                    timeSinceLastLeaderMessage
+                    >= shared->currentElectionTimeout
+                ) {
+                    StartElection(now);
+                }
+            }
+            QueueRetransmissionsToBeSent(now);
+            SendQueuedMessages(lock);
+        }
+
+        /**
          * This runs in a thread and performs any background tasks required of
          * the Server, such as starting an election if no message is received
          * from the cluster leader before the next timeout.
@@ -468,34 +633,16 @@ namespace Raft {
                 "Worker thread started"
             );
             ResetElectionTimer();
-            const auto rpcTimeoutMilliseconds = (int)(shared->configuration.rpcTimeout * 1000.0);
             auto workerAskedToStop = stopWorker.get_future();
-            while (workerAskedToStop.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-                (void)workerAskedToStopOrWakeUp.wait_for(
-                    lock,
-                    std::chrono::milliseconds(rpcTimeoutMilliseconds),
-                    [this, &workerAskedToStop]{
-                        return (
-                            (workerAskedToStop.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-                            || (shared->workerLoopCompletion != nullptr)
-                            || !shared->messagesToBeSent.empty()
-                        );
-                    }
+            while (
+                workerAskedToStop.wait_for(std::chrono::seconds(0))
+                != std::future_status::ready
+            ) {
+                WaitForWork(lock, workerAskedToStop);
+                const auto signalWorkerLoopCompleted = (
+                    shared->workerLoopCompletion != nullptr
                 );
-                const auto signalWorkerLoopCompleted = (shared->workerLoopCompletion != nullptr);
-                const auto now = timeKeeper->GetCurrentTime();
-                const auto timeSinceLastLeaderMessage = now - shared->timeOfLastLeaderMessage;
-                if (shared->isLeader) {
-                    if (timeSinceLastLeaderMessage >= shared->configuration.minimumElectionTimeout / 2) {
-                        QueueHeartBeatsToBeSent(now);
-                    }
-                } else {
-                    if (timeSinceLastLeaderMessage >= shared->currentElectionTimeout) {
-                        StartElection(now);
-                    }
-                }
-                QueueRetransmissionsToBeSent(now);
-                SendQueuedMessages(lock);
+                WorkerLoopBody(lock);
                 if (signalWorkerLoopCompleted) {
                     shared->workerLoopCompletion->set_value();
                     shared->workerLoopCompletion = nullptr;
@@ -593,65 +740,17 @@ namespace Raft {
         unsigned int senderInstanceNumber
     ) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        const auto now = impl_->timeKeeper->GetCurrentTime();
         switch (message->impl_->type) {
             case MessageImpl::Type::RequestVote: {
                 impl_->OnReceiveRequestVote(message->impl_->requestVote, senderInstanceNumber);
             } break;
 
             case MessageImpl::Type::RequestVoteResults: {
-                auto& instance = impl_->shared->instances[senderInstanceNumber];
-                if (message->impl_->requestVoteResults.voteGranted) {
-                    if (instance.awaitingVote) {
-                        ++impl_->shared->votesForUs;
-                        impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                            1,
-                            "Server %u voted for us in term %u (%zu/%zu)",
-                            senderInstanceNumber,
-                            impl_->shared->configuration.currentTerm,
-                            impl_->shared->votesForUs,
-                            impl_->shared->configuration.instanceNumbers.size()
-                        );
-                        if (impl_->shared->votesForUs >= impl_->shared->configuration.instanceNumbers.size() / 2 + 1) {
-                            impl_->shared->isLeader = true;
-                            impl_->shared->diagnosticsSender.SendDiagnosticInformationString(
-                                2,
-                                "Received majority vote -- assuming leadership"
-                            );
-                        }
-                    } else {
-                        impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                            1,
-                            "Repeat vote from server %u in term %u ignored",
-                            senderInstanceNumber,
-                            message->impl_->requestVoteResults.term
-                        );
-                    }
-                } else {
-                    impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        1,
-                        "Server %u refused to voted for us in term %u",
-                        senderInstanceNumber,
-                        impl_->shared->configuration.currentTerm
-                    );
-                }
-                instance.awaitingVote = false;
+                impl_->OnReceiveRequestVoteResults(message->impl_->requestVoteResults, senderInstanceNumber);
             } break;
 
             case MessageImpl::Type::HeartBeat: {
-                impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                    1,
-                    "Received heartbeat from server %u in term %u (we are in term %u)",
-                    senderInstanceNumber,
-                    message->impl_->heartbeat.term,
-                    impl_->shared->configuration.currentTerm
-                );
-                if (impl_->shared->configuration.currentTerm < message->impl_->heartbeat.term) {
-                    impl_->shared->configuration.currentTerm = message->impl_->heartbeat.term;
-                    impl_->RevertToFollower();
-                } else if (impl_->shared->configuration.currentTerm == message->impl_->heartbeat.term) {
-                    impl_->ResetElectionTimer();
-                }
+                impl_->OnReceiveHeartBeat(message->impl_->heartbeat, senderInstanceNumber);
             } break;
 
             default: {
