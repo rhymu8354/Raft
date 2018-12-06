@@ -395,6 +395,68 @@ namespace Raft {
         }
 
         /**
+         * This method is called whenever the server receives a request to vote
+         * for another server in the cluster.
+         *
+         * @param[in] message
+         *     This is the message received from another server in the cluster.
+         *
+         * @param[in] senderInstanceNumber
+         *     This is the unique identifier of the server that sent the
+         *     message.
+         */
+        void OnReceiveRequestVote(
+            const MessageImpl::RequestVoteDetails& messageDetails,
+            unsigned int senderInstanceNumber
+        ) {
+            const auto now = timeKeeper->GetCurrentTime();
+            const auto response = createMessageDelegate();
+            response->impl_->type = MessageImpl::Type::RequestVoteResults;
+            response->impl_->requestVoteResults.term = std::max(
+                shared->configuration.currentTerm,
+                messageDetails.term
+            );
+            if (shared->configuration.currentTerm > messageDetails.term) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1,
+                    "Rejecting vote for server %u (old term %u < %u)",
+                    senderInstanceNumber,
+                    messageDetails.term,
+                    shared->configuration.currentTerm
+                );
+                response->impl_->requestVoteResults.voteGranted = false;
+            } else if (
+                (shared->configuration.currentTerm == messageDetails.term)
+                && shared->votedThisTerm
+                && (shared->votedFor != senderInstanceNumber)
+            ) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1,
+                    "Rejecting vote for server %u (already voted for %u for term %u -- we are in term %u)",
+                    senderInstanceNumber,
+                    shared->votedFor,
+                    messageDetails.term,
+                    shared->configuration.currentTerm
+                );
+                response->impl_->requestVoteResults.voteGranted = false;
+            } else {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1,
+                    "Voting for server %u for term %u (we were in term %u)",
+                    senderInstanceNumber,
+                    messageDetails.term,
+                    shared->configuration.currentTerm
+                );
+                response->impl_->requestVoteResults.voteGranted = true;
+                shared->votedThisTerm = true;
+                shared->votedFor = senderInstanceNumber;
+                shared->configuration.currentTerm = messageDetails.term;
+                RevertToFollower();
+            }
+            QueueMessageToBeSent(response, senderInstanceNumber, now);
+        }
+
+        /**
          * This runs in a thread and performs any background tasks required of
          * the Server, such as starting an election if no message is received
          * from the cluster leader before the next timeout.
@@ -534,50 +596,7 @@ namespace Raft {
         const auto now = impl_->timeKeeper->GetCurrentTime();
         switch (message->impl_->type) {
             case MessageImpl::Type::RequestVote: {
-                const auto response = impl_->createMessageDelegate();
-                response->impl_->type = MessageImpl::Type::RequestVoteResults;
-                response->impl_->requestVoteResults.term = std::max(
-                    impl_->shared->configuration.currentTerm,
-                    message->impl_->requestVote.term
-                );
-                if (impl_->shared->configuration.currentTerm > message->impl_->requestVote.term) {
-                    impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        1,
-                        "Rejecting vote for server %u (old term %u < %u)",
-                        senderInstanceNumber,
-                        message->impl_->requestVote.term,
-                        impl_->shared->configuration.currentTerm
-                    );
-                    response->impl_->requestVoteResults.voteGranted = false;
-                } else if (
-                    (impl_->shared->configuration.currentTerm == message->impl_->requestVote.term)
-                    && impl_->shared->votedThisTerm
-                    && (impl_->shared->votedFor != senderInstanceNumber)
-                ) {
-                    impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        1,
-                        "Rejecting vote for server %u (already voted for %u for term %u -- we are in term %u)",
-                        senderInstanceNumber,
-                        impl_->shared->votedFor,
-                        message->impl_->requestVote.term,
-                        impl_->shared->configuration.currentTerm
-                    );
-                    response->impl_->requestVoteResults.voteGranted = false;
-                } else {
-                    impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        1,
-                        "Voting for server %u for term %u (we were in term %u)",
-                        senderInstanceNumber,
-                        message->impl_->requestVote.term,
-                        impl_->shared->configuration.currentTerm
-                    );
-                    response->impl_->requestVoteResults.voteGranted = true;
-                    impl_->shared->votedThisTerm = true;
-                    impl_->shared->votedFor = senderInstanceNumber;
-                    impl_->shared->configuration.currentTerm = message->impl_->requestVote.term;
-                    impl_->RevertToFollower();
-                }
-                impl_->QueueMessageToBeSent(response, senderInstanceNumber, now);
+                impl_->OnReceiveRequestVote(message->impl_->requestVote, senderInstanceNumber);
             } break;
 
             case MessageImpl::Type::RequestVoteResults: {
