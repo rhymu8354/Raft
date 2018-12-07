@@ -94,6 +94,25 @@ namespace Raft {
             std::shared_ptr< Message >()
         >;
 
+        /**
+         * This declares the type of delegate used to announce leadership
+         * changes in the server cluster.
+         *
+         * @param[in] leaderId
+         *     This is the unique identifier of the server which has become
+         *     the leader of the cluster.
+         *
+         * @param[in] term
+         *     This is the generation number of the server cluster leadership,
+         *     which is incremented whenever a new election is started.
+         */
+        using LeadershipChangeDelegate = std::function<
+            void(
+                unsigned int leaderId,
+                unsigned int term
+            )
+        >;
+
         // Methods
     public:
         /**
@@ -128,6 +147,16 @@ namespace Raft {
          *     wants to send a message to another server in the cluster.
          */
         virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) = 0;
+
+        /**
+         * This method is called to set up the delegate to be called later
+         * whenever a leadership change occurs in the server cluster.
+         *
+         * @param[in] leadershipChangeDelegate
+         *     This is the delegate to be called later whenever a leadership
+         *     change occurs in the server cluster.
+         */
+        virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) = 0;
 
         /**
          * This method starts the server's worker thread.

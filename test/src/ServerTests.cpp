@@ -1038,3 +1038,36 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermRequestVoteRec
     EXPECT_FALSE(server.IsLeader());
     EXPECT_EQ(3, server.GetConfiguration().currentTerm);
 }
+
+TEST_F(ServerTests, LeadershipGainAnnouncement) {
+    // Arrange
+    bool leadershipChangeAnnounced = false;
+    struct {
+        unsigned int leaderId = 0;
+        unsigned int term = 0;
+    } leadershipChangeDetails;
+    server.SetLeadershipChangeDelegate(
+        [
+            &leadershipChangeAnnounced,
+            &leadershipChangeDetails
+        ](
+            unsigned int leaderId,
+            unsigned int term
+        ){
+            leadershipChangeAnnounced = true;
+            leadershipChangeDetails.leaderId = leaderId;
+            leadershipChangeDetails.term = term;
+        }
+    );
+
+    // Act
+    configuration.currentTerm = 0;
+    configuration.selfInstanceNumber = 5;
+    BecomeLeader();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_TRUE(leadershipChangeAnnounced);
+    EXPECT_EQ(5, leadershipChangeDetails.leaderId);
+    EXPECT_EQ(1, leadershipChangeDetails.term);
+}

@@ -62,6 +62,24 @@ namespace {
     };
 
     /**
+     * This holds information used to store a leadership announcement to be
+     * sent later.
+     */
+    struct LeadershipAnnouncementToBeSent {
+        /**
+         * This is the unique identifier of the server which has become
+         * the leader of the cluster.
+         */
+        unsigned int leaderId = 0;
+
+        /**
+         * This is the generation number of the server cluster leadership,
+         * which is incremented whenever a new election is started.
+         */
+        unsigned int term = 0;
+    };
+
+    /**
      * This contains the private properties of a Server class instance
      * that may live longer than the Server class instance itself.
      */
@@ -95,6 +113,11 @@ namespace {
          * thread.
          */
         std::queue< MessageToBeSent > messagesToBeSent;
+
+        /**
+         * This holds leadership announcements to be sent by the worker thread.
+         */
+        std::queue< LeadershipAnnouncementToBeSent > leadershipAnnouncementsToBeSent;
 
         /**
          * If this is not nullptr, then the worker thread should set the result
@@ -175,6 +198,31 @@ namespace {
         }
     }
 
+    /**
+     * This function sends the given leadership announcements, using the given
+     * delegate.
+     *
+     * @param[in] leadershipChangeDelegate
+     *     This is the delegate to use to send leadership announcements.
+     *
+     * @param[in,out] leadershipAnnouncementsToBeSent
+     *     This holds the leadership announcements to be sent, and is consumed
+     *     by the function.
+     */
+    void SendLeadershipAnnouncements(
+        Raft::IServer::LeadershipChangeDelegate leadershipChangeDelegate,
+        std::queue< LeadershipAnnouncementToBeSent >&& leadershipAnnouncementsToBeSent
+    ) {
+        while (!leadershipAnnouncementsToBeSent.empty()) {
+            const auto& leadershipAnnouncementToBeSent = leadershipAnnouncementsToBeSent.front();
+            leadershipChangeDelegate(
+                leadershipAnnouncementToBeSent.leaderId,
+                leadershipAnnouncementToBeSent.term
+            );
+            leadershipAnnouncementsToBeSent.pop();
+        }
+    }
+
 }
 
 namespace Raft {
@@ -209,6 +257,12 @@ namespace Raft {
          * wants to create a message object.
          */
         CreateMessageDelegate createMessageDelegate;
+
+        /**
+         * This is the delegate to be called later whenever a leadership change
+         * occurs in the server cluster.
+         */
+        LeadershipChangeDelegate leadershipChangeDelegate;
 
         /**
          * This thread performs any background tasks required of the
@@ -270,6 +324,29 @@ namespace Raft {
             messageToBeSent.message = message;
             messageToBeSent.receiverInstanceNumber = instanceNumber;
             shared->messagesToBeSent.push(std::move(messageToBeSent));
+            workerAskedToStopOrWakeUp.notify_one();
+        }
+
+        /**
+         * This method queues a leadership announcement message to be sent
+         * later.
+         *
+         * @param[in] leaderId
+         *     This is the unique identifier of the server which has become
+         *     the leader of the cluster.
+         *
+         * @param[in] term
+         *     This is the generation number of the server cluster leadership,
+         *     which is incremented whenever a new election is started.
+         */
+        void QueueLeadershipChangeAnnouncement(
+            unsigned int leaderId,
+            unsigned int term
+        ) {
+            LeadershipAnnouncementToBeSent leadershipAnnouncementToBeSent;
+            leadershipAnnouncementToBeSent.leaderId = leaderId;
+            leadershipAnnouncementToBeSent.term = term;
+            shared->leadershipAnnouncementsToBeSent.push(std::move(leadershipAnnouncementToBeSent));
             workerAskedToStopOrWakeUp.notify_one();
         }
 
@@ -397,6 +474,31 @@ namespace Raft {
         }
 
         /**
+         * This method is called in order to send any queued leadership
+         * announcements.
+         *
+         * @param[in] lock
+         *     This is the object holding the mutex protecting the shared
+         *     properties of the server.
+         */
+        void SendQueuedLeadershipAnnouncements(
+            std::unique_lock< decltype(shared->mutex) >& lock
+        ) {
+            if (leadershipChangeDelegate == nullptr) {
+                return;
+            }
+            decltype(shared->leadershipAnnouncementsToBeSent) leadershipAnnouncementsToBeSent;
+            leadershipAnnouncementsToBeSent.swap(shared->leadershipAnnouncementsToBeSent);
+            auto leadershipChangeDelegateCopy = leadershipChangeDelegate;
+            lock.unlock();
+            SendLeadershipAnnouncements(
+                leadershipChangeDelegateCopy,
+                std::move(leadershipAnnouncementsToBeSent)
+            );
+            lock.lock();
+        }
+
+        /**
          * This method updates the server state to make the server a
          * "follower", as in not seeking election, and not the leader.
          */
@@ -504,6 +606,10 @@ namespace Raft {
                             "Received majority vote -- assuming leadership"
                         );
                     }
+                    QueueLeadershipChangeAnnouncement(
+                        shared->configuration.selfInstanceNumber,
+                        shared->configuration.currentTerm
+                    );
                 } else {
                     shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                         1,
@@ -619,6 +725,7 @@ namespace Raft {
             }
             QueueRetransmissionsToBeSent(now);
             SendQueuedMessages(lock);
+            SendQueuedLeadershipAnnouncements(lock);
         }
 
         /**
@@ -709,6 +816,11 @@ namespace Raft {
     void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->sendMessageDelegate = sendMessageDelegate;
+    }
+
+    void Server::SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->leadershipChangeDelegate = leadershipChangeDelegate;
     }
 
     void Server::Mobilize() {
