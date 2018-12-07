@@ -58,7 +58,7 @@ namespace {
          * This is the unique identifier of the server to which to send the
          * message.
          */
-        unsigned int receiverInstanceNumber;
+        unsigned int receiverInstanceNumber = 0;
     };
 
     /**
