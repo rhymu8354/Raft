@@ -300,8 +300,8 @@ namespace Raft {
         }
 
         /**
-         * This method sends the given message to the instance with the given
-         * unique identifier.
+         * This method queues the given message to be sent later to the
+         * instance with the given unique identifier.
          *
          * @param[in] message
          *     This is the message to send.
