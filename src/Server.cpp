@@ -599,17 +599,20 @@ namespace Raft {
                         shared->votesForUs,
                         shared->configuration.instanceNumbers.size()
                     );
-                    if (shared->votesForUs >= shared->configuration.instanceNumbers.size() / 2 + 1) {
+                    if (
+                        !shared->isLeader
+                        && (shared->votesForUs >= shared->configuration.instanceNumbers.size() / 2 + 1)
+                    ) {
                         shared->isLeader = true;
                         shared->diagnosticsSender.SendDiagnosticInformationString(
                             2,
                             "Received majority vote -- assuming leadership"
                         );
+                        QueueLeadershipChangeAnnouncement(
+                            shared->configuration.selfInstanceNumber,
+                            shared->configuration.currentTerm
+                        );
                     }
-                    QueueLeadershipChangeAnnouncement(
-                        shared->configuration.selfInstanceNumber,
-                        shared->configuration.currentTerm
-                    );
                 } else {
                     shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                         1,

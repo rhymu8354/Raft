@@ -1071,3 +1071,91 @@ TEST_F(ServerTests, LeadershipGainAnnouncement) {
     EXPECT_EQ(5, leadershipChangeDetails.leaderId);
     EXPECT_EQ(1, leadershipChangeDetails.term);
 }
+
+TEST_F(ServerTests, NoLeadershipGainWhenNotYetLeader) {
+    // Arrange
+    bool leadershipChangeAnnounced = false;
+    server.SetLeadershipChangeDelegate(
+        [
+            &leadershipChangeAnnounced
+        ](
+            unsigned int leaderId,
+            unsigned int term
+        ){
+            leadershipChangeAnnounced = true;
+        }
+    );
+
+    // Act
+    configuration.currentTerm = 0;
+    configuration.selfInstanceNumber = 5;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+    auto instanceNumbersEntry = configuration.instanceNumbers.begin();
+    size_t votesGranted = 0;
+    do {
+        const auto instance = *instanceNumbersEntry++;
+        if (instance == configuration.selfInstanceNumber) {
+            continue;
+        }
+        const auto message = std::make_shared< Raft::Message >();
+        message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+        message->impl_->requestVoteResults.term = 1;
+        message->impl_->requestVoteResults.voteGranted = true;
+        server.ReceiveMessage(message, instance);
+        server.WaitForAtLeastOneWorkerLoop();
+        EXPECT_FALSE(leadershipChangeAnnounced) << votesGranted;
+        ++votesGranted;
+    } while (votesGranted + 1 < configuration.instanceNumbers.size() / 2);
+
+    // Assert
+}
+
+TEST_F(ServerTests, NoLeadershipGainWhenAlreadyLeader) {
+    // Arrange
+    bool leadershipChangeAnnounced = false;
+    server.SetLeadershipChangeDelegate(
+        [
+            &leadershipChangeAnnounced
+        ](
+            unsigned int leaderId,
+            unsigned int term
+        ){
+            leadershipChangeAnnounced = true;
+        }
+    );
+
+    // Act
+    configuration.currentTerm = 0;
+    configuration.selfInstanceNumber = 5;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance == configuration.selfInstanceNumber) {
+            continue;
+        }
+        const auto wasLeader = server.IsLeader();
+        const auto message = std::make_shared< Raft::Message >();
+        message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+        message->impl_->requestVoteResults.term = 1;
+        message->impl_->requestVoteResults.voteGranted = true;
+        server.ReceiveMessage(message, instance);
+        server.WaitForAtLeastOneWorkerLoop();
+        if (server.IsLeader()) {
+            if (wasLeader) {
+                EXPECT_FALSE(leadershipChangeAnnounced);
+            } else {
+                EXPECT_TRUE(leadershipChangeAnnounced);
+            }
+        }
+        leadershipChangeAnnounced = false;
+    }
+
+    // Assert
+}
