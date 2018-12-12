@@ -11,6 +11,7 @@
 
 #include <functional>
 #include <memory>
+#include <ostream>
 #include <Raft/Message.hpp>
 #include <vector>
 
@@ -23,6 +24,37 @@ namespace Raft {
     class IServer {
         // Types
     public:
+        /**
+         * This is used to indicate whether the server is a currently a leader,
+         * candidate, or follower in the current election term of the cluster.
+         */
+        enum class ElectionState {
+            /**
+             * In this state, the server is neither a leader, or is running for
+             * election in the current term.  It is awaiting heartbeat messages
+             * from the leader, and if none is received before the election
+             * timeout, it will start a new election.
+             */
+            Follower,
+
+            /**
+             * In this state, the server is running for election in the current
+             * term, awaiting vote responses.  If it receives a majority vote,
+             * it will immediately become the leader.  If it receives a
+             * heartbeat, it will immediately become a follower.  Otherwise, it
+             * will start a new election once the election timeout occurs.
+             */
+            Candidate,
+
+            /**
+             * In this state, the server is the leader of the cluster in the
+             * current term, and will send out heartbeats to all the other
+             * servers.  It reverts to a follower if it receives a heartbeat or
+             * vote request in a newer term.
+             */
+            Leader,
+        };
+
         /**
          * This is used to instruct the server on how it should configure
          * itself.
@@ -185,15 +217,33 @@ namespace Raft {
         ) = 0;
 
         /**
-         * This method returns an indication of whether or not the server is
-         * currently the leader of the cluster.
+         * This method returns an indication of whether the server is currently
+         * the leader, a candidate, or a follower in the current term of the
+         * cluster.
          *
          * @return
-         *     An indication of whether or not the server is
-         *     currently the leader of the cluster is returned.
+         *     An indication of whether the server is currently the leader,
+         *     a candidate, or a follower in the current term of the cluster
+         *     is returned.
          */
-        virtual bool IsLeader() = 0;
+        virtual ElectionState GetElectionState() = 0;
     };
+
+    /**
+     * This is a support function for Google Test to print out
+     * values of the Raft::IServer::ElectionState class.
+     *
+     * @param[in] electionState
+     *     This is the Raft election state value to print.
+     *
+     * @param[in] os
+     *     This points to the stream to which to print the
+     *     Raft election state value.
+     */
+    void PrintTo(
+        const Raft::IServer::ElectionState& electionState,
+        std::ostream* os
+    );
 
 }
 

@@ -100,7 +100,7 @@ namespace Raft {
             std::shared_ptr< Message > message,
             unsigned int senderInstanceNumber
         ) override;
-        virtual bool IsLeader() override;
+        virtual ElectionState GetElectionState() override;
 
         // Private properties
     private:

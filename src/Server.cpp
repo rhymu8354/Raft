@@ -138,10 +138,16 @@ namespace {
         double timeOfLastLeaderMessage = 0.0;
 
         /**
-         * This indicates whether or not the server is currently the leader of
-         * the cluster.
+         * This indicates whether the server is a currently a leader,
+         * candidate, or follower in the current election term of the cluster.
          */
-        bool isLeader = false;
+        Raft::IServer::ElectionState electionState = Raft::IServer::ElectionState::Follower;
+
+        /**
+         * This indicates whether or not the leader of the current term is
+         * known.
+         */
+        bool thisTermLeaderAnnounced = false;
 
         /**
          * During an election, this is the number of votes we have received
@@ -226,6 +232,26 @@ namespace {
 }
 
 namespace Raft {
+
+    void PrintTo(
+        const Raft::IServer::ElectionState& electionState,
+        std::ostream* os
+    ) {
+        switch (electionState) {
+            case Raft::IServer::ElectionState::Follower: {
+                *os << "Follower";
+            } break;
+            case Raft::IServer::ElectionState::Candidate: {
+                *os << "Candidate";
+            } break;
+            case Raft::IServer::ElectionState::Leader: {
+                *os << "Leader";
+            } break;
+            default: {
+                *os << "???";
+            };
+        }
+    }
 
     /**
      * This contains the private properties of a Server class instance
@@ -356,6 +382,7 @@ namespace Raft {
          * the other servers.
          */
         void StepUpAsCandidate() {
+            shared->electionState = IServer::ElectionState::Candidate;
             shared->votedThisTerm = true;
             shared->votedFor = shared->configuration.selfInstanceNumber;
             shared->votesForUs = 1;
@@ -499,6 +526,19 @@ namespace Raft {
         }
 
         /**
+         * This method is called to update the current cluster election term.
+         *
+         * @param[in] newTerm
+         *     This is the new term of the cluster.
+         */
+        void UpdateCurrentTerm(unsigned int newTerm) {
+            if (shared->configuration.currentTerm < newTerm) {
+                shared->thisTermLeaderAnnounced = false;
+            }
+            shared->configuration.currentTerm = newTerm;
+        }
+
+        /**
          * This method updates the server state to make the server a
          * "follower", as in not seeking election, and not the leader.
          */
@@ -506,7 +546,7 @@ namespace Raft {
             for (auto& instanceEntry: shared->instances) {
                 instanceEntry.second.awaitingVote = false;
             }
-            shared->isLeader = false;
+            shared->electionState = IServer::ElectionState::Follower;
             ResetElectionTimer();
         }
 
@@ -566,7 +606,7 @@ namespace Raft {
                 response->impl_->requestVoteResults.voteGranted = true;
                 shared->votedThisTerm = true;
                 shared->votedFor = senderInstanceNumber;
-                shared->configuration.currentTerm = messageDetails.term;
+                UpdateCurrentTerm(messageDetails.term);
                 RevertToFollower();
             }
             QueueMessageToBeSent(response, senderInstanceNumber, now);
@@ -600,10 +640,10 @@ namespace Raft {
                         shared->configuration.instanceNumbers.size()
                     );
                     if (
-                        !shared->isLeader
+                        (shared->electionState == IServer::ElectionState::Candidate)
                         && (shared->votesForUs >= shared->configuration.instanceNumbers.size() / 2 + 1)
                     ) {
-                        shared->isLeader = true;
+                        shared->electionState = IServer::ElectionState::Leader;
                         shared->diagnosticsSender.SendDiagnosticInformationString(
                             2,
                             "Received majority vote -- assuming leadership"
@@ -654,12 +694,23 @@ namespace Raft {
                 messageDetails.term,
                 shared->configuration.currentTerm
             );
-            if (shared->configuration.currentTerm < messageDetails.term) {
-                shared->configuration.currentTerm = messageDetails.term;
-                RevertToFollower();
-            } else if (shared->configuration.currentTerm == messageDetails.term) {
-                ResetElectionTimer();
+            if (shared->configuration.currentTerm > messageDetails.term) {
+                return;
             }
+            if (
+                (shared->electionState != ElectionState::Leader)
+                || (shared->configuration.currentTerm < messageDetails.term)
+            ) {
+                UpdateCurrentTerm(messageDetails.term);
+                if (!shared->thisTermLeaderAnnounced) {
+                    shared->thisTermLeaderAnnounced = true;
+                    QueueLeadershipChangeAnnouncement(
+                        senderInstanceNumber,
+                        shared->configuration.currentTerm
+                    );
+                }
+            }
+            RevertToFollower();
         }
 
         /**
@@ -711,7 +762,7 @@ namespace Raft {
             const auto timeSinceLastLeaderMessage = (
                 now - shared->timeOfLastLeaderMessage
             );
-            if (shared->isLeader) {
+            if (shared->electionState == IServer::ElectionState::Leader) {
                 if (
                     timeSinceLastLeaderMessage
                     >= shared->configuration.minimumElectionTimeout / 2
@@ -832,7 +883,7 @@ namespace Raft {
             return;
         }
         impl_->shared->instances.clear();
-        impl_->shared->isLeader = false;
+        impl_->shared->electionState = IServer::ElectionState::Follower;
         impl_->shared->timeOfLastLeaderMessage = 0.0;
         impl_->shared->votesForUs = 0;
         impl_->stopWorker = std::promise< void >();
@@ -873,9 +924,9 @@ namespace Raft {
         }
     }
 
-    bool Server::IsLeader() {
+    auto Server::GetElectionState() -> ElectionState {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        return impl_->shared->isLeader;
+        return impl_->shared->electionState;
     }
 
 }

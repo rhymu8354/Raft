@@ -99,6 +99,20 @@ struct ServerTests
         messagesSent.clear();
     }
 
+    void BecomeFollower(
+        unsigned int leaderId,
+        unsigned int term
+    ) {
+        server.Configure(configuration);
+        server.Mobilize();
+        server.WaitForAtLeastOneWorkerLoop();
+        const auto message = std::make_shared< Raft::Message >();
+        message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+        message->impl_->heartbeat.term = term;
+        server.ReceiveMessage(message, leaderId);
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+
     // ::testing::Test
 
     virtual void SetUp() {
@@ -197,6 +211,10 @@ TEST_F(ServerTests, ElectionAlwaysStartedWithinMaximumTimeoutInterval) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Candidate,
+        server.GetElectionState()
+    );
     EXPECT_EQ(4, messagesSent.size());
     for (const auto messageInfo: messagesSent) {
         EXPECT_EQ(
@@ -335,7 +353,10 @@ TEST_F(ServerTests, ServerDoesReceiveUnanimousVoteInElection) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
-    EXPECT_TRUE(server.IsLeader());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Leader,
+        server.GetElectionState()
+    );
 }
 
 TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
@@ -364,7 +385,10 @@ TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
-    EXPECT_TRUE(server.IsLeader());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Leader,
+        server.GetElectionState()
+    );
 }
 
 TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
@@ -537,7 +561,10 @@ TEST_F(ServerTests, ServerDoesNotReceiveAnyVotesInElection) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
-    EXPECT_FALSE(server.IsLeader());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Candidate,
+        server.GetElectionState()
+    );
 }
 
 TEST_F(ServerTests, ServerAlmostWinsElection) {
@@ -570,7 +597,10 @@ TEST_F(ServerTests, ServerAlmostWinsElection) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
-    EXPECT_FALSE(server.IsLeader());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Candidate,
+        server.GetElectionState()
+    );
 }
 
 TEST_F(ServerTests, TimeoutBeforeMajorityVoteOrNewLeaderHeartbeat) {
@@ -766,7 +796,10 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenCandidate) {
     );
     EXPECT_EQ(2, messagesSent[0].message->impl_->requestVoteResults.term);
     EXPECT_TRUE(messagesSent[0].message->impl_->requestVoteResults.voteGranted);
-    EXPECT_FALSE(server.IsLeader());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
 }
 
 TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenLeader) {
@@ -789,7 +822,10 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenLeader) {
     );
     EXPECT_EQ(2, messagesSent[0].message->impl_->requestVoteResults.term);
     EXPECT_TRUE(messagesSent[0].message->impl_->requestVoteResults.voteGranted);
-    EXPECT_FALSE(server.IsLeader());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
 }
 
 TEST_F(ServerTests, DoNotStartVoteWhenAlreadyLeader) {
@@ -843,10 +879,13 @@ TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived
 
     // Assert
     EXPECT_EQ(0, messagesSent.size());
-    EXPECT_FALSE(server.IsLeader());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
 }
 
-TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameOrGreaterTermHeartbeatReceived) {
+TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermHeartbeatReceived) {
     // Arrange
     server.Configure(configuration);
     server.Mobilize();
@@ -860,13 +899,60 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameOrGreaterTermHeartbea
     message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
     message->impl_->heartbeat.term = 2;
     server.ReceiveMessage(message, 2);
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            const auto message = std::make_shared< Raft::Message >();
+            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+            message->impl_->requestVoteResults.term = 1;
+            message->impl_->requestVoteResults.voteGranted = true;
+            server.ReceiveMessage(message, instance);
+        }
+    }
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime += configuration.minimumElectionTimeout - 0.001;
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     EXPECT_EQ(0, messagesSent.size());
-    EXPECT_FALSE(server.IsLeader());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
+}
+
+TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameTermHeartbeatReceived) {
+    // Arrange
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+    messagesSent.clear();
+
+    // Act
+    const auto message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+    message->impl_->heartbeat.term = 1;
+    server.ReceiveMessage(message, 2);
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            const auto message = std::make_shared< Raft::Message >();
+            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+            message->impl_->requestVoteResults.term = 1;
+            message->impl_->requestVoteResults.voteGranted = true;
+            server.ReceiveMessage(message, instance);
+        }
+    }
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime += configuration.minimumElectionTimeout - 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_EQ(0, messagesSent.size());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
 }
 
 TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
@@ -927,7 +1013,10 @@ TEST_F(ServerTests, RepeatVotesShouldNotCount) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
-    EXPECT_FALSE(server.IsLeader());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Candidate,
+        server.GetElectionState()
+    );
 }
 
 TEST_F(ServerTests, UpdateTermWhenReceivingHeartBeat) {
@@ -945,6 +1034,222 @@ TEST_F(ServerTests, UpdateTermWhenReceivingHeartBeat) {
 
     // Assert
     EXPECT_EQ(2, server.GetConfiguration().currentTerm);
+}
+
+TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerSameTerm) {
+    // Arrange
+    bool leadershipChangeAnnounced = false;
+    struct {
+        unsigned int leaderId = 0;
+        unsigned int term = 0;
+    } leadershipChangeDetails;
+    server.SetLeadershipChangeDelegate(
+        [
+            &leadershipChangeAnnounced,
+            &leadershipChangeDetails
+        ](
+            unsigned int leaderId,
+            unsigned int term
+        ){
+            leadershipChangeAnnounced = true;
+            leadershipChangeDetails.leaderId = leaderId;
+            leadershipChangeDetails.term = term;
+        }
+    );
+    constexpr unsigned int leaderId = 2;
+    constexpr unsigned int newTerm = 1;
+    configuration.currentTerm = newTerm;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    const auto message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+    message->impl_->heartbeat.term = newTerm;
+    server.ReceiveMessage(message, leaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_TRUE(leadershipChangeAnnounced);
+    EXPECT_EQ(leaderId, leadershipChangeDetails.leaderId);
+    EXPECT_EQ(newTerm, leadershipChangeDetails.term);
+}
+
+TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerSameTerm) {
+    // Arrange
+    bool leadershipChangeAnnounced = false;
+    struct {
+        unsigned int leaderId = 0;
+        unsigned int term = 0;
+    } leadershipChangeDetails;
+    server.SetLeadershipChangeDelegate(
+        [
+            &leadershipChangeAnnounced,
+            &leadershipChangeDetails
+        ](
+            unsigned int leaderId,
+            unsigned int term
+        ){
+            leadershipChangeAnnounced = true;
+            leadershipChangeDetails.leaderId = leaderId;
+            leadershipChangeDetails.term = term;
+        }
+    );
+    constexpr unsigned int leaderId = 2;
+    constexpr unsigned int newTerm = 1;
+    configuration.currentTerm = newTerm;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    auto message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+    message->impl_->heartbeat.term = newTerm;
+    server.ReceiveMessage(message, leaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+    leadershipChangeAnnounced = false;
+
+    // Act
+    message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+    message->impl_->heartbeat.term = newTerm;
+    server.ReceiveMessage(message, leaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_FALSE(leadershipChangeAnnounced);
+}
+
+TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerNewerTerm) {
+    // Arrange
+    bool leadershipChangeAnnounced = false;
+    struct {
+        unsigned int leaderId = 0;
+        unsigned int term = 0;
+    } leadershipChangeDetails;
+    server.SetLeadershipChangeDelegate(
+        [
+            &leadershipChangeAnnounced,
+            &leadershipChangeDetails
+        ](
+            unsigned int leaderId,
+            unsigned int term
+        ){
+            leadershipChangeAnnounced = true;
+            leadershipChangeDetails.leaderId = leaderId;
+            leadershipChangeDetails.term = term;
+        }
+    );
+    constexpr unsigned int leaderId = 2;
+    constexpr unsigned int newTerm = 1;
+    configuration.currentTerm = 0;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    const auto message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+    message->impl_->heartbeat.term = newTerm;
+    server.ReceiveMessage(message, leaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_TRUE(leadershipChangeAnnounced);
+    EXPECT_EQ(leaderId, leadershipChangeDetails.leaderId);
+    EXPECT_EQ(newTerm, leadershipChangeDetails.term);
+}
+
+TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerNewerTerm) {
+    // Arrange
+    bool leadershipChangeAnnounced = false;
+    struct {
+        unsigned int leaderId = 0;
+        unsigned int term = 0;
+    } leadershipChangeDetails;
+    server.SetLeadershipChangeDelegate(
+        [
+            &leadershipChangeAnnounced,
+            &leadershipChangeDetails
+        ](
+            unsigned int leaderId,
+            unsigned int term
+        ){
+            leadershipChangeAnnounced = true;
+            leadershipChangeDetails.leaderId = leaderId;
+            leadershipChangeDetails.term = term;
+        }
+    );
+    constexpr unsigned int leaderId = 2;
+    constexpr unsigned int newTerm = 1;
+    configuration.currentTerm = 0;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    auto message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+    message->impl_->heartbeat.term = newTerm;
+    server.ReceiveMessage(message, leaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+    leadershipChangeAnnounced = false;
+
+    // Act
+    message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+    message->impl_->heartbeat.term = newTerm;
+    server.ReceiveMessage(message, leaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_FALSE(leadershipChangeAnnounced);
+}
+
+TEST_F(ServerTests, ReceivingTwoHeartBeatAsFollowerSequentialTerms) {
+    // Arrange
+    bool leadershipChangeAnnounced = false;
+    struct {
+        unsigned int leaderId = 0;
+        unsigned int term = 0;
+    } leadershipChangeDetails;
+    server.SetLeadershipChangeDelegate(
+        [
+            &leadershipChangeAnnounced,
+            &leadershipChangeDetails
+        ](
+            unsigned int leaderId,
+            unsigned int term
+        ){
+            leadershipChangeAnnounced = true;
+            leadershipChangeDetails.leaderId = leaderId;
+            leadershipChangeDetails.term = term;
+        }
+    );
+    constexpr unsigned int firstLeaderId = 2;
+    constexpr unsigned int secondLeaderId = 2;
+    constexpr unsigned int firstTerm = 1;
+    constexpr unsigned int secondTerm = 2;
+    configuration.currentTerm = 0;
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    auto message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+    message->impl_->heartbeat.term = firstTerm;
+    server.ReceiveMessage(message, firstLeaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+    leadershipChangeAnnounced = false;
+
+    // Act
+    message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
+    message->impl_->heartbeat.term = secondTerm;
+    server.ReceiveMessage(message, secondLeaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_TRUE(leadershipChangeAnnounced);
+    EXPECT_EQ(secondLeaderId, leadershipChangeDetails.leaderId);
+    EXPECT_EQ(secondTerm, leadershipChangeDetails.term);
 }
 
 TEST_F(ServerTests, ReceivingHeartBeatFromSameTermShouldResetElectionTimeout) {
@@ -1035,7 +1340,10 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermRequestVoteRec
 
     // Assert
     EXPECT_EQ(0, messagesSent.size());
-    EXPECT_FALSE(server.IsLeader());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
     EXPECT_EQ(3, server.GetConfiguration().currentTerm);
 }
 
@@ -1140,14 +1448,16 @@ TEST_F(ServerTests, NoLeadershipGainWhenAlreadyLeader) {
         if (instance == configuration.selfInstanceNumber) {
             continue;
         }
-        const auto wasLeader = server.IsLeader();
+        const auto wasLeader = (
+            server.GetElectionState() == Raft::IServer::ElectionState::Leader
+        );
         const auto message = std::make_shared< Raft::Message >();
         message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
         message->impl_->requestVoteResults.term = 1;
         message->impl_->requestVoteResults.voteGranted = true;
         server.ReceiveMessage(message, instance);
         server.WaitForAtLeastOneWorkerLoop();
-        if (server.IsLeader()) {
+        if (server.GetElectionState() == Raft::IServer::ElectionState::Leader) {
             if (wasLeader) {
                 EXPECT_FALSE(leadershipChangeAnnounced);
             } else {
@@ -1158,4 +1468,39 @@ TEST_F(ServerTests, NoLeadershipGainWhenAlreadyLeader) {
     }
 
     // Assert
+}
+
+TEST_F(ServerTests, AnnounceLeaderWhenAFollower) {
+    // Arrange
+    bool leadershipChangeAnnounced = false;
+    struct {
+        unsigned int leaderId = 0;
+        unsigned int term = 0;
+    } leadershipChangeDetails;
+    server.SetLeadershipChangeDelegate(
+        [
+            &leadershipChangeAnnounced,
+            &leadershipChangeDetails
+        ](
+            unsigned int leaderId,
+            unsigned int term
+        ){
+            leadershipChangeAnnounced = true;
+            leadershipChangeDetails.leaderId = leaderId;
+            leadershipChangeDetails.term = term;
+        }
+    );
+    constexpr unsigned int leaderId = 2;
+    constexpr unsigned int newTerm = 1;
+
+    // Act
+    configuration.currentTerm = 0;
+    configuration.selfInstanceNumber = 5;
+    BecomeFollower(leaderId, newTerm);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_TRUE(leadershipChangeAnnounced);
+    EXPECT_EQ(leaderId, leadershipChangeDetails.leaderId);
+    EXPECT_EQ(newTerm, leadershipChangeDetails.term);
 }
