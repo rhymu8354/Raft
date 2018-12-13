@@ -16,6 +16,7 @@
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
 #include <random>
+#include <SystemAbstractions/CryptoRandom.hpp>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <thread>
 #include <time.h>
@@ -827,7 +828,10 @@ namespace Raft {
     Server::Server()
         : impl_(new Impl())
     {
-        impl_->shared->rng.seed((int)time(NULL));
+        SystemAbstractions::CryptoRandom jim;
+        unsigned int seed;
+        jim.Generate(&seed, sizeof(seed));
+        impl_->shared->rng.seed(seed);
     }
 
     SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate Server::SubscribeToDiagnostics(
