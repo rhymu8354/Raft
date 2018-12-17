@@ -59,7 +59,7 @@ namespace {
          * This is the unique identifier of the server to which to send the
          * message.
          */
-        unsigned int receiverInstanceNumber = 0;
+        int receiverInstanceNumber = 0;
     };
 
     /**
@@ -71,13 +71,13 @@ namespace {
          * This is the unique identifier of the server which has become
          * the leader of the cluster.
          */
-        unsigned int leaderId = 0;
+        int leaderId = 0;
 
         /**
          * This is the generation number of the server cluster leadership,
          * which is incremented whenever a new election is started.
          */
-        unsigned int term = 0;
+        int term = 0;
     };
 
     /**
@@ -166,12 +166,12 @@ namespace {
          * If the server has voted for another server to be the leader this
          * term, this is the unique identifier of the server for whom we voted.
          */
-        unsigned int votedFor = 0;
+        int votedFor = 0;
 
         /**
          * This holds information this server tracks about the other servers.
          */
-        std::map< unsigned int, InstanceInfo > instances;
+        std::map< int, InstanceInfo > instances;
 
         // Methods
 
@@ -341,7 +341,7 @@ namespace Raft {
          */
         void QueueMessageToBeSent(
             std::shared_ptr< Message > message,
-            unsigned int instanceNumber,
+            int instanceNumber,
             double now
         ) {
             auto& instance = shared->instances[instanceNumber];
@@ -367,8 +367,8 @@ namespace Raft {
          *     which is incremented whenever a new election is started.
          */
         void QueueLeadershipChangeAnnouncement(
-            unsigned int leaderId,
-            unsigned int term
+            int leaderId,
+            int term
         ) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 3,
@@ -538,7 +538,7 @@ namespace Raft {
          * @param[in] newTerm
          *     This is the new term of the cluster.
          */
-        void UpdateCurrentTerm(unsigned int newTerm) {
+        void UpdateCurrentTerm(int newTerm) {
             if (shared->configuration.currentTerm < newTerm) {
                 shared->thisTermLeaderAnnounced = false;
             }
@@ -570,7 +570,7 @@ namespace Raft {
          */
         void OnReceiveRequestVote(
             const MessageImpl::RequestVoteDetails& messageDetails,
-            unsigned int senderInstanceNumber
+            int senderInstanceNumber
         ) {
             const auto now = timeKeeper->GetCurrentTime();
             const auto response = createMessageDelegate();
@@ -632,7 +632,7 @@ namespace Raft {
          */
         void OnReceiveRequestVoteResults(
             const MessageImpl::RequestVoteResultsDetails& messageDetails,
-            unsigned int senderInstanceNumber
+            int senderInstanceNumber
         ) {
             auto& instance = shared->instances[senderInstanceNumber];
             if (messageDetails.voteGranted) {
@@ -692,7 +692,7 @@ namespace Raft {
          */
         void OnReceiveHeartBeat(
             const MessageImpl::HeartbeatDetails& messageDetails,
-            unsigned int senderInstanceNumber
+            int senderInstanceNumber
         ) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
@@ -835,7 +835,7 @@ namespace Raft {
         : impl_(new Impl())
     {
         SystemAbstractions::CryptoRandom jim;
-        unsigned int seed;
+        int seed;
         jim.Generate(&seed, sizeof(seed));
         impl_->shared->rng.seed(seed);
     }
@@ -913,7 +913,7 @@ namespace Raft {
 
     void Server::ReceiveMessage(
         std::shared_ptr< Message > message,
-        unsigned int senderInstanceNumber
+        int senderInstanceNumber
     ) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         switch (message->impl_->type) {

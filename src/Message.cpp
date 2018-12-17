@@ -24,15 +24,15 @@ namespace Raft {
         const auto type = (std::string)json["type"];
         if (type == "RequestVote") {
             impl_->type = MessageImpl::Type::RequestVote;
-            impl_->requestVote.term = (unsigned int)(int)json["term"];
-            impl_->requestVote.candidateId = (unsigned int)(int)json["candidateId"];
+            impl_->requestVote.term = json["term"];
+            impl_->requestVote.candidateId = json["candidateId"];
         } else if (type == "RequestVoteResults") {
             impl_->type = MessageImpl::Type::RequestVoteResults;
-            impl_->requestVoteResults.term = (unsigned int)(int)json["term"];
+            impl_->requestVoteResults.term = json["term"];
             impl_->requestVoteResults.voteGranted = json["voteGranted"];
         } else if (type == "HeartBeat") {
             impl_->type = MessageImpl::Type::HeartBeat;
-            impl_->heartbeat.term = (unsigned int)(int)json["term"];
+            impl_->heartbeat.term = json["term"];
         }
     }
 

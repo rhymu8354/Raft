@@ -46,7 +46,7 @@ namespace {
      * test.
      */
     struct MessageInfo {
-        unsigned int receiverInstanceNumber;
+        int receiverInstanceNumber;
         std::shared_ptr< Raft::Message > message;
     };
 
@@ -72,7 +72,7 @@ struct ServerTests
 
     void ServerSentMessage(
         std::shared_ptr< Raft::Message > message,
-        unsigned int receiverInstanceNumber
+        int receiverInstanceNumber
     ) {
         MessageInfo messageInfo;
         messageInfo.message = message;
@@ -100,8 +100,8 @@ struct ServerTests
     }
 
     void BecomeFollower(
-        unsigned int leaderId,
-        unsigned int term
+        int leaderId,
+        int term
     ) {
         server.Configure(configuration);
         server.Mobilize();
@@ -138,7 +138,7 @@ struct ServerTests
         server.SetSendMessageDelegate(
             [this](
                 std::shared_ptr< Raft::Message > message,
-                unsigned int receiverInstanceNumber
+                int receiverInstanceNumber
             ){
                 ServerSentMessage(message, receiverInstanceNumber);
             }
@@ -285,7 +285,7 @@ TEST_F(ServerTests, RequestVoteNotSentToAllServersExceptSelf) {
 
     // Assert
     EXPECT_EQ(4, messagesSent.size());
-    std::set< unsigned int > instances(
+    std::set< int > instances(
         configuration.instanceNumbers.begin(),
         configuration.instanceNumbers.end()
     );
@@ -293,7 +293,7 @@ TEST_F(ServerTests, RequestVoteNotSentToAllServersExceptSelf) {
         (void)instances.erase(messageInfo.receiverInstanceNumber);
     }
     EXPECT_EQ(
-        std::set< unsigned int >{ configuration.selfInstanceNumber },
+        std::set< int >{ configuration.selfInstanceNumber },
         instances
     );
 }
@@ -964,7 +964,7 @@ TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
-    std::map< unsigned int, size_t > heartbeatsReceivedPerInstance;
+    std::map< int, size_t > heartbeatsReceivedPerInstance;
     for (auto instanceNumber: configuration.instanceNumbers) {
         heartbeatsReceivedPerInstance[instanceNumber] = 0;
     }
@@ -1040,24 +1040,24 @@ TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerSameTerm) {
     // Arrange
     bool leadershipChangeAnnounced = false;
     struct {
-        unsigned int leaderId = 0;
-        unsigned int term = 0;
+        int leaderId = 0;
+        int term = 0;
     } leadershipChangeDetails;
     server.SetLeadershipChangeDelegate(
         [
             &leadershipChangeAnnounced,
             &leadershipChangeDetails
         ](
-            unsigned int leaderId,
-            unsigned int term
+            int leaderId,
+            int term
         ){
             leadershipChangeAnnounced = true;
             leadershipChangeDetails.leaderId = leaderId;
             leadershipChangeDetails.term = term;
         }
     );
-    constexpr unsigned int leaderId = 2;
-    constexpr unsigned int newTerm = 1;
+    constexpr int leaderId = 2;
+    constexpr int newTerm = 1;
     configuration.currentTerm = newTerm;
     server.Configure(configuration);
     server.Mobilize();
@@ -1080,24 +1080,24 @@ TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerSameTerm) {
     // Arrange
     bool leadershipChangeAnnounced = false;
     struct {
-        unsigned int leaderId = 0;
-        unsigned int term = 0;
+        int leaderId = 0;
+        int term = 0;
     } leadershipChangeDetails;
     server.SetLeadershipChangeDelegate(
         [
             &leadershipChangeAnnounced,
             &leadershipChangeDetails
         ](
-            unsigned int leaderId,
-            unsigned int term
+            int leaderId,
+            int term
         ){
             leadershipChangeAnnounced = true;
             leadershipChangeDetails.leaderId = leaderId;
             leadershipChangeDetails.term = term;
         }
     );
-    constexpr unsigned int leaderId = 2;
-    constexpr unsigned int newTerm = 1;
+    constexpr int leaderId = 2;
+    constexpr int newTerm = 1;
     configuration.currentTerm = newTerm;
     server.Configure(configuration);
     server.Mobilize();
@@ -1124,24 +1124,24 @@ TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerNewerTerm) {
     // Arrange
     bool leadershipChangeAnnounced = false;
     struct {
-        unsigned int leaderId = 0;
-        unsigned int term = 0;
+        int leaderId = 0;
+        int term = 0;
     } leadershipChangeDetails;
     server.SetLeadershipChangeDelegate(
         [
             &leadershipChangeAnnounced,
             &leadershipChangeDetails
         ](
-            unsigned int leaderId,
-            unsigned int term
+            int leaderId,
+            int term
         ){
             leadershipChangeAnnounced = true;
             leadershipChangeDetails.leaderId = leaderId;
             leadershipChangeDetails.term = term;
         }
     );
-    constexpr unsigned int leaderId = 2;
-    constexpr unsigned int newTerm = 1;
+    constexpr int leaderId = 2;
+    constexpr int newTerm = 1;
     configuration.currentTerm = 0;
     server.Configure(configuration);
     server.Mobilize();
@@ -1164,24 +1164,24 @@ TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerNewerTerm) {
     // Arrange
     bool leadershipChangeAnnounced = false;
     struct {
-        unsigned int leaderId = 0;
-        unsigned int term = 0;
+        int leaderId = 0;
+        int term = 0;
     } leadershipChangeDetails;
     server.SetLeadershipChangeDelegate(
         [
             &leadershipChangeAnnounced,
             &leadershipChangeDetails
         ](
-            unsigned int leaderId,
-            unsigned int term
+            int leaderId,
+            int term
         ){
             leadershipChangeAnnounced = true;
             leadershipChangeDetails.leaderId = leaderId;
             leadershipChangeDetails.term = term;
         }
     );
-    constexpr unsigned int leaderId = 2;
-    constexpr unsigned int newTerm = 1;
+    constexpr int leaderId = 2;
+    constexpr int newTerm = 1;
     configuration.currentTerm = 0;
     server.Configure(configuration);
     server.Mobilize();
@@ -1208,26 +1208,26 @@ TEST_F(ServerTests, ReceivingTwoHeartBeatAsFollowerSequentialTerms) {
     // Arrange
     bool leadershipChangeAnnounced = false;
     struct {
-        unsigned int leaderId = 0;
-        unsigned int term = 0;
+        int leaderId = 0;
+        int term = 0;
     } leadershipChangeDetails;
     server.SetLeadershipChangeDelegate(
         [
             &leadershipChangeAnnounced,
             &leadershipChangeDetails
         ](
-            unsigned int leaderId,
-            unsigned int term
+            int leaderId,
+            int term
         ){
             leadershipChangeAnnounced = true;
             leadershipChangeDetails.leaderId = leaderId;
             leadershipChangeDetails.term = term;
         }
     );
-    constexpr unsigned int firstLeaderId = 2;
-    constexpr unsigned int secondLeaderId = 2;
-    constexpr unsigned int firstTerm = 1;
-    constexpr unsigned int secondTerm = 2;
+    constexpr int firstLeaderId = 2;
+    constexpr int secondLeaderId = 2;
+    constexpr int firstTerm = 1;
+    constexpr int secondTerm = 2;
     configuration.currentTerm = 0;
     server.Configure(configuration);
     server.Mobilize();
@@ -1351,16 +1351,16 @@ TEST_F(ServerTests, LeadershipGainAnnouncement) {
     // Arrange
     bool leadershipChangeAnnounced = false;
     struct {
-        unsigned int leaderId = 0;
-        unsigned int term = 0;
+        int leaderId = 0;
+        int term = 0;
     } leadershipChangeDetails;
     server.SetLeadershipChangeDelegate(
         [
             &leadershipChangeAnnounced,
             &leadershipChangeDetails
         ](
-            unsigned int leaderId,
-            unsigned int term
+            int leaderId,
+            int term
         ){
             leadershipChangeAnnounced = true;
             leadershipChangeDetails.leaderId = leaderId;
@@ -1387,8 +1387,8 @@ TEST_F(ServerTests, NoLeadershipGainWhenNotYetLeader) {
         [
             &leadershipChangeAnnounced
         ](
-            unsigned int leaderId,
-            unsigned int term
+            int leaderId,
+            int term
         ){
             leadershipChangeAnnounced = true;
         }
@@ -1429,8 +1429,8 @@ TEST_F(ServerTests, NoLeadershipGainWhenAlreadyLeader) {
         [
             &leadershipChangeAnnounced
         ](
-            unsigned int leaderId,
-            unsigned int term
+            int leaderId,
+            int term
         ){
             leadershipChangeAnnounced = true;
         }
@@ -1474,24 +1474,24 @@ TEST_F(ServerTests, AnnounceLeaderWhenAFollower) {
     // Arrange
     bool leadershipChangeAnnounced = false;
     struct {
-        unsigned int leaderId = 0;
-        unsigned int term = 0;
+        int leaderId = 0;
+        int term = 0;
     } leadershipChangeDetails;
     server.SetLeadershipChangeDelegate(
         [
             &leadershipChangeAnnounced,
             &leadershipChangeDetails
         ](
-            unsigned int leaderId,
-            unsigned int term
+            int leaderId,
+            int term
         ){
             leadershipChangeAnnounced = true;
             leadershipChangeDetails.leaderId = leaderId;
             leadershipChangeDetails.term = term;
         }
     );
-    constexpr unsigned int leaderId = 2;
-    constexpr unsigned int newTerm = 1;
+    constexpr int leaderId = 2;
+    constexpr int newTerm = 1;
 
     // Act
     configuration.currentTerm = 0;

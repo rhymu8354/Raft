@@ -63,18 +63,18 @@ namespace Raft {
             /**
              * This holds the unique identifiers of all servers in the cluster.
              */
-            std::vector< unsigned int > instanceNumbers;
+            std::vector< int > instanceNumbers;
 
             /**
              * This is the unique identifier of this server, amongst all the
              * servers in the cluster.
              */
-            unsigned int selfInstanceNumber = 0;
+            int selfInstanceNumber = 0;
 
             /**
              * This is the last term the server has seen.
              */
-            unsigned int currentTerm = 0;
+            int currentTerm = 0;
 
             /**
              * This is the lower bound of the range of time, starting from the
@@ -111,7 +111,7 @@ namespace Raft {
         using SendMessageDelegate = std::function<
             void(
                 std::shared_ptr< Message > message,
-                unsigned int receiverInstanceNumber
+                int receiverInstanceNumber
             )
         >;
 
@@ -140,8 +140,8 @@ namespace Raft {
          */
         using LeadershipChangeDelegate = std::function<
             void(
-                unsigned int leaderId,
-                unsigned int term
+                int leaderId,
+                int term
             )
         >;
 
@@ -213,7 +213,7 @@ namespace Raft {
          */
         virtual void ReceiveMessage(
             std::shared_ptr< Message > message,
-            unsigned int senderInstanceNumber
+            int senderInstanceNumber
         ) = 0;
 
         /**

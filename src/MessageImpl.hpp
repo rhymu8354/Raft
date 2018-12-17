@@ -54,12 +54,12 @@ namespace Raft {
             /**
              * This is the term of the new election.
              */
-            unsigned int term = 0;
+            int term = 0;
 
             /**
              * This is the instance ID of the candidate requesting the vote.
              */
-            unsigned int candidateId = 0;
+            int candidateId = 0;
         };
 
         /**
@@ -69,7 +69,7 @@ namespace Raft {
             /**
              * This is the current term in effect at the sender.
              */
-            unsigned int term = 0;
+            int term = 0;
 
             /**
              * This is true if the sender granted their vote to the candidate.
@@ -84,7 +84,7 @@ namespace Raft {
             /**
              * This is the current term in effect at the sender.
              */
-            unsigned int term = 0;
+            int term = 0;
         };
 
         // Properties

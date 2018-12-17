@@ -98,7 +98,7 @@ namespace Raft {
         virtual void Demobilize() override;
         virtual void ReceiveMessage(
             std::shared_ptr< Message > message,
-            unsigned int senderInstanceNumber
+            int senderInstanceNumber
         ) override;
         virtual ElectionState GetElectionState() override;
 
