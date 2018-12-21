@@ -373,7 +373,7 @@ namespace Raft {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 3,
                 "Server %u is now the leader in term %u",
-                leaderId + 1,
+                leaderId,
                 term
             );
             LeadershipAnnouncementToBeSent leadershipAnnouncementToBeSent;
@@ -583,7 +583,7 @@ namespace Raft {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
                     "Rejecting vote for server %u (old term %u < %u)",
-                    senderInstanceNumber + 1,
+                    senderInstanceNumber,
                     messageDetails.term,
                     shared->configuration.currentTerm
                 );
@@ -596,8 +596,8 @@ namespace Raft {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
                     "Rejecting vote for server %u (already voted for %u for term %u -- we are in term %u)",
-                    senderInstanceNumber + 1,
-                    shared->votedFor + 1,
+                    senderInstanceNumber,
+                    shared->votedFor,
                     messageDetails.term,
                     shared->configuration.currentTerm
                 );
@@ -606,7 +606,7 @@ namespace Raft {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
                     "Voting for server %u for term %u (we were in term %u)",
-                    senderInstanceNumber + 1,
+                    senderInstanceNumber,
                     messageDetails.term,
                     shared->configuration.currentTerm
                 );
@@ -641,7 +641,7 @@ namespace Raft {
                     shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                         1,
                         "Server %u voted for us in term %u (%zu/%zu)",
-                        senderInstanceNumber + 1,
+                        senderInstanceNumber,
                         shared->configuration.currentTerm,
                         shared->votesForUs,
                         shared->configuration.instanceNumbers.size()
@@ -664,7 +664,7 @@ namespace Raft {
                     shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                         1,
                         "Repeat vote from server %u in term %u ignored",
-                        senderInstanceNumber + 1,
+                        senderInstanceNumber,
                         messageDetails.term
                     );
                 }
@@ -672,7 +672,7 @@ namespace Raft {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
                     "Server %u refused to voted for us in term %u",
-                    senderInstanceNumber + 1,
+                    senderInstanceNumber,
                     shared->configuration.currentTerm
                 );
             }
@@ -697,7 +697,7 @@ namespace Raft {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
                 "Received heartbeat from server %u in term %u (we are in term %u)",
-                senderInstanceNumber + 1,
+                senderInstanceNumber,
                 messageDetails.term,
                 shared->configuration.currentTerm
             );
