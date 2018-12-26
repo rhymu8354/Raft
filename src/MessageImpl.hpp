@@ -101,7 +101,7 @@ namespace Raft {
              * has been successfully replicated to a majority of servers in the
              * cluster.
              */
-            int leaderCommit = 0;
+            size_t leaderCommit = 0;
         };
 
         /**
