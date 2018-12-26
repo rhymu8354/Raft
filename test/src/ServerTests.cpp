@@ -1545,10 +1545,12 @@ TEST_F(ServerTests, LeaderAppendLogEntry) {
     });
 
     // Act
+    EXPECT_EQ(0, server.GetLastIndex());
     server.AppendLogEntries(entries);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
+    EXPECT_EQ(2, server.GetLastIndex());
     std::map< int, bool > appendEntriesReceivedPerInstance;
     for (auto instanceNumber: configuration.instanceNumbers) {
         appendEntriesReceivedPerInstance[instanceNumber] = false;
@@ -1597,6 +1599,7 @@ TEST_F(ServerTests, FollowerAppendLogEntry) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
+    EXPECT_EQ(0, server.GetLastIndex());
     const auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
     message->impl_->appendEntries.term = 9;
@@ -1610,6 +1613,7 @@ TEST_F(ServerTests, FollowerAppendLogEntry) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
+    EXPECT_EQ(2, server.GetLastIndex());
     ASSERT_TRUE(appendEntriesReceived);
     ASSERT_EQ(2, appendEntriesDetails.entries.size());
     EXPECT_EQ(4, appendEntriesDetails.entries[0].term);

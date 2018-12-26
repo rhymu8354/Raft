@@ -203,10 +203,9 @@ namespace {
         size_t commitIndex = 0;
 
         /**
-         * This is the index of the last log entry to have been sent to the
-         * cluster in AppendEntries messages.
+         * This is the index of the last entry appended to the log.
          */
-        size_t appendIndex = 0;
+        size_t lastIndex = 0;
 
         // Methods
 
@@ -862,10 +861,11 @@ namespace Raft {
                 }
             }
             RevertToFollower();
+            shared->lastIndex += entries.size();
+            shared->commitIndex = messageDetails.leaderCommit;
             if (!entries.empty()) {
                 QueueAppendEntriesAnnouncement(std::move(entries));
             }
-            shared->commitIndex = messageDetails.leaderCommit;
         }
 
         /**
@@ -896,7 +896,7 @@ namespace Raft {
                 shared->appendEntriesResponses
                 > shared->configuration.instanceNumbers.size() - shared->appendEntriesResponses
             ) {
-                shared->commitIndex = shared->appendIndex;
+                shared->commitIndex = shared->lastIndex;
             }
         }
 
@@ -1057,6 +1057,11 @@ namespace Raft {
         impl_->shared->commitIndex = commitIndex;
     }
 
+    size_t Server::GetLastIndex() const {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        return impl_->shared->lastIndex;
+    }
+
     bool Server::Configure(const Configuration& configuration) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->shared->configuration = configuration;
@@ -1153,7 +1158,7 @@ namespace Raft {
         }
         const auto now = impl_->timeKeeper->GetCurrentTime();
         impl_->shared->appendEntriesResponses = 0;
-        impl_->shared->appendIndex += entries.size();
+        impl_->shared->lastIndex += entries.size();
         impl_->QueueAppendEntriesToBeSent(now, entries);
     }
 

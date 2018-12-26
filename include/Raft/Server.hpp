@@ -109,6 +109,14 @@ namespace Raft {
         void SetCommitIndex(size_t commitIndex);
 
         /**
+         * Return the index of the last entry appended to the log.
+         *
+         * @return
+         *     The index of the last entry appended to the log is returned.
+         */
+        size_t GetLastIndex() const;
+
+        /**
          * This method puts the server back into the state it was in when
          * first mobilized.
          */
