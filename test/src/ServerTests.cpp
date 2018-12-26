@@ -15,9 +15,11 @@
 #include <Json/Value.hpp>
 #include <limits>
 #include <mutex>
+#include <Raft/ILog.hpp>
 #include <Raft/Message.hpp>
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
+#include <stddef.h>
 #include <SystemAbstractions/StringExtensions.hpp>
 #include <vector>
 
@@ -39,6 +41,39 @@ namespace {
 
         virtual double GetCurrentTime() override {
             return currentTime;
+        }
+    };
+
+    /**
+     * This is a fake log keeper which is used to test the server.
+     */
+    struct MockLog
+        : public Raft::ILog
+    {
+        // Properties
+
+        std::vector< Raft::LogEntry > entries;
+
+        // Raft::ILog
+
+        virtual size_t GetSize() override {
+            return entries.size();
+        }
+
+        virtual const Raft::LogEntry& operator[](size_t index) override {
+            return entries[index - 1];
+        }
+
+        virtual void RollBack(size_t index) override {
+            entries.resize(index);
+        }
+
+        virtual void Append(const std::vector< Raft::LogEntry >& newEntries) override {
+            std::copy(
+                newEntries.begin(),
+                newEntries.end(),
+                std::back_inserter(entries)
+            );
         }
     };
 
@@ -67,6 +102,7 @@ struct ServerTests
     std::vector< std::string > diagnosticMessages;
     SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate diagnosticsUnsubscribeDelegate;
     const std::shared_ptr< MockTimeKeeper > mockTimeKeeper = std::make_shared< MockTimeKeeper >();
+    const std::shared_ptr< MockLog > mockLog = std::make_shared< MockLog >();
     std::vector< MessageInfo > messagesSent;
 
     // Methods
@@ -83,7 +119,7 @@ struct ServerTests
 
     void BecomeLeader() {
         server.Configure(configuration);
-        server.Mobilize();
+        server.Mobilize(mockLog);
         server.WaitForAtLeastOneWorkerLoop();
         mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
         server.WaitForAtLeastOneWorkerLoop();
@@ -105,7 +141,7 @@ struct ServerTests
         int term
     ) {
         server.Configure(configuration);
-        server.Mobilize();
+        server.Mobilize(mockLog);
         server.WaitForAtLeastOneWorkerLoop();
         const auto message = std::make_shared< Raft::Message >();
         message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
@@ -181,16 +217,16 @@ TEST_F(ServerTests, InitialConfiguration) {
 TEST_F(ServerTests, MobilizeTwiceDoesNotCrash) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
 
     // Act
-    server.Mobilize();
+    server.Mobilize(mockLog);
 }
 
 TEST_F(ServerTests, ElectionNeverStartsBeforeMinimumTimeoutInterval) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -204,7 +240,7 @@ TEST_F(ServerTests, ElectionNeverStartsBeforeMinimumTimeoutInterval) {
 TEST_F(ServerTests, ElectionAlwaysStartedWithinMaximumTimeoutInterval) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -229,7 +265,7 @@ TEST_F(ServerTests, ElectionAlwaysStartedWithinMaximumTimeoutInterval) {
 TEST_F(ServerTests, ElectionStartsAfterRandomIntervalBetweenMinimumAndMaximum) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -244,7 +280,7 @@ TEST_F(ServerTests, ElectionStartsAfterRandomIntervalBetweenMinimumAndMaximum) {
         messagesSent.clear();
         mockTimeKeeper->currentTime = 0.0;
         server.Demobilize();
-        server.Mobilize();
+        server.Mobilize(mockLog);
         server.WaitForAtLeastOneWorkerLoop();
         mockTimeKeeper->currentTime = configuration.minimumElectionTimeout + binInterval;
         for (
@@ -277,7 +313,7 @@ TEST_F(ServerTests, ElectionStartsAfterRandomIntervalBetweenMinimumAndMaximum) {
 TEST_F(ServerTests, RequestVoteNotSentToAllServersExceptSelf) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -302,7 +338,7 @@ TEST_F(ServerTests, RequestVoteNotSentToAllServersExceptSelf) {
 TEST_F(ServerTests, RequestVoteIncludesLastIndex) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     server.SetLastIndex(42);
 
@@ -324,7 +360,7 @@ TEST_F(ServerTests, RequestVoteIncludesLastIndex) {
 TEST_F(ServerTests, ServerVotesForItselfInElectionItStarts) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -341,7 +377,7 @@ TEST_F(ServerTests, ServerVotesForItselfInElectionItStarts) {
 TEST_F(ServerTests, ServerIncrementsTermInElectionItStarts) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -358,7 +394,7 @@ TEST_F(ServerTests, ServerIncrementsTermInElectionItStarts) {
 TEST_F(ServerTests, ServerDoesReceiveUnanimousVoteInElection) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -385,7 +421,7 @@ TEST_F(ServerTests, ServerDoesReceiveUnanimousVoteInElection) {
 TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -417,7 +453,7 @@ TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
 TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -467,7 +503,7 @@ TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
 TEST_F(ServerTests, ServerDoesNotRetransmitTooQuickly) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -503,7 +539,7 @@ TEST_F(ServerTests, ServerDoesNotRetransmitTooQuickly) {
 TEST_F(ServerTests, ServerRegularRetransmissions) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -566,7 +602,7 @@ TEST_F(ServerTests, ServerRegularRetransmissions) {
 TEST_F(ServerTests, ServerDoesNotReceiveAnyVotesInElection) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -593,7 +629,7 @@ TEST_F(ServerTests, ServerDoesNotReceiveAnyVotesInElection) {
 TEST_F(ServerTests, ServerAlmostWinsElection) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -629,7 +665,7 @@ TEST_F(ServerTests, ServerAlmostWinsElection) {
 TEST_F(ServerTests, TimeoutBeforeMajorityVoteOrNewLeaderHeartbeat) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -662,7 +698,7 @@ TEST_F(ServerTests, TimeoutBeforeMajorityVoteOrNewLeaderHeartbeat) {
 TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermNoVotePending) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -686,7 +722,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermNoVotePending) {
 TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForAnother) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
@@ -717,7 +753,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForAnother) {
 TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForSame) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
@@ -749,7 +785,7 @@ TEST_F(ServerTests, ReceiveVoteRequestLesserTerm) {
     // Arrange
     configuration.currentTerm = 1;
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -773,7 +809,7 @@ TEST_F(ServerTests, ReceiveVoteRequestLesserTerm) {
 TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenFollower) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     const auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
@@ -795,7 +831,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenFollower) {
 TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenCandidate) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -911,7 +947,7 @@ TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived
 TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermHeartbeatReceived) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -946,7 +982,7 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermHeartbeatRecei
 TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameTermHeartbeatReceived) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -1021,7 +1057,7 @@ TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
 TEST_F(ServerTests, RepeatVotesShouldNotCount) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -1058,7 +1094,7 @@ TEST_F(ServerTests, RepeatVotesShouldNotCount) {
 TEST_F(ServerTests, UpdateTermWhenReceivingHeartBeat) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -1096,7 +1132,7 @@ TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerSameTerm) {
     constexpr int newTerm = 1;
     configuration.currentTerm = newTerm;
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -1136,7 +1172,7 @@ TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerSameTerm) {
     constexpr int newTerm = 1;
     configuration.currentTerm = newTerm;
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
@@ -1180,7 +1216,7 @@ TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerNewerTerm) {
     constexpr int newTerm = 1;
     configuration.currentTerm = 0;
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -1220,7 +1256,7 @@ TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerNewerTerm) {
     constexpr int newTerm = 1;
     configuration.currentTerm = 0;
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
@@ -1266,7 +1302,7 @@ TEST_F(ServerTests, ReceivingTwoHeartBeatAsFollowerSequentialTerms) {
     constexpr int secondTerm = 2;
     configuration.currentTerm = 0;
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
@@ -1291,7 +1327,7 @@ TEST_F(ServerTests, ReceivingTwoHeartBeatAsFollowerSequentialTerms) {
 TEST_F(ServerTests, ReceivingHeartBeatFromSameTermShouldResetElectionTimeout) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -1311,7 +1347,7 @@ TEST_F(ServerTests, ReceivingHeartBeatFromSameTermShouldResetElectionTimeout) {
 TEST_F(ServerTests, IgnoreHeartBeatFromOldTerm) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
@@ -1332,7 +1368,7 @@ TEST_F(ServerTests, ReceivingHeartBeatFromOldTermShouldNotResetElectionTimeout) 
     // Arrange
     configuration.currentTerm = 42;
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
@@ -1357,7 +1393,7 @@ TEST_F(ServerTests, ReceivingHeartBeatFromOldTermShouldNotResetElectionTimeout) 
 TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermRequestVoteReceived) {
     // Arrange
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -1434,7 +1470,7 @@ TEST_F(ServerTests, NoLeadershipGainWhenNotYetLeader) {
     configuration.currentTerm = 0;
     configuration.selfInstanceNumber = 5;
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -1476,7 +1512,7 @@ TEST_F(ServerTests, NoLeadershipGainWhenAlreadyLeader) {
     configuration.currentTerm = 0;
     configuration.selfInstanceNumber = 5;
     server.Configure(configuration);
-    server.Mobilize();
+    server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
@@ -1573,6 +1609,10 @@ TEST_F(ServerTests, LeaderAppendLogEntry) {
 
     // Assert
     EXPECT_EQ(2, server.GetLastIndex());
+    ASSERT_EQ(entries.size(), mockLog->entries.size());
+    for (size_t i = 0; i < entries.size(); ++i) {
+        EXPECT_EQ(entries[i].term, mockLog->entries[i].term);
+    }
     std::map< int, bool > appendEntriesReceivedPerInstance;
     for (auto instanceNumber: configuration.instanceNumbers) {
         appendEntriesReceivedPerInstance[instanceNumber] = false;
@@ -1619,27 +1659,32 @@ TEST_F(ServerTests, FollowerAppendLogEntry) {
     configuration.selfInstanceNumber = 5;
     BecomeFollower(leaderId, newTerm);
     server.WaitForAtLeastOneWorkerLoop();
+    std::vector< Raft::LogEntry > entries;
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 4;
+    entries.push_back(std::move(firstEntry));
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 5;
+    entries.push_back(std::move(secondEntry));
 
     // Act
     EXPECT_EQ(0, server.GetLastIndex());
     const auto message = std::make_shared< Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
     message->impl_->appendEntries.term = 9;
-    Raft::LogEntry firstEntry;
-    firstEntry.term = 4;
-    message->impl_->log.push_back(std::move(firstEntry));
-    Raft::LogEntry secondEntry;
-    secondEntry.term = 5;
-    message->impl_->log.push_back(std::move(secondEntry));
+    message->impl_->log = entries;
     server.ReceiveMessage(message, leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     EXPECT_EQ(2, server.GetLastIndex());
     ASSERT_TRUE(appendEntriesReceived);
-    ASSERT_EQ(2, appendEntriesDetails.entries.size());
-    EXPECT_EQ(4, appendEntriesDetails.entries[0].term);
-    EXPECT_EQ(5, appendEntriesDetails.entries[1].term);
+    ASSERT_EQ(entries.size(), mockLog->entries.size());
+    ASSERT_EQ(entries.size(), appendEntriesDetails.entries.size());
+    for (size_t i = 0; i < entries.size(); ++i) {
+        EXPECT_EQ(entries[i].term, mockLog->entries[i].term);
+        EXPECT_EQ(entries[i].term, appendEntriesDetails.entries[i].term);
+    }
 }
 
 TEST_F(ServerTests, LeaderDoNotAdvanceCommitIndexWhenMajorityOfClusterHasNotYetAppliedLogEntry) {
@@ -1784,4 +1829,22 @@ TEST_F(ServerTests, AppendEntriesWhenNotLeader) {
 
     // Assert
     EXPECT_TRUE(messagesSent.empty());
+}
+
+TEST_F(ServerTests, InitializeLastIndex) {
+    // Arrange
+    server.Configure(configuration);
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 1;
+    mockLog->entries.push_back(std::move(firstEntry));
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 1;
+    mockLog->entries.push_back(std::move(secondEntry));
+
+    // Act
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_EQ(2, server.GetLastIndex());
 }

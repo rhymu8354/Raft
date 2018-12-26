@@ -9,6 +9,7 @@
  * © 2018 by Richard Walters
  */
 
+#include "ILog.hpp"
 #include "LogEntry.hpp"
 
 #include <functional>
@@ -217,8 +218,12 @@ namespace Raft {
 
         /**
          * This method starts the server's worker thread.
+         *
+         * @param[in] logKeeper
+         *     This is the object which is responsible for keeping
+         *     the actual log and making it persistent.
          */
-        virtual void Mobilize() = 0;
+        virtual void Mobilize(std::shared_ptr< ILog > logKeeper) = 0;
 
         /**
          * This method stops the server's worker thread.

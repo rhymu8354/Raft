@@ -6,6 +6,7 @@ cmake_minimum_required(VERSION 3.8)
 set(This Raft)
 
 set(Headers
+    include/Raft/ILog.hpp
     include/Raft/IServer.hpp
     include/Raft/LogEntry.hpp
     include/Raft/Message.hpp

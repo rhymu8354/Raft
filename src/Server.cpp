@@ -13,6 +13,7 @@
 #include <map>
 #include <mutex>
 #include <queue>
+#include <Raft/ILog.hpp>
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
 #include <random>
@@ -206,6 +207,12 @@ namespace {
          * This is the index of the last entry appended to the log.
          */
         size_t lastIndex = 0;
+
+        /**
+         * This is the object which is responsible for keeping
+         * the actual log and making it persistent.
+         */
+        std::shared_ptr< Raft::ILog > logKeeper;
 
         // Methods
 
@@ -862,6 +869,7 @@ namespace Raft {
                 }
             }
             RevertToFollower();
+            shared->logKeeper->Append(entries);
             shared->lastIndex += entries.size();
             shared->commitIndex = messageDetails.leaderCommit;
             if (!entries.empty()) {
@@ -1094,11 +1102,13 @@ namespace Raft {
         impl_->appendEntriesDelegate = appendEntriesDelegate;
     }
 
-    void Server::Mobilize() {
+    void Server::Mobilize(std::shared_ptr< ILog > logKeeper) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         if (impl_->worker.joinable()) {
             return;
         }
+        impl_->shared->logKeeper = logKeeper;
+        impl_->shared->lastIndex = logKeeper->GetSize();
         impl_->shared->instances.clear();
         impl_->shared->electionState = IServer::ElectionState::Follower;
         impl_->shared->timeOfLastLeaderMessage = 0.0;
@@ -1162,6 +1172,7 @@ namespace Raft {
         if (impl_->shared->electionState != ElectionState::Leader) {
             return;
         }
+        impl_->shared->logKeeper->Append(entries);
         const auto now = impl_->timeKeeper->GetCurrentTime();
         impl_->shared->appendEntriesResponses = 0;
         impl_->shared->lastIndex += entries.size();
