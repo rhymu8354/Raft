@@ -7,6 +7,9 @@
  * © 2018 by Richard Walters
  */
 
+#include <Raft/LogEntry.hpp>
+#include <vector>
+
 namespace Raft {
 
     /**
@@ -117,6 +120,12 @@ namespace Raft {
             AppendEntriesDetails appendEntries;
             AppendEntriesResultsDetails appendEntriesResults;
         };
+
+        /**
+         * These are the log entries attached to the message.
+         * This is only used for messages of type AppendEntries.
+         */
+        std::vector< LogEntry > log;
 
         // Methods
 

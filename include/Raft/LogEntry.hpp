@@ -17,7 +17,11 @@ namespace Raft {
      * directly relate to the algorithm.  It is meant to be subclassed in order
      * to hold actual concrete server state.
      */
-    class LogEntry {
+    struct LogEntry {
+        /**
+         * This is the term when the entry was received by the leader.
+         */
+        int term = 0;
     };
 
 }

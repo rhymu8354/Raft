@@ -33,6 +33,12 @@ namespace Raft {
         } else if (type == "AppendEntries") {
             impl_->type = MessageImpl::Type::AppendEntries;
             impl_->appendEntries.term = json["term"];
+            const auto& serializedLogEntries = json["log"];
+            for (size_t i = 0; i < serializedLogEntries.GetSize(); ++i) {
+                LogEntry logEntry;
+                logEntry.term = serializedLogEntries[i]["term"];
+                impl_->log.push_back(std::move(logEntry));
+            }
         }
     }
 
@@ -54,6 +60,14 @@ namespace Raft {
             case MessageImpl::Type::AppendEntries: {
                 json["type"] = "AppendEntries";
                 json["term"] = (int)impl_->appendEntries.term;
+                json["log"] = Json::Array({});
+                auto& serializedLog = json["log"];
+                for (const auto& logEntry: impl_->log) {
+                    auto serializedLogEntry = Json::Object({
+                        {"term", logEntry.term},
+                    });
+                    serializedLog.Add(std::move(serializedLogEntry));
+                }
             } break;
 
             case MessageImpl::Type::AppendEntriesResults: {

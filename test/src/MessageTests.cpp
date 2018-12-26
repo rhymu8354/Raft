@@ -94,6 +94,7 @@ TEST(MessageTests, SerializeHeartBeat) {
         Json::Object({
             {"type", "AppendEntries"},
             {"term", 8},
+            {"log", Json::Array({})},
         }),
         Json::Value::FromEncoding(message->Serialize())
     );
@@ -104,6 +105,7 @@ TEST(MessageTests, DeserializeHeartBeat) {
     const auto serializedMessage = Json::Object({
         {"type", "AppendEntries"},
         {"term", 8},
+        {"log", Json::Array({})},
     }).ToEncoding();
 
     // Act
@@ -112,6 +114,62 @@ TEST(MessageTests, DeserializeHeartBeat) {
     // Act
     EXPECT_EQ(Raft::MessageImpl::Type::AppendEntries, message->impl_->type);
     EXPECT_EQ(8, message->impl_->appendEntries.term);
+}
+
+TEST(MessageTests, SerializeAppendEntriesWithContent) {
+    // Arrange
+    const auto message = std::make_shared < Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = 8;
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 7;
+    message->impl_->log.push_back(std::move(firstEntry));
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 8;
+    message->impl_->log.push_back(std::move(secondEntry));
+
+    // Act
+    EXPECT_EQ(
+        Json::Object({
+            {"type", "AppendEntries"},
+            {"term", 8},
+            {"log", Json::Array({
+                Json::Object({
+                    {"term", 7},
+                }),
+                Json::Object({
+                    {"term", 8},
+                }),
+            })},
+        }),
+        Json::Value::FromEncoding(message->Serialize())
+    );
+}
+
+TEST(MessageTests, DeserializeAppendEntriesWithContent) {
+    // Arrange
+    const auto serializedMessage = Json::Object({
+        {"type", "AppendEntries"},
+        {"term", 8},
+        {"log", Json::Array({
+            Json::Object({
+                {"term", 7},
+            }),
+            Json::Object({
+                {"term", 8},
+            }),
+        })},
+    }).ToEncoding();
+
+    // Act
+    const auto message = std::make_shared < Raft::Message >(serializedMessage);
+
+    // Act
+    EXPECT_EQ(Raft::MessageImpl::Type::AppendEntries, message->impl_->type);
+    EXPECT_EQ(8, message->impl_->appendEntries.term);
+    ASSERT_EQ(2, message->impl_->log.size());
+    EXPECT_EQ(7, message->impl_->log[0].term);
+    EXPECT_EQ(8, message->impl_->log[1].term);
 }
 
 TEST(MessageTests, SerializeUnknown) {

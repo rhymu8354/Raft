@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <condition_variable>
 #include <gtest/gtest.h>
+#include <Json/Value.hpp>
 #include <limits>
 #include <mutex>
 #include <Raft/Message.hpp>
@@ -1503,4 +1504,184 @@ TEST_F(ServerTests, AnnounceLeaderWhenAFollower) {
     ASSERT_TRUE(leadershipChangeAnnounced);
     EXPECT_EQ(leaderId, leadershipChangeDetails.leaderId);
     EXPECT_EQ(newTerm, leadershipChangeDetails.term);
+}
+
+TEST_F(ServerTests, LeaderAppendLogEntry) {
+    // Arrange
+    BecomeLeader();
+    std::vector< Raft::LogEntry > entries;
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 1;
+    entries.push_back(std::move(firstEntry));
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 1;
+    entries.push_back(std::move(secondEntry));
+    const auto expectedSerializedMessage = Json::Object({
+        {"type", "AppendEntries"},
+        {"term", 1},
+        {"log", Json::Array({
+            Json::Object({
+                {"term", 1},
+            }),
+            Json::Object({
+                {"term", 1},
+            }),
+        })},
+    });
+
+    // Act
+    server.AppendLogEntries(entries);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    std::map< int, bool > appendEntriesReceivedPerInstance;
+    for (auto instanceNumber: configuration.instanceNumbers) {
+        appendEntriesReceivedPerInstance[instanceNumber] = false;
+    }
+    for (const auto& messageSent: messagesSent) {
+        if (messageSent.message->impl_->type == Raft::MessageImpl::Type::AppendEntries) {
+            appendEntriesReceivedPerInstance[messageSent.receiverInstanceNumber] = true;
+            const auto serializedMessage = messageSent.message->Serialize();
+            EXPECT_EQ(
+                expectedSerializedMessage,
+                Json::Value::FromEncoding(serializedMessage)
+            );
+        }
+    }
+    for (auto instanceNumber: configuration.instanceNumbers) {
+        if (instanceNumber == configuration.selfInstanceNumber) {
+            EXPECT_FALSE(appendEntriesReceivedPerInstance[instanceNumber]);
+        } else {
+            EXPECT_TRUE(appendEntriesReceivedPerInstance[instanceNumber]);
+        }
+    }
+}
+
+TEST_F(ServerTests, FollowerAppendLogEntry) {
+    // Arrange
+    bool appendEntriesReceived = false;
+    struct {
+        std::vector< Raft::LogEntry > entries;
+    } appendEntriesDetails;
+    server.SetAppendEntriesDelegate(
+        [
+            &appendEntriesReceived,
+            &appendEntriesDetails
+        ](
+            const std::vector< Raft::LogEntry >& entries
+        ){
+            appendEntriesReceived = true;
+            appendEntriesDetails.entries = entries;
+        }
+    );
+    constexpr int leaderId = 2;
+    constexpr int newTerm = 9;
+    configuration.currentTerm = 0;
+    configuration.selfInstanceNumber = 5;
+    BecomeFollower(leaderId, newTerm);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    const auto message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = 9;
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 4;
+    message->impl_->log.push_back(std::move(firstEntry));
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 5;
+    message->impl_->log.push_back(std::move(secondEntry));
+    server.ReceiveMessage(message, leaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_TRUE(appendEntriesReceived);
+    ASSERT_EQ(2, appendEntriesDetails.entries.size());
+    EXPECT_EQ(4, appendEntriesDetails.entries[0].term);
+    EXPECT_EQ(5, appendEntriesDetails.entries[1].term);
+}
+
+TEST_F(ServerTests, LeaderDoNotAdvanceCommitIndexWhenMajorityOfClusterHasNotYetAppliedLogEntry) {
+    // Arrange
+    BecomeLeader();
+    std::vector< Raft::LogEntry > entries;
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 1;
+    entries.push_back(std::move(firstEntry));
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 1;
+    entries.push_back(std::move(secondEntry));
+    const auto expectedSerializedMessage = Json::Object({
+        {"type", "AppendEntries"},
+        {"term", 1},
+        {"log", Json::Array({
+            Json::Object({
+                {"term", 1},
+            }),
+            Json::Object({
+                {"term", 1},
+            }),
+        })},
+    });
+
+    // Act
+    server.AppendLogEntries(entries);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_EQ(0, server.GetCommitIndex());
+}
+
+TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEntry) {
+    // Arrange
+    BecomeLeader();
+    std::vector< Raft::LogEntry > entries;
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 1;
+    entries.push_back(std::move(firstEntry));
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 1;
+    entries.push_back(std::move(secondEntry));
+    const auto expectedSerializedMessage = Json::Object({
+        {"type", "AppendEntries"},
+        {"term", 1},
+        {"log", Json::Array({
+            Json::Object({
+                {"term", 1},
+            }),
+            Json::Object({
+                {"term", 1},
+            }),
+        })},
+    });
+    server.AppendLogEntries(entries);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    size_t responseCount = 0;
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            const auto message = std::make_shared< Raft::Message >();
+            message->impl_->type = Raft::MessageImpl::Type::AppendEntriesResults;
+            server.ReceiveMessage(message, instance);
+            server.WaitForAtLeastOneWorkerLoop();
+            ++responseCount;
+            if (responseCount > configuration.instanceNumbers.size() - responseCount) {
+                EXPECT_EQ(2, server.GetCommitIndex());
+            } else {
+                EXPECT_EQ(0, server.GetCommitIndex());
+            }
+        }
+    }
+
+    // Assert
+}
+
+TEST_F(ServerTests, FollowerDoNotAdvanceCommitIndexWhenMajorityOfClusterHasNotYetAppliedLogEntry) {
+}
+
+TEST_F(ServerTests, FollowerAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEntry) {
+}
+
+TEST_F(ServerTests, AppendEntriesWhenNotLeader) {
 }

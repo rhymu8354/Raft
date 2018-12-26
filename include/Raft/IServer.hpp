@@ -9,6 +9,8 @@
  * © 2018 by Richard Walters
  */
 
+#include "LogEntry.hpp"
+
 #include <functional>
 #include <memory>
 #include <ostream>
@@ -145,6 +147,19 @@ namespace Raft {
             )
         >;
 
+        /**
+         * This declares the type of delegate used to forward new log entries
+         * provided by the cluster leader.
+         *
+         * @param[in] entries
+         *     These are the new log entries provided by the cluster leader.
+         */
+        using AppendEntriesDelegate = std::function<
+            void(
+                std::vector< Raft::LogEntry >&& entries
+            )
+        >;
+
         // Methods
     public:
         /**
@@ -191,6 +206,16 @@ namespace Raft {
         virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) = 0;
 
         /**
+         * Set up the given delegate to be called later whenever the server
+         * cluster leader provides more entries to be appended to the log.
+         *
+         * @param[in] appendEntriesDelegate
+         *     This is the delegate to be called later whenever the server
+         *     cluster leader provides more entries to be appended to the log.
+         */
+        virtual void SetAppendEntriesDelegate(AppendEntriesDelegate appendEntriesDelegate) = 0;
+
+        /**
          * This method starts the server's worker thread.
          */
         virtual void Mobilize() = 0;
@@ -227,6 +252,17 @@ namespace Raft {
          *     is returned.
          */
         virtual ElectionState GetElectionState() = 0;
+
+        /**
+         * Add the given entries to the server log.  Send out AppendEntries
+         * messages to the rest of the server cluster in order to replicate the
+         * log entries.
+         *
+         * @param[in] entries
+         *     These are the log entries to be added and replicated on all
+         *     servers in the cluster.
+         */
+        virtual void AppendLogEntries(const std::vector< LogEntry >& entries) = 0;
     };
 
     /**

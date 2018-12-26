@@ -83,6 +83,19 @@ namespace Raft {
         void WaitForAtLeastOneWorkerLoop();
 
         /**
+         * Return the current commit index of the server.  The commit index is
+         * the index of the last log entry that is known to have been appended
+         * to the logs of a majority of servers in the cluster.  Only committed
+         * log entries may be applied to server state machines.  Otherwise,
+         * servers may not correctly replicate state, especially when servers
+         * fail and new servers take over leadership.
+         *
+         * @return
+         *     The current commit index of the server is returned.
+         */
+        size_t GetCommitIndex() const;
+
+        /**
          * This method puts the server back into the state it was in when
          * first mobilized.
          */
@@ -94,6 +107,7 @@ namespace Raft {
         virtual void SetCreateMessageDelegate(CreateMessageDelegate createMessageDelegate) override;
         virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) override;
         virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) override;
+        virtual void SetAppendEntriesDelegate(AppendEntriesDelegate appendEntriesDelegate) override;
         virtual void Mobilize() override;
         virtual void Demobilize() override;
         virtual void ReceiveMessage(
@@ -101,6 +115,7 @@ namespace Raft {
             int senderInstanceNumber
         ) override;
         virtual ElectionState GetElectionState() override;
+        virtual void AppendLogEntries(const std::vector< LogEntry >& entries) override;
 
         // Private properties
     private:
