@@ -447,8 +447,8 @@ namespace Raft {
          */
         void QueueHeartBeatsToBeSent(double now) {
             const auto message = createMessageDelegate();
-            message->impl_->type = MessageImpl::Type::HeartBeat;
-            message->impl_->heartbeat.term = shared->configuration.currentTerm;
+            message->impl_->type = MessageImpl::Type::AppendEntries;
+            message->impl_->appendEntries.term = shared->configuration.currentTerm;
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
                 "Sending heartbeat (term %u)",
@@ -680,7 +680,7 @@ namespace Raft {
         }
 
         /**
-         * This method is called whenever the server receives a heartbeat
+         * This method is called whenever the server receives an AppendEntries
          * message from the cluster leader.
          *
          * @param[in] message
@@ -690,13 +690,16 @@ namespace Raft {
          *     This is the unique identifier of the server that sent the
          *     message.
          */
-        void OnReceiveHeartBeat(
-            const MessageImpl::HeartbeatDetails& messageDetails,
+        void OnReceiveAppendEntries(
+            const MessageImpl::AppendEntriesDetails& messageDetails,
             int senderInstanceNumber
         ) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
-                "Received heartbeat from server %u in term %u (we are in term %u)",
+                "Received AppendEntries(%zu entries building on %zu from term %d) from server %d in term %d (we are in term %d)",
+                0,
+                0,
+                0,
                 senderInstanceNumber,
                 messageDetails.term,
                 shared->configuration.currentTerm
@@ -718,6 +721,31 @@ namespace Raft {
                 }
             }
             RevertToFollower();
+        }
+
+        /**
+         * Handle the receipt of a response from a follower to an AppendEntries
+         * message.
+         *
+         * @param[in] message
+         *     This contains the details of the message received.
+         *
+         * @param[in] senderInstanceNumber
+         *     This is the unique identifier of the server that sent the
+         *     message.
+         */
+        void OnReceiveAppendEntriesResults(
+            const MessageImpl::AppendEntriesResultsDetails& messageDetails,
+            int senderInstanceNumber
+        ) {
+            shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                1,
+                "Received AppendEntriesResults(%s, term %zu) from server %d (we are in term %d)",
+                "success",
+                0,
+                senderInstanceNumber,
+                shared->configuration.currentTerm
+            );
         }
 
         /**
@@ -925,8 +953,12 @@ namespace Raft {
                 impl_->OnReceiveRequestVoteResults(message->impl_->requestVoteResults, senderInstanceNumber);
             } break;
 
-            case MessageImpl::Type::HeartBeat: {
-                impl_->OnReceiveHeartBeat(message->impl_->heartbeat, senderInstanceNumber);
+            case MessageImpl::Type::AppendEntries: {
+                impl_->OnReceiveAppendEntries(message->impl_->appendEntries, senderInstanceNumber);
+            } break;
+
+            case MessageImpl::Type::AppendEntriesResults: {
+                impl_->OnReceiveAppendEntries(message->impl_->appendEntries, senderInstanceNumber);
             } break;
 
             default: {

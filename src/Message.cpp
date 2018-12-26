@@ -30,9 +30,9 @@ namespace Raft {
             impl_->type = MessageImpl::Type::RequestVoteResults;
             impl_->requestVoteResults.term = json["term"];
             impl_->requestVoteResults.voteGranted = json["voteGranted"];
-        } else if (type == "HeartBeat") {
-            impl_->type = MessageImpl::Type::HeartBeat;
-            impl_->heartbeat.term = json["term"];
+        } else if (type == "AppendEntries") {
+            impl_->type = MessageImpl::Type::AppendEntries;
+            impl_->appendEntries.term = json["term"];
         }
     }
 
@@ -51,9 +51,12 @@ namespace Raft {
                 json["voteGranted"] = impl_->requestVoteResults.voteGranted;
             } break;
 
-            case MessageImpl::Type::HeartBeat: {
-                json["type"] = "HeartBeat";
-                json["term"] = (int)impl_->heartbeat.term;
+            case MessageImpl::Type::AppendEntries: {
+                json["type"] = "AppendEntries";
+                json["term"] = (int)impl_->appendEntries.term;
+            } break;
+
+            case MessageImpl::Type::AppendEntriesResults: {
             } break;
 
             default: {

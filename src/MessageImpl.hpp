@@ -41,10 +41,17 @@ namespace Raft {
             RequestVoteResults,
 
             /**
-             * This is sent by leader periodically to prevent followers from
-             * starting new elections.
+             * This is sent by the cluster leader to either replicate log
+             * entries or send a "heartbeat" to prevent followers from starting
+             * new elections.
              */
-            HeartBeat,
+            AppendEntries,
+
+            /**
+             * This is sent by a follower to respond to an AppendEntries
+             * message.
+             */
+            AppendEntriesResults,
         };
 
         /**
@@ -78,13 +85,20 @@ namespace Raft {
         };
 
         /**
-         * This holds message properties for Heartbeat type messages.
+         * This holds message properties for AppendEntries type messages.
          */
-        struct HeartbeatDetails {
+        struct AppendEntriesDetails {
             /**
              * This is the current term in effect at the sender.
              */
             int term = 0;
+        };
+
+        /**
+         * This holds message properties for AppendEntriesResults type
+         * messages.
+         */
+        struct AppendEntriesResultsDetails {
         };
 
         // Properties
@@ -100,7 +114,8 @@ namespace Raft {
         union {
             RequestVoteDetails requestVote;
             RequestVoteResultsDetails requestVoteResults;
-            HeartbeatDetails heartbeat;
+            AppendEntriesDetails appendEntries;
+            AppendEntriesResultsDetails appendEntriesResults;
         };
 
         // Methods

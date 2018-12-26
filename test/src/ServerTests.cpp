@@ -107,8 +107,8 @@ struct ServerTests
         server.Mobilize();
         server.WaitForAtLeastOneWorkerLoop();
         const auto message = std::make_shared< Raft::Message >();
-        message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-        message->impl_->heartbeat.term = term;
+        message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+        message->impl_->appendEntries.term = term;
         server.ReceiveMessage(message, leaderId);
         server.WaitForAtLeastOneWorkerLoop();
     }
@@ -872,8 +872,8 @@ TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived
 
     // Act
     const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = 2;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = 2;
     server.ReceiveMessage(message, 2);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -896,8 +896,8 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermHeartbeatRecei
 
     // Act
     const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = 2;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = 2;
     server.ReceiveMessage(message, 2);
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
@@ -931,8 +931,8 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameTermHeartbeatReceived
 
     // Act
     const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = 1;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = 1;
     server.ReceiveMessage(message, 2);
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
@@ -969,7 +969,7 @@ TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
         heartbeatsReceivedPerInstance[instanceNumber] = 0;
     }
     for (const auto& messageSent: messagesSent) {
-        if (messageSent.message->impl_->type == Raft::MessageImpl::Type::HeartBeat) {
+        if (messageSent.message->impl_->type == Raft::MessageImpl::Type::AppendEntries) {
             ++heartbeatsReceivedPerInstance[messageSent.receiverInstanceNumber];
         }
     }
@@ -1027,8 +1027,8 @@ TEST_F(ServerTests, UpdateTermWhenReceivingHeartBeat) {
 
     // Act
     const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = 2;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = 2;
     server.ReceiveMessage(message, 2);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1065,8 +1065,8 @@ TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerSameTerm) {
 
     // Act
     const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = newTerm;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = newTerm;
     server.ReceiveMessage(message, leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1103,16 +1103,16 @@ TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerSameTerm) {
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
     auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = newTerm;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = newTerm;
     server.ReceiveMessage(message, leaderId);
     server.WaitForAtLeastOneWorkerLoop();
     leadershipChangeAnnounced = false;
 
     // Act
     message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = newTerm;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = newTerm;
     server.ReceiveMessage(message, leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1149,8 +1149,8 @@ TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerNewerTerm) {
 
     // Act
     const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = newTerm;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = newTerm;
     server.ReceiveMessage(message, leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1187,16 +1187,16 @@ TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerNewerTerm) {
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
     auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = newTerm;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = newTerm;
     server.ReceiveMessage(message, leaderId);
     server.WaitForAtLeastOneWorkerLoop();
     leadershipChangeAnnounced = false;
 
     // Act
     message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = newTerm;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = newTerm;
     server.ReceiveMessage(message, leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1233,16 +1233,16 @@ TEST_F(ServerTests, ReceivingTwoHeartBeatAsFollowerSequentialTerms) {
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
     auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = firstTerm;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = firstTerm;
     server.ReceiveMessage(message, firstLeaderId);
     server.WaitForAtLeastOneWorkerLoop();
     leadershipChangeAnnounced = false;
 
     // Act
     message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = secondTerm;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = secondTerm;
     server.ReceiveMessage(message, secondLeaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1261,8 +1261,8 @@ TEST_F(ServerTests, ReceivingHeartBeatFromSameTermShouldResetElectionTimeout) {
     // Act
     while (mockTimeKeeper->currentTime <= configuration.maximumElectionTimeout * 2) {
         const auto message = std::make_shared< Raft::Message >();
-        message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-        message->impl_->heartbeat.term = 2;
+        message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+        message->impl_->appendEntries.term = 2;
         server.ReceiveMessage(message, 2);
         mockTimeKeeper->currentTime += 0.001;
         server.WaitForAtLeastOneWorkerLoop();
@@ -1278,14 +1278,14 @@ TEST_F(ServerTests, IgnoreHeartBeatFromOldTerm) {
     server.Mobilize();
     server.WaitForAtLeastOneWorkerLoop();
     auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = 2;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = 2;
     server.ReceiveMessage(message, 2);
 
     // Act
     message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = 1;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = 1;
     server.ReceiveMessage(message, 2);
 
     // Assert
@@ -1303,8 +1303,8 @@ TEST_F(ServerTests, ReceivingHeartBeatFromOldTermShouldNotResetElectionTimeout) 
     bool electionStarted = false;
     while (mockTimeKeeper->currentTime <= configuration.maximumElectionTimeout * 2) {
         const auto message = std::make_shared< Raft::Message >();
-        message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-        message->impl_->heartbeat.term = 13;
+        message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+        message->impl_->appendEntries.term = 13;
         server.ReceiveMessage(message, 2);
         mockTimeKeeper->currentTime += 0.001;
         server.WaitForAtLeastOneWorkerLoop();

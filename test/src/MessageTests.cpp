@@ -86,13 +86,13 @@ TEST(MessageTests, DeserializeRequestVoteResults) {
 TEST(MessageTests, SerializeHeartBeat) {
     // Arrange
     const auto message = std::make_shared < Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::HeartBeat;
-    message->impl_->heartbeat.term = 8;
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = 8;
 
     // Act
     EXPECT_EQ(
         Json::Object({
-            {"type", "HeartBeat"},
+            {"type", "AppendEntries"},
             {"term", 8},
         }),
         Json::Value::FromEncoding(message->Serialize())
@@ -102,7 +102,7 @@ TEST(MessageTests, SerializeHeartBeat) {
 TEST(MessageTests, DeserializeHeartBeat) {
     // Arrange
     const auto serializedMessage = Json::Object({
-        {"type", "HeartBeat"},
+        {"type", "AppendEntries"},
         {"term", 8},
     }).ToEncoding();
 
@@ -110,8 +110,8 @@ TEST(MessageTests, DeserializeHeartBeat) {
     const auto message = std::make_shared < Raft::Message >(serializedMessage);
 
     // Act
-    EXPECT_EQ(Raft::MessageImpl::Type::HeartBeat, message->impl_->type);
-    EXPECT_EQ(8, message->impl_->heartbeat.term);
+    EXPECT_EQ(Raft::MessageImpl::Type::AppendEntries, message->impl_->type);
+    EXPECT_EQ(8, message->impl_->appendEntries.term);
 }
 
 TEST(MessageTests, SerializeUnknown) {
