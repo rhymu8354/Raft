@@ -19,13 +19,15 @@ TEST(MessageTests, SerializeRequestVote) {
     message->impl_->type = Raft::MessageImpl::Type::RequestVote;
     message->impl_->requestVote.term = 42;
     message->impl_->requestVote.candidateId = 5;
+    message->impl_->requestVote.lastLogIndex = 99;
 
     // Act
     EXPECT_EQ(
         Json::Object({
             {"type", "RequestVote"},
             {"term", 42},
-            {"candidateId", 5}
+            {"candidateId", 5},
+            {"lastLogIndex", 99},
         }),
         Json::Value::FromEncoding(message->Serialize())
     );
@@ -36,7 +38,8 @@ TEST(MessageTests, DeserializeRequestVote) {
     const auto serializedMessage = Json::Object({
         {"type", "RequestVote"},
         {"term", 42},
-        {"candidateId", 5}
+        {"candidateId", 5},
+        {"lastLogIndex", 11},
     }).ToEncoding();
 
     // Act
@@ -46,6 +49,7 @@ TEST(MessageTests, DeserializeRequestVote) {
     EXPECT_EQ(Raft::MessageImpl::Type::RequestVote, message->impl_->type);
     EXPECT_EQ(42, message->impl_->requestVote.term);
     EXPECT_EQ(5, message->impl_->requestVote.candidateId);
+    EXPECT_EQ(11, message->impl_->requestVote.lastLogIndex);
 }
 
 TEST(MessageTests, SerializeRequestVoteResponse) {

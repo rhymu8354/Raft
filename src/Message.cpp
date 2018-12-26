@@ -26,6 +26,7 @@ namespace Raft {
             impl_->type = MessageImpl::Type::RequestVote;
             impl_->requestVote.term = json["term"];
             impl_->requestVote.candidateId = json["candidateId"];
+            impl_->requestVote.lastLogIndex = json["lastLogIndex"];
         } else if (type == "RequestVoteResults") {
             impl_->type = MessageImpl::Type::RequestVoteResults;
             impl_->requestVoteResults.term = json["term"];
@@ -50,6 +51,7 @@ namespace Raft {
                 json["type"] = "RequestVote";
                 json["term"] = impl_->requestVote.term;
                 json["candidateId"] = impl_->requestVote.candidateId;
+                json["lastLogIndex"] = impl_->requestVote.lastLogIndex;
             } break;
 
             case MessageImpl::Type::RequestVoteResults: {

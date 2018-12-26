@@ -491,6 +491,7 @@ namespace Raft {
             message->impl_->type = MessageImpl::Type::RequestVote;
             message->impl_->requestVote.candidateId = shared->configuration.selfInstanceNumber;
             message->impl_->requestVote.term = shared->configuration.currentTerm;
+            message->impl_->requestVote.lastLogIndex = shared->lastIndex;
             for (auto instanceNumber: shared->configuration.instanceNumbers) {
                 if (instanceNumber == shared->configuration.selfInstanceNumber) {
                     continue;
@@ -1060,6 +1061,11 @@ namespace Raft {
     size_t Server::GetLastIndex() const {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         return impl_->shared->lastIndex;
+    }
+
+    void Server::SetLastIndex(size_t lastIndex) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->shared->lastIndex = lastIndex;
     }
 
     bool Server::Configure(const Configuration& configuration) {

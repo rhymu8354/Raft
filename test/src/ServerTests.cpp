@@ -299,6 +299,28 @@ TEST_F(ServerTests, RequestVoteNotSentToAllServersExceptSelf) {
     );
 }
 
+TEST_F(ServerTests, RequestVoteIncludesLastIndex) {
+    // Arrange
+    server.Configure(configuration);
+    server.Mobilize();
+    server.WaitForAtLeastOneWorkerLoop();
+    server.SetLastIndex(42);
+
+    // Act
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    for (const auto messageInfo: messagesSent) {
+        EXPECT_EQ(
+            42,
+            (size_t)Json::Value::FromEncoding(
+                messageInfo.message->Serialize()
+            )["lastLogIndex"]
+        );
+    }
+}
+
 TEST_F(ServerTests, ServerVotesForItselfInElectionItStarts) {
     // Arrange
     server.Configure(configuration);

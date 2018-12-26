@@ -117,6 +117,19 @@ namespace Raft {
         size_t GetLastIndex() const;
 
         /**
+         * Record that the server has appended entries to the log up to the
+         * given index.
+         *
+         * @note
+         *     This is only to be used by test frameworks.
+         *
+         * @param[in] lastIndex
+         *     This is the index of the last log entry that is known to have
+         *     been appended to the log of the server.
+         */
+        void SetLastIndex(size_t lastIndex);
+
+        /**
          * This method puts the server back into the state it was in when
          * first mobilized.
          */

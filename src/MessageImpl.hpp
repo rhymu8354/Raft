@@ -70,6 +70,12 @@ namespace Raft {
              * This is the instance ID of the candidate requesting the vote.
              */
             int candidateId = 0;
+
+            /**
+             * This is the index of the last entry that was appended to the
+             * candidate's log.
+             */
+            size_t lastLogIndex = 0;
         };
 
         /**
