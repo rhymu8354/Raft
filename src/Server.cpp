@@ -545,7 +545,7 @@ namespace Raft {
                 }
                 QueueMessageToBeSent(message, instanceNumber, now);
             }
-            shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
+            shared->timeOfLastLeaderMessage = now;
         }
 
         /**
