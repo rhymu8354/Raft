@@ -117,7 +117,8 @@ struct ServerTests
         messagesSent.push_back(std::move(messageInfo));
     }
 
-    void BecomeLeader() {
+    void BecomeLeader(int term = 1) {
+        configuration.currentTerm = term - 1;
         server.Configure(configuration);
         server.Mobilize(mockLog);
         server.WaitForAtLeastOneWorkerLoop();
@@ -127,7 +128,7 @@ struct ServerTests
             if (instance != configuration.selfInstanceNumber) {
                 const auto message = std::make_shared< Raft::Message >();
                 message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
-                message->impl_->requestVoteResults.term = 1;
+                message->impl_->requestVoteResults.term = term;
                 message->impl_->requestVoteResults.voteGranted = true;
                 server.ReceiveMessage(message, instance);
             }
@@ -1721,30 +1722,26 @@ TEST_F(ServerTests, LeaderDoNotAdvanceCommitIndexWhenMajorityOfClusterHasNotYetA
 
 TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEntry) {
     // Arrange
-    BecomeLeader();
-    std::vector< Raft::LogEntry > entries;
+    BecomeLeader(7);
     Raft::LogEntry firstEntry;
-    firstEntry.term = 1;
-    entries.push_back(std::move(firstEntry));
+    firstEntry.term = 6;
     Raft::LogEntry secondEntry;
-    secondEntry.term = 1;
-    entries.push_back(std::move(secondEntry));
-    const auto expectedSerializedMessage = Json::Object({
-        {"type", "AppendEntries"},
-        {"term", 1},
-        {"log", Json::Array({
-            Json::Object({
-                {"term", 1},
-            }),
-            Json::Object({
-                {"term", 1},
-            }),
-        })},
-    });
-    server.AppendLogEntries(entries);
+    secondEntry.term = 7;
+    server.AppendLogEntries({firstEntry});
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            const auto message = std::make_shared< Raft::Message >();
+            message->impl_->type = Raft::MessageImpl::Type::AppendEntriesResults;
+            server.ReceiveMessage(message, instance);
+            server.WaitForAtLeastOneWorkerLoop();
+            EXPECT_EQ(0, server.GetCommitIndex());
+        }
+    }
+    server.AppendLogEntries({secondEntry});
+    server.WaitForAtLeastOneWorkerLoop();
     size_t responseCount = 0;
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {

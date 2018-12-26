@@ -902,8 +902,17 @@ namespace Raft {
             );
             ++shared->appendEntriesResponses;
             if (
-                shared->appendEntriesResponses
-                > shared->configuration.instanceNumbers.size() - shared->appendEntriesResponses
+                (
+                    shared->appendEntriesResponses
+                    > (
+                        shared->configuration.instanceNumbers.size()
+                        - shared->appendEntriesResponses
+                    )
+                )
+                && (
+                    shared->logKeeper->operator[](shared->lastIndex).term
+                    == shared->configuration.currentTerm
+                )
             ) {
                 shared->commitIndex = shared->lastIndex;
             }
