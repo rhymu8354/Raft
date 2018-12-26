@@ -96,6 +96,19 @@ namespace Raft {
         size_t GetCommitIndex() const;
 
         /**
+         * Record that the cluster has committed the log up to the given index.
+         *
+         * @note
+         *     This is only to be used by test frameworks.
+         *
+         * @param[in] commitIndex
+         *     This is the index of the last log entry that is known to have
+         *     been appended to the logs of a majority of servers in the
+         *     cluster.
+         */
+        void SetCommitIndex(size_t commitIndex);
+
+        /**
          * This method puts the server back into the state it was in when
          * first mobilized.
          */

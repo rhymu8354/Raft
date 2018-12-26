@@ -88,12 +88,14 @@ TEST(MessageTests, SerializeHeartBeat) {
     const auto message = std::make_shared < Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
     message->impl_->appendEntries.term = 8;
+    message->impl_->appendEntries.leaderCommit = 85;
 
     // Act
     EXPECT_EQ(
         Json::Object({
             {"type", "AppendEntries"},
             {"term", 8},
+            {"leaderCommit", 85},
             {"log", Json::Array({})},
         }),
         Json::Value::FromEncoding(message->Serialize())
@@ -105,6 +107,7 @@ TEST(MessageTests, DeserializeHeartBeat) {
     const auto serializedMessage = Json::Object({
         {"type", "AppendEntries"},
         {"term", 8},
+        {"leaderCommit", 18},
         {"log", Json::Array({})},
     }).ToEncoding();
 
@@ -114,6 +117,7 @@ TEST(MessageTests, DeserializeHeartBeat) {
     // Act
     EXPECT_EQ(Raft::MessageImpl::Type::AppendEntries, message->impl_->type);
     EXPECT_EQ(8, message->impl_->appendEntries.term);
+    EXPECT_EQ(18, message->impl_->appendEntries.leaderCommit);
 }
 
 TEST(MessageTests, SerializeAppendEntriesWithContent) {
@@ -121,6 +125,7 @@ TEST(MessageTests, SerializeAppendEntriesWithContent) {
     const auto message = std::make_shared < Raft::Message >();
     message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
     message->impl_->appendEntries.term = 8;
+    message->impl_->appendEntries.leaderCommit = 77;
     Raft::LogEntry firstEntry;
     firstEntry.term = 7;
     message->impl_->log.push_back(std::move(firstEntry));
@@ -133,6 +138,7 @@ TEST(MessageTests, SerializeAppendEntriesWithContent) {
         Json::Object({
             {"type", "AppendEntries"},
             {"term", 8},
+            {"leaderCommit", 77},
             {"log", Json::Array({
                 Json::Object({
                     {"term", 7},
@@ -151,6 +157,7 @@ TEST(MessageTests, DeserializeAppendEntriesWithContent) {
     const auto serializedMessage = Json::Object({
         {"type", "AppendEntries"},
         {"term", 8},
+        {"leaderCommit", 33},
         {"log", Json::Array({
             Json::Object({
                 {"term", 7},
@@ -167,6 +174,7 @@ TEST(MessageTests, DeserializeAppendEntriesWithContent) {
     // Act
     EXPECT_EQ(Raft::MessageImpl::Type::AppendEntries, message->impl_->type);
     EXPECT_EQ(8, message->impl_->appendEntries.term);
+    EXPECT_EQ(33, message->impl_->appendEntries.leaderCommit);
     ASSERT_EQ(2, message->impl_->log.size());
     EXPECT_EQ(7, message->impl_->log[0].term);
     EXPECT_EQ(8, message->impl_->log[1].term);

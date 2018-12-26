@@ -959,6 +959,14 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameTermHeartbeatReceived
 TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
     // Arrange
     BecomeLeader();
+    server.SetCommitIndex(42);
+    const auto expectedSerializedMessage = Json::Object({
+        {"type", "AppendEntries"},
+        {"term", 1},
+        {"leaderCommit", 42},
+        {"log", Json::Array({
+        })},
+    });
 
     // Act
     mockTimeKeeper->currentTime += configuration.minimumElectionTimeout / 2 + 0.001;
@@ -972,6 +980,11 @@ TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
     for (const auto& messageSent: messagesSent) {
         if (messageSent.message->impl_->type == Raft::MessageImpl::Type::AppendEntries) {
             ++heartbeatsReceivedPerInstance[messageSent.receiverInstanceNumber];
+            const auto serializedMessage = messageSent.message->Serialize();
+            EXPECT_EQ(
+                expectedSerializedMessage,
+                Json::Value::FromEncoding(serializedMessage)
+            );
         }
     }
     for (auto instanceNumber: configuration.instanceNumbers) {
@@ -1509,6 +1522,7 @@ TEST_F(ServerTests, AnnounceLeaderWhenAFollower) {
 TEST_F(ServerTests, LeaderAppendLogEntry) {
     // Arrange
     BecomeLeader();
+    server.SetCommitIndex(42);
     std::vector< Raft::LogEntry > entries;
     Raft::LogEntry firstEntry;
     firstEntry.term = 1;
@@ -1519,6 +1533,7 @@ TEST_F(ServerTests, LeaderAppendLogEntry) {
     const auto expectedSerializedMessage = Json::Object({
         {"type", "AppendEntries"},
         {"term", 1},
+        {"leaderCommit", 42},
         {"log", Json::Array({
             Json::Object({
                 {"term", 1},
@@ -1614,6 +1629,7 @@ TEST_F(ServerTests, LeaderDoNotAdvanceCommitIndexWhenMajorityOfClusterHasNotYetA
     const auto expectedSerializedMessage = Json::Object({
         {"type", "AppendEntries"},
         {"term", 1},
+        {"leaderCommit", 0},
         {"log", Json::Array({
             Json::Object({
                 {"term", 1},
@@ -1677,11 +1693,69 @@ TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEn
     // Assert
 }
 
-TEST_F(ServerTests, FollowerDoNotAdvanceCommitIndexWhenMajorityOfClusterHasNotYetAppliedLogEntry) {
-}
-
 TEST_F(ServerTests, FollowerAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEntry) {
+    // Arrange
+    constexpr int leaderId = 2;
+    constexpr int newTerm = 9;
+    configuration.currentTerm = 0;
+    configuration.selfInstanceNumber = 5;
+    BecomeFollower(leaderId, newTerm);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    const auto message = std::make_shared< Raft::Message >();
+    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
+    message->impl_->appendEntries.term = 9;
+    message->impl_->appendEntries.leaderCommit = 0;
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 4;
+    message->impl_->log.push_back(std::move(firstEntry));
+    server.ReceiveMessage(message, leaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+    EXPECT_EQ(0, server.GetCommitIndex());
+    message->impl_->appendEntries.leaderCommit = 1;
+    message->impl_->log.clear();
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 5;
+    message->impl_->log.push_back(std::move(secondEntry));
+    server.ReceiveMessage(message, leaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_EQ(1, server.GetCommitIndex());
 }
 
 TEST_F(ServerTests, AppendEntriesWhenNotLeader) {
+    // Arrange
+    constexpr int leaderId = 2;
+    constexpr int newTerm = 1;
+    configuration.currentTerm = 0;
+    configuration.selfInstanceNumber = 5;
+    BecomeFollower(leaderId, newTerm);
+    std::vector< Raft::LogEntry > entries;
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 1;
+    entries.push_back(std::move(firstEntry));
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 1;
+    entries.push_back(std::move(secondEntry));
+    const auto expectedSerializedMessage = Json::Object({
+        {"type", "AppendEntries"},
+        {"term", 1},
+        {"log", Json::Array({
+            Json::Object({
+                {"term", 1},
+            }),
+            Json::Object({
+                {"term", 1},
+            }),
+        })},
+    });
+
+    // Act
+    server.AppendLogEntries(entries);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_TRUE(messagesSent.empty());
 }

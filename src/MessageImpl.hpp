@@ -95,6 +95,13 @@ namespace Raft {
              * This is the current term in effect at the sender.
              */
             int term = 0;
+
+            /**
+             * This is the index of the last log entry that the leader knows
+             * has been successfully replicated to a majority of servers in the
+             * cluster.
+             */
+            int leaderCommit = 0;
         };
 
         /**

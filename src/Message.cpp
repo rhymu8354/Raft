@@ -33,6 +33,7 @@ namespace Raft {
         } else if (type == "AppendEntries") {
             impl_->type = MessageImpl::Type::AppendEntries;
             impl_->appendEntries.term = json["term"];
+            impl_->appendEntries.leaderCommit = json["leaderCommit"];
             const auto& serializedLogEntries = json["log"];
             for (size_t i = 0; i < serializedLogEntries.GetSize(); ++i) {
                 LogEntry logEntry;
@@ -47,19 +48,20 @@ namespace Raft {
         switch (impl_->type) {
             case MessageImpl::Type::RequestVote: {
                 json["type"] = "RequestVote";
-                json["term"] = (int)impl_->requestVote.term;
-                json["candidateId"] = (int)impl_->requestVote.candidateId;
+                json["term"] = impl_->requestVote.term;
+                json["candidateId"] = impl_->requestVote.candidateId;
             } break;
 
             case MessageImpl::Type::RequestVoteResults: {
                 json["type"] = "RequestVoteResults";
-                json["term"] = (int)impl_->requestVoteResults.term;
+                json["term"] = impl_->requestVoteResults.term;
                 json["voteGranted"] = impl_->requestVoteResults.voteGranted;
             } break;
 
             case MessageImpl::Type::AppendEntries: {
                 json["type"] = "AppendEntries";
-                json["term"] = (int)impl_->appendEntries.term;
+                json["term"] = impl_->appendEntries.term;
+                json["leaderCommit"] = impl_->appendEntries.leaderCommit;
                 json["log"] = Json::Array({});
                 auto& serializedLog = json["log"];
                 for (const auto& logEntry: impl_->log) {

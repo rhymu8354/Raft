@@ -526,6 +526,7 @@ namespace Raft {
             const auto message = createMessageDelegate();
             message->impl_->type = MessageImpl::Type::AppendEntries;
             message->impl_->appendEntries.term = shared->configuration.currentTerm;
+            message->impl_->appendEntries.leaderCommit = shared->commitIndex;
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
                 "Sending heartbeat (term %u)",
@@ -557,6 +558,7 @@ namespace Raft {
             const auto message = createMessageDelegate();
             message->impl_->type = MessageImpl::Type::AppendEntries;
             message->impl_->appendEntries.term = shared->configuration.currentTerm;
+            message->impl_->appendEntries.leaderCommit = shared->commitIndex;
             message->impl_->log = entries;
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
@@ -863,6 +865,7 @@ namespace Raft {
             if (!entries.empty()) {
                 QueueAppendEntriesAnnouncement(std::move(entries));
             }
+            shared->commitIndex = messageDetails.leaderCommit;
         }
 
         /**
@@ -1049,6 +1052,11 @@ namespace Raft {
         return impl_->shared->commitIndex;
     }
 
+    void Server::SetCommitIndex(size_t commitIndex) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->shared->commitIndex = commitIndex;
+    }
+
     bool Server::Configure(const Configuration& configuration) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->shared->configuration = configuration;
@@ -1140,6 +1148,9 @@ namespace Raft {
 
     void Server::AppendLogEntries(const std::vector< LogEntry >& entries) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        if (impl_->shared->electionState != ElectionState::Leader) {
+            return;
+        }
         const auto now = impl_->timeKeeper->GetCurrentTime();
         impl_->shared->appendEntriesResponses = 0;
         impl_->shared->appendIndex += entries.size();
