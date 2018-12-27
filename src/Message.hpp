@@ -81,6 +81,12 @@ namespace Raft {
              * candidate's log.
              */
             size_t lastLogIndex = 0;
+
+            /**
+             * This is the term of the last entry that was appended to the
+             * candidate's log.
+             */
+            int lastLogTerm = 0;
         };
 
         /**

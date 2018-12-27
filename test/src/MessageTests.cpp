@@ -19,6 +19,7 @@ TEST(MessageTests, SerializeRequestVote) {
     message.requestVote.term = 42;
     message.requestVote.candidateId = 5;
     message.requestVote.lastLogIndex = 99;
+    message.requestVote.lastLogTerm = 7;
 
     // Act
     EXPECT_EQ(
@@ -27,6 +28,7 @@ TEST(MessageTests, SerializeRequestVote) {
             {"term", 42},
             {"candidateId", 5},
             {"lastLogIndex", 99},
+            {"lastLogTerm", 7},
         }),
         Json::Value::FromEncoding(message.Serialize())
     );
@@ -39,6 +41,7 @@ TEST(MessageTests, DeserializeRequestVote) {
         {"term", 42},
         {"candidateId", 5},
         {"lastLogIndex", 11},
+        {"lastLogTerm", 3},
     }).ToEncoding();
 
     // Act
@@ -49,6 +52,7 @@ TEST(MessageTests, DeserializeRequestVote) {
     EXPECT_EQ(42, message.requestVote.term);
     EXPECT_EQ(5, message.requestVote.candidateId);
     EXPECT_EQ(11, message.requestVote.lastLogIndex);
+    EXPECT_EQ(3, message.requestVote.lastLogTerm);
 }
 
 TEST(MessageTests, SerializeRequestVoteResponse) {

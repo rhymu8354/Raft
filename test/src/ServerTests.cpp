@@ -52,6 +52,7 @@ namespace {
         // Properties
 
         std::vector< Raft::LogEntry > entries;
+        bool invalidEntryIndexed = false;
 
         // Raft::ILog
 
@@ -60,6 +61,13 @@ namespace {
         }
 
         virtual const Raft::LogEntry& operator[](size_t index) override {
+            if (
+                (index == 0)
+                || (index > entries.size())
+            ) {
+                invalidEntryIndexed = true;
+                return Raft::LogEntry();
+            }
             return entries[index - 1];
         }
 
@@ -363,6 +371,51 @@ TEST_F(ServerTests, RequestVoteIncludesLastIndex) {
             messageInfo.message.requestVote.lastLogIndex
         );
     }
+}
+
+TEST_F(ServerTests, RequestVoteIncludesLastTermWithLog) {
+    // Arrange
+    server.Configure(configuration);
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 3;
+    mockLog->entries.push_back(std::move(firstEntry));
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 7;
+    mockLog->entries.push_back(std::move(secondEntry));
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    for (const auto messageInfo: messagesSent) {
+        EXPECT_EQ(
+            7,
+            messageInfo.message.requestVote.lastLogTerm
+        );
+    }
+}
+
+TEST_F(ServerTests, RequestVoteIncludesLastTermWithoutLog) {
+    // Arrange
+    server.Configure(configuration);
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    for (const auto messageInfo: messagesSent) {
+        EXPECT_EQ(
+            0,
+            messageInfo.message.requestVote.lastLogTerm
+        );
+    }
+    EXPECT_FALSE(mockLog->invalidEntryIndexed);
 }
 
 TEST_F(ServerTests, ServerVotesForItselfInElectionItStarts) {

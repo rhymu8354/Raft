@@ -493,6 +493,11 @@ namespace Raft {
             message.requestVote.candidateId = shared->configuration.selfInstanceNumber;
             message.requestVote.term = shared->configuration.currentTerm;
             message.requestVote.lastLogIndex = shared->lastIndex;
+            if (shared->lastIndex > 0) {
+                message.requestVote.lastLogTerm = shared->logKeeper->operator[](shared->lastIndex).term;
+            } else {
+                message.requestVote.lastLogTerm = 0;
+            }
             for (auto instanceNumber: shared->configuration.instanceNumbers) {
                 if (instanceNumber == shared->configuration.selfInstanceNumber) {
                     continue;
