@@ -701,6 +701,22 @@ namespace Raft {
         }
 
         /**
+         * Set up all the state and mechanisms that are required to be set up
+         * or started once the server becomes the leader of the cluster.
+         */
+        void AssumeLeadership() {
+            shared->electionState = IServer::ElectionState::Leader;
+            shared->diagnosticsSender.SendDiagnosticInformationString(
+                3,
+                "Received majority vote -- assuming leadership"
+            );
+            QueueLeadershipChangeAnnouncement(
+                shared->configuration.selfInstanceNumber,
+                shared->configuration.currentTerm
+            );
+        }
+
+        /**
          * This method is called whenever the server receives a request to vote
          * for another server in the cluster.
          *
@@ -820,15 +836,7 @@ namespace Raft {
                         (shared->electionState == IServer::ElectionState::Candidate)
                         && (shared->votesForUs >= shared->configuration.instanceNumbers.size() / 2 + 1)
                     ) {
-                        shared->electionState = IServer::ElectionState::Leader;
-                        shared->diagnosticsSender.SendDiagnosticInformationString(
-                            3,
-                            "Received majority vote -- assuming leadership"
-                        );
-                        QueueLeadershipChangeAnnouncement(
-                            shared->configuration.selfInstanceNumber,
-                            shared->configuration.currentTerm
-                        );
+                        AssumeLeadership();
                     }
                 } else {
                     shared->diagnosticsSender.SendDiagnosticInformationFormatted(
