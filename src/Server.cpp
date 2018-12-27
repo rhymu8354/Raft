@@ -29,10 +29,10 @@ namespace {
      */
     struct InstanceInfo {
         /**
-         * During an election, this indicates whether or not we're still
-         * awaiting a RequestVote response from this instance.
+         * This indicates whether or not we're awaiting a response to the
+         * last RPC call message sent to this instance.
          */
-        bool awaitingVote = false;
+        bool awaitingResponse = false;
 
         /**
          * This is the time, according to the time keeper, that a request was
@@ -44,6 +44,23 @@ namespace {
          * This is the last request sent to the instance.
          */
         std::string lastRequest;
+
+        /**
+         * This is the index of the next log entry to send to this server.
+         */
+        size_t nextIndex = 0;
+
+        /**
+         * This is the index of the highest  log entry known to be replicated
+         * on this server.
+         */
+        size_t matchIndex = 0;
+
+        /**
+         * If awaiting an AppendEntries response, this is the number of
+         * entries that were sent in the AppendEntries message.
+         */
+        size_t numEntriesLastSent = 0;
     };
 
     /**
@@ -418,6 +435,34 @@ namespace Raft {
         }
 
         /**
+         * This method queues the given message to be sent later to the
+         * instance with the given unique identifier.
+         *
+         * @param[in] message
+         *     This is the message to send.
+         *
+         * @param[in] instanceNumber
+         *     This is the unique identifier of the recipient of the message.
+         *
+         * @param[in] now
+         *     This is the current time, according to the time keeper.
+         */
+        void QueueMessageToBeSent(
+            const Message& message,
+            int instanceNumber,
+            double now
+        ) {
+            if (
+                (message.type == Message::Type::RequestVote)
+                || (message.type == Message::Type::AppendEntries)
+            ) {
+                auto& instance = shared->instances[instanceNumber];
+                instance.awaitingResponse = true;
+            }
+            QueueMessageToBeSent(message.Serialize(), instanceNumber, now);
+        }
+
+        /**
          * This method queues a leadership announcement message to be sent
          * later.
          *
@@ -471,7 +516,7 @@ namespace Raft {
             shared->votedFor = shared->configuration.selfInstanceNumber;
             shared->votesForUs = 1;
             for (auto& instanceEntry: shared->instances) {
-                instanceEntry.second.awaitingVote = false;
+                instanceEntry.second.awaitingResponse = false;
             }
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 2,
@@ -503,8 +548,7 @@ namespace Raft {
                     continue;
                 }
                 auto& instance = shared->instances[instanceNumber];
-                instance.awaitingVote = true;
-                QueueMessageToBeSent(message.Serialize(), instanceNumber, now);
+                QueueMessageToBeSent(message, instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
         }
@@ -519,6 +563,44 @@ namespace Raft {
             ++shared->configuration.currentTerm;
             StepUpAsCandidate();
             SendInitialVoteRequests(now);
+        }
+
+        /**
+         * Queue an AppendEntries message to the server with the given unique
+         * identifier, containing all log entries starting with the one at the
+         * given index.
+         *
+         * @param[in] instanceId
+         *     This is the unique identifier of the server to which to attempt
+         *     to replicate log entries.
+         */
+        void AttemptLogReplication(int instanceId) {
+            auto& instance = shared->instances[instanceId];
+            Message message;
+            message.type = Message::Type::AppendEntries;
+            message.appendEntries.term = shared->configuration.currentTerm;
+            message.appendEntries.leaderCommit = shared->commitIndex;
+            message.appendEntries.prevLogIndex = instance.nextIndex - 1;
+            if (message.appendEntries.prevLogIndex == 0) {
+                message.appendEntries.prevLogTerm = 0;
+            } else {
+                message.appendEntries.prevLogTerm = shared->logKeeper->operator[](message.appendEntries.prevLogIndex).term;
+            }
+            for (size_t i = instance.nextIndex; i <= shared->lastIndex; ++i) {
+                message.log.push_back(shared->logKeeper->operator[](i));
+            }
+            instance.numEntriesLastSent = message.log.size();
+            shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                0,
+                "Sending log entries (%zu entries, term %u)",
+                message.log.size(),
+                shared->configuration.currentTerm
+            );
+            QueueMessageToBeSent(
+                message,
+                instanceId,
+                timeKeeper->GetCurrentTime()
+            );
         }
 
         /**
@@ -548,7 +630,9 @@ namespace Raft {
                 if (instanceNumber == shared->configuration.selfInstanceNumber) {
                     continue;
                 }
-                QueueMessageToBeSent(message.Serialize(), instanceNumber, now);
+                auto& instance = shared->instances[instanceNumber];
+                instance.numEntriesLastSent = 0;
+                QueueMessageToBeSent(message, instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = now;
         }
@@ -585,10 +669,15 @@ namespace Raft {
                 shared->configuration.currentTerm
             );
             for (auto instanceNumber: shared->configuration.instanceNumbers) {
-                if (instanceNumber == shared->configuration.selfInstanceNumber) {
+                auto& instance = shared->instances[instanceNumber];
+                if (
+                    (instanceNumber == shared->configuration.selfInstanceNumber)
+                    || instance.awaitingResponse
+                ) {
                     continue;
                 }
-                QueueMessageToBeSent(message.Serialize(), instanceNumber, now);
+                instance.numEntriesLastSent = message.log.size();
+                QueueMessageToBeSent(message, instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
         }
@@ -603,7 +692,7 @@ namespace Raft {
         void QueueRetransmissionsToBeSent(double now) {
             for (auto& instanceEntry: shared->instances) {
                 if (
-                    instanceEntry.second.awaitingVote
+                    instanceEntry.second.awaitingResponse
                     && (now - instanceEntry.second.timeLastRequestSent >= shared->configuration.rpcTimeout)
                 ) {
                     QueueMessageToBeSent(
@@ -706,7 +795,7 @@ namespace Raft {
          */
         void RevertToFollower() {
             for (auto& instanceEntry: shared->instances) {
-                instanceEntry.second.awaitingVote = false;
+                instanceEntry.second.awaitingResponse = false;
             }
             shared->electionState = IServer::ElectionState::Follower;
             ResetElectionTimer();
@@ -726,6 +815,10 @@ namespace Raft {
                 shared->configuration.selfInstanceNumber,
                 shared->configuration.currentTerm
             );
+            for (auto& instanceEntry: shared->instances) {
+                instanceEntry.second.nextIndex = shared->lastIndex + 1;
+                instanceEntry.second.matchIndex = 0;
+            }
         }
 
         /**
@@ -810,11 +903,7 @@ namespace Raft {
                 UpdateCurrentTerm(messageDetails.term);
                 RevertToFollower();
             }
-            QueueMessageToBeSent(
-                response.Serialize(),
-                senderInstanceNumber,
-                now
-            );
+            QueueMessageToBeSent(response, senderInstanceNumber, now);
         }
 
         /**
@@ -834,7 +923,7 @@ namespace Raft {
         ) {
             auto& instance = shared->instances[senderInstanceNumber];
             if (messageDetails.voteGranted) {
-                if (instance.awaitingVote) {
+                if (instance.awaitingResponse) {
                     ++shared->votesForUs;
                     shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                         1,
@@ -870,7 +959,7 @@ namespace Raft {
                     RevertToFollower();
                 }
             }
-            instance.awaitingVote = false;
+            instance.awaitingResponse = false;
         }
 
         /**
@@ -942,6 +1031,8 @@ namespace Raft {
             const Message::AppendEntriesResultsDetails& messageDetails,
             int senderInstanceNumber
         ) {
+            auto& instance = shared->instances[senderInstanceNumber];
+            instance.awaitingResponse = false;
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
                 "Received AppendEntriesResults(%s, term %zu) from server %d (we are in term %d)",
@@ -950,21 +1041,38 @@ namespace Raft {
                 senderInstanceNumber,
                 shared->configuration.currentTerm
             );
-            ++shared->appendEntriesResponses;
-            if (
-                (
-                    shared->appendEntriesResponses
-                    > (
-                        shared->configuration.instanceNumbers.size()
-                        - shared->appendEntriesResponses
-                    )
-                )
-                && (
-                    shared->logKeeper->operator[](shared->lastIndex).term
-                    == shared->configuration.currentTerm
-                )
+            if (messageDetails.success) {
+                instance.nextIndex += instance.numEntriesLastSent;
+                instance.matchIndex = instance.nextIndex - 1;
+                if (instance.nextIndex <= shared->lastIndex) {
+                    AttemptLogReplication(senderInstanceNumber);
+                }
+            } else {
+                --instance.nextIndex;
+                AttemptLogReplication(senderInstanceNumber);
+            }
+            std::map< size_t, size_t > indexMatchCounts;
+            for (const auto& instance: shared->instances) {
+                if (instance.first == shared->configuration.selfInstanceNumber) {
+                    continue;
+                }
+                ++indexMatchCounts[instance.second.matchIndex];
+            }
+            size_t totalMatchCounts = 0;
+            for (
+                auto indexMatchCountEntry = indexMatchCounts.rbegin();
+                indexMatchCountEntry != indexMatchCounts.rend();
+                ++indexMatchCountEntry
             ) {
-                shared->commitIndex = shared->lastIndex;
+                totalMatchCounts += indexMatchCountEntry->second;
+                if (
+                    (indexMatchCountEntry->first > shared->commitIndex)
+                    && (totalMatchCounts + 1 > shared->instances.size() - totalMatchCounts - 1)
+                    && (shared->logKeeper->operator[](indexMatchCountEntry->first).term == shared->configuration.currentTerm)
+                ) {
+                    shared->commitIndex = indexMatchCountEntry->first;
+                    break;
+                }
             }
         }
 

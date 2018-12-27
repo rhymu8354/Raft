@@ -1874,6 +1874,8 @@ TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEn
         if (instance != configuration.selfInstanceNumber) {
             Raft::Message message;
             message.type = Raft::Message::Type::AppendEntriesResults;
+            message.appendEntriesResults.term = 7;
+            message.appendEntriesResults.success = true;
             server.ReceiveMessage(message.Serialize(), instance);
             server.WaitForAtLeastOneWorkerLoop();
             EXPECT_EQ(0, server.GetCommitIndex());
@@ -1881,18 +1883,26 @@ TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEn
     }
     server.AppendLogEntries({secondEntry});
     server.WaitForAtLeastOneWorkerLoop();
+    size_t successfulResponseCount = 0;
     size_t responseCount = 0;
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
             Raft::Message message;
             message.type = Raft::Message::Type::AppendEntriesResults;
+            message.appendEntriesResults.term = 7;
+            if (instance == 2) {
+                message.appendEntriesResults.success = false;
+            } else {
+                ++successfulResponseCount;
+                message.appendEntriesResults.success = true;
+            }
+            ++responseCount;
             server.ReceiveMessage(message.Serialize(), instance);
             server.WaitForAtLeastOneWorkerLoop();
-            ++responseCount;
-            if (responseCount > configuration.instanceNumbers.size() - responseCount) {
-                EXPECT_EQ(2, server.GetCommitIndex());
+            if (successfulResponseCount + 1 > configuration.instanceNumbers.size() - successfulResponseCount - 1) {
+                EXPECT_EQ(2, server.GetCommitIndex()) << successfulResponseCount << " out of " << responseCount;
             } else {
-                EXPECT_EQ(0, server.GetCommitIndex());
+                EXPECT_EQ(0, server.GetCommitIndex()) << successfulResponseCount << " out of " << responseCount;
             }
         }
     }
@@ -2027,8 +2037,89 @@ TEST_F(ServerTests, LeaderAppendOlderEntriesAfterDiscoveringFollowerIsBehind) {
     EXPECT_EQ(secondEntry.term, messagesSent[0].message.log[0].term);
 }
 
+TEST_F(ServerTests, AppendEntriesNotSentIfLastNotYetAcknowledged) {
+    // Arrange
+    Raft::LogEntry firstEntry, secondEntry;
+    firstEntry.term = 2;
+    secondEntry.term = 3;
+    mockLog->entries.push_back(std::move(firstEntry));
+    BecomeLeader(8);
+    mockTimeKeeper->currentTime += configuration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = 8;
+    message.appendEntriesResults.success = false;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    messagesSent.clear();
+    server.AppendLogEntries({secondEntry});
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    for (const auto& messageSent: messagesSent) {
+        EXPECT_FALSE(
+            (messageSent.receiverInstanceNumber == 2)
+            && (messageSent.message.type == Raft::Message::Type::AppendEntries)
+        );
+    }
+}
+
+TEST_F(ServerTests, NextIndexAdvancedAndNextEntryAppendedAfterPreviousAcknowledged) {
+    // Arrange
+    Raft::LogEntry firstEntry, secondEntry;
+    firstEntry.term = 2;
+    secondEntry.term = 3;
+    mockLog->entries.push_back(std::move(firstEntry));
+    BecomeLeader(8);
+    mockTimeKeeper->currentTime += configuration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = 8;
+    message.appendEntriesResults.success = false;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    messagesSent.clear();
+    server.AppendLogEntries({secondEntry});
+    server.WaitForAtLeastOneWorkerLoop();
+    message = Raft::Message();
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = 8;
+    message.appendEntriesResults.success = true;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    bool sendEntrySent = false;
+    for (const auto& messageSent: messagesSent) {
+        if (
+            (messageSent.receiverInstanceNumber == 2)
+            && (messageSent.message.type == Raft::Message::Type::AppendEntries)
+        ) {
+            EXPECT_FALSE(sendEntrySent);
+            sendEntrySent = true;
+            EXPECT_EQ(1, messageSent.message.appendEntries.prevLogIndex);
+            EXPECT_EQ(firstEntry.term, messageSent.message.appendEntries.prevLogTerm);
+            ASSERT_EQ(1, messageSent.message.log.size());
+            EXPECT_EQ(secondEntry.term, messageSent.message.log[0].term);
+        }
+    }
+    EXPECT_TRUE(sendEntrySent);
+}
+
+TEST_F(ServerTests, RetransmitUnacknowledgedAppendEntries) {
+}
+
 TEST_F(ServerTests, ReinitializeVolatileFollowerStateAfterElection) {
 }
 
 TEST_F(ServerTests, IgnoreAppendEntriesResultsIfNotLeader) {
+}
+
+TEST_F(ServerTests, IgnoreStaleVotesFromPreviousTerm) {
 }
