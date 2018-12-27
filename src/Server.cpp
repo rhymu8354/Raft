@@ -533,6 +533,12 @@ namespace Raft {
             message.type = Message::Type::AppendEntries;
             message.appendEntries.term = shared->configuration.currentTerm;
             message.appendEntries.leaderCommit = shared->commitIndex;
+            message.appendEntries.prevLogIndex = shared->lastIndex;
+            if (shared->lastIndex == 0) {
+                message.appendEntries.prevLogTerm = 0;
+            } else {
+                message.appendEntries.prevLogTerm = shared->logKeeper->operator[](shared->lastIndex).term;
+            }
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
                 "Sending heartbeat (term %u)",
@@ -565,6 +571,12 @@ namespace Raft {
             message.type = Message::Type::AppendEntries;
             message.appendEntries.term = shared->configuration.currentTerm;
             message.appendEntries.leaderCommit = shared->commitIndex;
+            message.appendEntries.prevLogIndex = shared->lastIndex - entries.size();
+            if (message.appendEntries.prevLogIndex == 0) {
+                message.appendEntries.prevLogTerm = 0;
+            } else {
+                message.appendEntries.prevLogTerm = shared->logKeeper->operator[](message.appendEntries.prevLogIndex).term;
+            }
             message.log = entries;
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
