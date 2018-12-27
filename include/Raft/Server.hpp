@@ -138,14 +138,13 @@ namespace Raft {
         // IServer
     public:
         virtual bool Configure(const Configuration& configuration) override;
-        virtual void SetCreateMessageDelegate(CreateMessageDelegate createMessageDelegate) override;
         virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) override;
         virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) override;
         virtual void SetAppendEntriesDelegate(AppendEntriesDelegate appendEntriesDelegate) override;
         virtual void Mobilize(std::shared_ptr< ILog > logKeeper) override;
         virtual void Demobilize() override;
         virtual void ReceiveMessage(
-            std::shared_ptr< Message > message,
+            const std::string& serializedMessage,
             int senderInstanceNumber
         ) override;
         virtual ElectionState GetElectionState() override;

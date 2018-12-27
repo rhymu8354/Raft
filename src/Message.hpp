@@ -1,22 +1,27 @@
+#ifndef RAFT_MESSAGE_HPP
+#define RAFT_MESSAGE_HPP
+
 /**
- * @file MessageImpl.hpp
+ * @file Message.hpp
  *
- * This module contains the declaration of the package-private
- * Raft::MessageImpl structure.
+ * This module declares the Raft::Message structure.
  *
  * © 2018 by Richard Walters
  */
 
+#include <memory>
 #include <Raft/LogEntry.hpp>
+#include <stddef.h>
+#include <string>
 #include <vector>
 
 namespace Raft {
 
     /**
-     * This contains the package-private properties of a Message class
-     * instance.
+     * This is the base class for a message sent from one Message to another
+     * within the cluster.
      */
-    struct MessageImpl {
+    struct Message {
         // Types
 
         /**
@@ -25,8 +30,8 @@ namespace Raft {
          */
         enum class Type {
             /**
-             * This is the default type of message, used for messages outside
-             * the scope of Raft.
+             * This is the default type of message, used for uninitialized
+             * messages.
              */
             Unknown,
 
@@ -143,10 +148,25 @@ namespace Raft {
         // Methods
 
         /**
-         * This is the default constructor of the object.
+         * This is the constructor of the class.
+         *
+         * @param[in] serialization
+         *     If not empty, this is the serialized form of the message, used
+         *     to initialize the type and properties of the message.
          */
-        MessageImpl();
+        Message(const std::string& serialization = "");
 
+        /**
+         * This method returns a string which can be used to construct a new
+         * message with the exact same contents as this message.
+         *
+         * @return
+         *     A string which can be used to construct a new message with the
+         *     exact same contents as this message is returned.
+         */
+        std::string Serialize() const;
     };
 
 }
+
+#endif /* RAFT_MESSAGE_HPP */

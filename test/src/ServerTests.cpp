@@ -7,7 +7,7 @@
  * © 2018 by Richard Walters
  */
 
-#include <src/MessageImpl.hpp>
+#include "../../src/Message.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -16,7 +16,6 @@
 #include <limits>
 #include <mutex>
 #include <Raft/ILog.hpp>
-#include <Raft/Message.hpp>
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
 #include <stddef.h>
@@ -83,7 +82,7 @@ namespace {
      */
     struct MessageInfo {
         int receiverInstanceNumber;
-        std::shared_ptr< Raft::Message > message;
+        Raft::Message message;
     };
 
 }
@@ -108,7 +107,7 @@ struct ServerTests
     // Methods
 
     void ServerSentMessage(
-        std::shared_ptr< Raft::Message > message,
+        const std::string& message,
         int receiverInstanceNumber
     ) {
         MessageInfo messageInfo;
@@ -126,11 +125,11 @@ struct ServerTests
         server.WaitForAtLeastOneWorkerLoop();
         for (auto instance: configuration.instanceNumbers) {
             if (instance != configuration.selfInstanceNumber) {
-                const auto message = std::make_shared< Raft::Message >();
-                message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
-                message->impl_->requestVoteResults.term = term;
-                message->impl_->requestVoteResults.voteGranted = true;
-                server.ReceiveMessage(message, instance);
+                Raft::Message message;
+                message.type = Raft::Message::Type::RequestVoteResults;
+                message.requestVoteResults.term = term;
+                message.requestVoteResults.voteGranted = true;
+                server.ReceiveMessage(message.Serialize(), instance);
             }
         }
         server.WaitForAtLeastOneWorkerLoop();
@@ -144,10 +143,10 @@ struct ServerTests
         server.Configure(configuration);
         server.Mobilize(mockLog);
         server.WaitForAtLeastOneWorkerLoop();
-        const auto message = std::make_shared< Raft::Message >();
-        message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-        message->impl_->appendEntries.term = term;
-        server.ReceiveMessage(message, leaderId);
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntries;
+        message.appendEntries.term = term;
+        server.ReceiveMessage(message.Serialize(), leaderId);
         server.WaitForAtLeastOneWorkerLoop();
     }
 
@@ -172,10 +171,9 @@ struct ServerTests
             0
         );
         server.SetTimeKeeper(mockTimeKeeper);
-        server.SetCreateMessageDelegate([]{ return std::make_shared< Raft::Message >(); });
         server.SetSendMessageDelegate(
             [this](
-                std::shared_ptr< Raft::Message > message,
+                const std::string& message,
                 int receiverInstanceNumber
             ){
                 ServerSentMessage(message, receiverInstanceNumber);
@@ -256,10 +254,10 @@ TEST_F(ServerTests, ElectionAlwaysStartedWithinMaximumTimeoutInterval) {
     EXPECT_EQ(4, messagesSent.size());
     for (const auto messageInfo: messagesSent) {
         EXPECT_EQ(
-            Raft::MessageImpl::Type::RequestVote,
-            messageInfo.message->impl_->type
+            Raft::Message::Type::RequestVote,
+            messageInfo.message.type
         );
-        EXPECT_EQ(1, messageInfo.message->impl_->requestVote.term);
+        EXPECT_EQ(1, messageInfo.message.requestVote.term);
     }
 }
 
@@ -351,9 +349,7 @@ TEST_F(ServerTests, RequestVoteIncludesLastIndex) {
     for (const auto messageInfo: messagesSent) {
         EXPECT_EQ(
             42,
-            (size_t)Json::Value::FromEncoding(
-                messageInfo.message->Serialize()
-            )["lastLogIndex"]
+            messageInfo.message.requestVote.lastLogIndex
         );
     }
 }
@@ -371,7 +367,7 @@ TEST_F(ServerTests, ServerVotesForItselfInElectionItStarts) {
     // Assert
     EXPECT_EQ(4, messagesSent.size());
     for (auto messageInfo: messagesSent) {
-        EXPECT_EQ(5, messageInfo.message->impl_->requestVote.candidateId);
+        EXPECT_EQ(5, messageInfo.message.requestVote.candidateId);
     }
 }
 
@@ -388,7 +384,7 @@ TEST_F(ServerTests, ServerIncrementsTermInElectionItStarts) {
     // Assert
     EXPECT_EQ(4, messagesSent.size());
     for (const auto messageInfo: messagesSent) {
-        EXPECT_EQ(1, messageInfo.message->impl_->requestVote.term);
+        EXPECT_EQ(1, messageInfo.message.requestVote.term);
     }
 }
 
@@ -403,11 +399,11 @@ TEST_F(ServerTests, ServerDoesReceiveUnanimousVoteInElection) {
     // Act
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = std::make_shared< Raft::Message >();
-            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
-            message->impl_->requestVoteResults.term = 1;
-            message->impl_->requestVoteResults.voteGranted = true;
-            server.ReceiveMessage(message, instance);
+            Raft::Message message;
+            message.type = Raft::Message::Type::RequestVoteResults;
+            message.requestVoteResults.term = 1;
+            message.requestVoteResults.voteGranted = true;
+            server.ReceiveMessage(message.Serialize(), instance);
         }
     }
     server.WaitForAtLeastOneWorkerLoop();
@@ -430,16 +426,16 @@ TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
     // Act
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = std::make_shared< Raft::Message >();
-            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+            Raft::Message message;
+            message.type = Raft::Message::Type::RequestVoteResults;
             if (instance == 11) {
-                message->impl_->requestVoteResults.term = 1;
-                message->impl_->requestVoteResults.voteGranted = false;
+                message.requestVoteResults.term = 1;
+                message.requestVoteResults.voteGranted = false;
             } else {
-                message->impl_->requestVoteResults.term = 1;
-                message->impl_->requestVoteResults.voteGranted = true;
+                message.requestVoteResults.term = 1;
+                message.requestVoteResults.voteGranted = true;
             }
-            server.ReceiveMessage(message, instance);
+            server.ReceiveMessage(message.Serialize(), instance);
         }
     }
     server.WaitForAtLeastOneWorkerLoop();
@@ -463,16 +459,16 @@ TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
             case 6:
             case 7:
             case 11: {
-                const auto message = std::make_shared< Raft::Message >();
-                message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+                Raft::Message message;
+                message.type = Raft::Message::Type::RequestVoteResults;
                 if (instance == 11) {
-                    message->impl_->requestVoteResults.term = 1;
-                    message->impl_->requestVoteResults.voteGranted = false;
+                    message.requestVoteResults.term = 1;
+                    message.requestVoteResults.voteGranted = false;
                 } else {
-                    message->impl_->requestVoteResults.term = 1;
-                    message->impl_->requestVoteResults.voteGranted = true;
+                    message.requestVoteResults.term = 1;
+                    message.requestVoteResults.voteGranted = true;
                 }
-                server.ReceiveMessage(message, instance);
+                server.ReceiveMessage(message.Serialize(), instance);
             }
         }
     }
@@ -488,16 +484,16 @@ TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
     EXPECT_EQ(1, messagesSent.size());
     EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
     EXPECT_EQ(
-        Raft::MessageImpl::Type::RequestVote,
-        messagesSent[0].message->impl_->type
+        Raft::Message::Type::RequestVote,
+        messagesSent[0].message.type
     );
     EXPECT_EQ(
         configuration.selfInstanceNumber,
-        messagesSent[0].message->impl_->requestVote.candidateId
+        messagesSent[0].message.requestVote.candidateId
     );
     EXPECT_EQ(
         1,
-        messagesSent[0].message->impl_->requestVote.term
+        messagesSent[0].message.requestVote.term
     );
 }
 
@@ -513,16 +509,16 @@ TEST_F(ServerTests, ServerDoesNotRetransmitTooQuickly) {
             case 6:
             case 7:
             case 11: {
-                const auto message = std::make_shared< Raft::Message >();
-                message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+                Raft::Message message;
+                message.type = Raft::Message::Type::RequestVoteResults;
                 if (instance == 11) {
-                    message->impl_->requestVoteResults.term = 1;
-                    message->impl_->requestVoteResults.voteGranted = false;
+                    message.requestVoteResults.term = 1;
+                    message.requestVoteResults.voteGranted = false;
                 } else {
-                    message->impl_->requestVoteResults.term = 1;
-                    message->impl_->requestVoteResults.voteGranted = true;
+                    message.requestVoteResults.term = 1;
+                    message.requestVoteResults.voteGranted = true;
                 }
-                server.ReceiveMessage(message, instance);
+                server.ReceiveMessage(message.Serialize(), instance);
             }
         }
     }
@@ -549,16 +545,16 @@ TEST_F(ServerTests, ServerRegularRetransmissions) {
             case 6:
             case 7:
             case 11: {
-                const auto message = std::make_shared< Raft::Message >();
-                message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+                Raft::Message message;
+                message.type = Raft::Message::Type::RequestVoteResults;
                 if (instance == 11) {
-                    message->impl_->requestVoteResults.term = 1;
-                    message->impl_->requestVoteResults.voteGranted = false;
+                    message.requestVoteResults.term = 1;
+                    message.requestVoteResults.voteGranted = false;
                 } else {
-                    message->impl_->requestVoteResults.term = 1;
-                    message->impl_->requestVoteResults.voteGranted = true;
+                    message.requestVoteResults.term = 1;
+                    message.requestVoteResults.voteGranted = true;
                 }
-                server.ReceiveMessage(message, instance);
+                server.ReceiveMessage(message.Serialize(), instance);
             }
         }
     }
@@ -586,16 +582,16 @@ TEST_F(ServerTests, ServerRegularRetransmissions) {
     for (const auto& messageSent: messagesSent) {
         EXPECT_EQ(2, messageSent.receiverInstanceNumber);
         EXPECT_EQ(
-            Raft::MessageImpl::Type::RequestVote,
-            messageSent.message->impl_->type
+            Raft::Message::Type::RequestVote,
+            messageSent.message.type
         );
         EXPECT_EQ(
             configuration.selfInstanceNumber,
-            messageSent.message->impl_->requestVote.candidateId
+            messageSent.message.requestVote.candidateId
         );
         EXPECT_EQ(
             1,
-            messageSent.message->impl_->requestVote.term
+            messageSent.message.requestVote.term
         );
     }
 }
@@ -611,11 +607,11 @@ TEST_F(ServerTests, ServerDoesNotReceiveAnyVotesInElection) {
     // Act
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = std::make_shared< Raft::Message >();
-            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
-            message->impl_->requestVoteResults.term = 1;
-            message->impl_->requestVoteResults.voteGranted = false;
-            server.ReceiveMessage(message, instance);
+            Raft::Message message;
+            message.type = Raft::Message::Type::RequestVoteResults;
+            message.requestVoteResults.term = 1;
+            message.requestVoteResults.voteGranted = false;
+            server.ReceiveMessage(message.Serialize(), instance);
         }
     }
     server.WaitForAtLeastOneWorkerLoop();
@@ -638,20 +634,20 @@ TEST_F(ServerTests, ServerAlmostWinsElection) {
     // Act
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = std::make_shared< Raft::Message >();
-            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
+            Raft::Message message;
+            message.type = Raft::Message::Type::RequestVoteResults;
             if (
                 (instance == 2)
                 || (instance == 6)
                 || (instance == 11)
             ) {
-                message->impl_->requestVoteResults.term = 1;
-                message->impl_->requestVoteResults.voteGranted = false;
+                message.requestVoteResults.term = 1;
+                message.requestVoteResults.voteGranted = false;
             } else {
-                message->impl_->requestVoteResults.term = 1;
-                message->impl_->requestVoteResults.voteGranted = true;
+                message.requestVoteResults.term = 1;
+                message.requestVoteResults.voteGranted = true;
             }
-            server.ReceiveMessage(message, instance);
+            server.ReceiveMessage(message.Serialize(), instance);
         }
     }
     server.WaitForAtLeastOneWorkerLoop();
@@ -672,11 +668,11 @@ TEST_F(ServerTests, TimeoutBeforeMajorityVoteOrNewLeaderHeartbeat) {
     server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = std::make_shared< Raft::Message >();
-            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
-            message->impl_->requestVoteResults.term = 1;
-            message->impl_->requestVoteResults.voteGranted = false;
-            server.ReceiveMessage(message, instance);
+            Raft::Message message;
+            message.type = Raft::Message::Type::RequestVoteResults;
+            message.requestVoteResults.term = 1;
+            message.requestVoteResults.voteGranted = false;
+            server.ReceiveMessage(message.Serialize(), instance);
         }
     }
     server.WaitForAtLeastOneWorkerLoop();
@@ -689,10 +685,10 @@ TEST_F(ServerTests, TimeoutBeforeMajorityVoteOrNewLeaderHeartbeat) {
     // Assert
     for (const auto messageInfo: messagesSent) {
         EXPECT_EQ(
-            Raft::MessageImpl::Type::RequestVote,
-            messageInfo.message->impl_->type
+            Raft::Message::Type::RequestVote,
+            messageInfo.message.type
         );
-        EXPECT_EQ(2, messageInfo.message->impl_->requestVote.term);
+        EXPECT_EQ(2, messageInfo.message.requestVote.term);
     }
 }
 
@@ -703,21 +699,21 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermNoVotePending) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
-    message->impl_->requestVote.term = 0;
-    message->impl_->requestVote.candidateId = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 0;
+    message.requestVote.candidateId = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
     EXPECT_EQ(
-        Raft::MessageImpl::Type::RequestVoteResults,
-        messagesSent[0].message->impl_->type
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
     );
-    EXPECT_EQ(0, messagesSent[0].message->impl_->requestVoteResults.term);
-    EXPECT_TRUE(messagesSent[0].message->impl_->requestVoteResults.voteGranted);
+    EXPECT_EQ(0, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
 }
 
 TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForAnother) {
@@ -725,30 +721,30 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForAnother) {
     server.Configure(configuration);
     server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
-    auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
-    message->impl_->requestVote.term = 1;
-    message->impl_->requestVote.candidateId = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 1;
+    message.requestVote.candidateId = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
 
     // Act
-    message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
-    message->impl_->requestVote.term = 1;
-    message->impl_->requestVote.candidateId = 6;
-    server.ReceiveMessage(message, 6);
+    message = Raft::Message();
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 1;
+    message.requestVote.candidateId = 6;
+    server.ReceiveMessage(message.Serialize(), 6);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
     EXPECT_EQ(
-        Raft::MessageImpl::Type::RequestVoteResults,
-        messagesSent[0].message->impl_->type
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
     );
-    EXPECT_EQ(1, messagesSent[0].message->impl_->requestVoteResults.term);
-    EXPECT_FALSE(messagesSent[0].message->impl_->requestVoteResults.voteGranted);
+    EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
 }
 
 TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForSame) {
@@ -756,30 +752,30 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForSame) {
     server.Configure(configuration);
     server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
-    auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
-    message->impl_->requestVote.term = 1;
-    message->impl_->requestVote.candidateId = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 1;
+    message.requestVote.candidateId = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
 
     // Act
-    message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
-    message->impl_->requestVote.term = 1;
-    message->impl_->requestVote.candidateId = 2;
-    server.ReceiveMessage(message, 2);
+    message = Raft::Message();
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 1;
+    message.requestVote.candidateId = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
     EXPECT_EQ(
-        Raft::MessageImpl::Type::RequestVoteResults,
-        messagesSent[0].message->impl_->type
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
     );
-    EXPECT_EQ(1, messagesSent[0].message->impl_->requestVoteResults.term);
-    EXPECT_TRUE(messagesSent[0].message->impl_->requestVoteResults.voteGranted);
+    EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
 }
 
 TEST_F(ServerTests, ReceiveVoteRequestLesserTerm) {
@@ -790,21 +786,21 @@ TEST_F(ServerTests, ReceiveVoteRequestLesserTerm) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
-    message->impl_->requestVote.term = 0;
-    message->impl_->requestVote.candidateId = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 0;
+    message.requestVote.candidateId = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
     EXPECT_EQ(
-        Raft::MessageImpl::Type::RequestVoteResults,
-        messagesSent[0].message->impl_->type
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
     );
-    EXPECT_EQ(1, messagesSent[0].message->impl_->requestVoteResults.term);
-    EXPECT_FALSE(messagesSent[0].message->impl_->requestVoteResults.voteGranted);
+    EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
 }
 
 TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenFollower) {
@@ -812,21 +808,21 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenFollower) {
     server.Configure(configuration);
     server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
-    message->impl_->requestVote.term = 1;
-    message->impl_->requestVote.candidateId = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 1;
+    message.requestVote.candidateId = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
     EXPECT_EQ(
-        Raft::MessageImpl::Type::RequestVoteResults,
-        messagesSent[0].message->impl_->type
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
     );
-    EXPECT_EQ(1, messagesSent[0].message->impl_->requestVoteResults.term);
-    EXPECT_TRUE(messagesSent[0].message->impl_->requestVoteResults.voteGranted);
+    EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
 }
 
 TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenCandidate) {
@@ -839,11 +835,11 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenCandidate) {
     messagesSent.clear();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
-    message->impl_->requestVote.term = 2;
-    message->impl_->requestVote.candidateId = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 2;
+    message.requestVote.candidateId = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime += configuration.minimumElectionTimeout - 0.001;
     server.WaitForAtLeastOneWorkerLoop();
@@ -851,11 +847,11 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenCandidate) {
     // Assert
     ASSERT_EQ(1, messagesSent.size());
     EXPECT_EQ(
-        Raft::MessageImpl::Type::RequestVoteResults,
-        messagesSent[0].message->impl_->type
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
     );
-    EXPECT_EQ(2, messagesSent[0].message->impl_->requestVoteResults.term);
-    EXPECT_TRUE(messagesSent[0].message->impl_->requestVoteResults.voteGranted);
+    EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
     EXPECT_EQ(
         Raft::IServer::ElectionState::Follower,
         server.GetElectionState()
@@ -867,21 +863,21 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenLeader) {
     BecomeLeader();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
-    message->impl_->requestVote.term = 2;
-    message->impl_->requestVote.candidateId = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 2;
+    message.requestVote.candidateId = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
     EXPECT_EQ(
-        Raft::MessageImpl::Type::RequestVoteResults,
-        messagesSent[0].message->impl_->type
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
     );
-    EXPECT_EQ(2, messagesSent[0].message->impl_->requestVoteResults.term);
-    EXPECT_TRUE(messagesSent[0].message->impl_->requestVoteResults.voteGranted);
+    EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
     EXPECT_EQ(
         Raft::IServer::ElectionState::Follower,
         server.GetElectionState()
@@ -899,8 +895,8 @@ TEST_F(ServerTests, DoNotStartVoteWhenAlreadyLeader) {
     // Assert
     for (const auto& messageSent: messagesSent) {
         EXPECT_NE(
-            Raft::MessageImpl::Type::RequestVote,
-            messageSent.message->impl_->type
+            Raft::Message::Type::RequestVote,
+            messageSent.message.type
         );
     }
 }
@@ -910,11 +906,11 @@ TEST_F(ServerTests, AfterRevertToFollowerDoNotStartNewElectionBeforeMinimumTimeo
     BecomeLeader();
     mockTimeKeeper->currentTime += configuration.maximumElectionTimeout * 5;
     messagesSent.clear();
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
-    message->impl_->requestVote.term = 2;
-    message->impl_->requestVote.candidateId = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 2;
+    message.requestVote.candidateId = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
 
@@ -931,10 +927,10 @@ TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived
     BecomeLeader();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
@@ -955,17 +951,17 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermHeartbeatRecei
     messagesSent.clear();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = std::make_shared< Raft::Message >();
-            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
-            message->impl_->requestVoteResults.term = 1;
-            message->impl_->requestVoteResults.voteGranted = true;
-            server.ReceiveMessage(message, instance);
+            Raft::Message message;
+            message.type = Raft::Message::Type::RequestVoteResults;
+            message.requestVoteResults.term = 1;
+            message.requestVoteResults.voteGranted = true;
+            server.ReceiveMessage(message.Serialize(), instance);
         }
     }
     server.WaitForAtLeastOneWorkerLoop();
@@ -990,17 +986,17 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameTermHeartbeatReceived
     messagesSent.clear();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = 1;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 1;
+    server.ReceiveMessage(message.Serialize(), 2);
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = std::make_shared< Raft::Message >();
-            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
-            message->impl_->requestVoteResults.term = 1;
-            message->impl_->requestVoteResults.voteGranted = true;
-            server.ReceiveMessage(message, instance);
+            Raft::Message message;
+            message.type = Raft::Message::Type::RequestVoteResults;
+            message.requestVoteResults.term = 1;
+            message.requestVoteResults.voteGranted = true;
+            server.ReceiveMessage(message.Serialize(), instance);
         }
     }
     server.WaitForAtLeastOneWorkerLoop();
@@ -1037,9 +1033,9 @@ TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
         heartbeatsReceivedPerInstance[instanceNumber] = 0;
     }
     for (const auto& messageSent: messagesSent) {
-        if (messageSent.message->impl_->type == Raft::MessageImpl::Type::AppendEntries) {
+        if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
             ++heartbeatsReceivedPerInstance[messageSent.receiverInstanceNumber];
-            const auto serializedMessage = messageSent.message->Serialize();
+            const auto serializedMessage = messageSent.message.Serialize();
             EXPECT_EQ(
                 expectedSerializedMessage,
                 Json::Value::FromEncoding(serializedMessage)
@@ -1064,25 +1060,25 @@ TEST_F(ServerTests, RepeatVotesShouldNotCount) {
     server.WaitForAtLeastOneWorkerLoop();
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = std::make_shared< Raft::Message >();
-            message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
-            message->impl_->requestVoteResults.term = 1;
+            Raft::Message message;
+            message.type = Raft::Message::Type::RequestVoteResults;
+            message.requestVoteResults.term = 1;
             if (instance == 2) {
-                message->impl_->requestVoteResults.voteGranted = true;
+                message.requestVoteResults.voteGranted = true;
             } else {
-                message->impl_->requestVoteResults.voteGranted = false;
+                message.requestVoteResults.voteGranted = false;
             }
-            server.ReceiveMessage(message, instance);
+            server.ReceiveMessage(message.Serialize(), instance);
         }
     }
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
-    message->impl_->requestVoteResults.term = 1;
-    message->impl_->requestVoteResults.voteGranted = true;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVoteResults;
+    message.requestVoteResults.term = 1;
+    message.requestVoteResults.voteGranted = true;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
@@ -1099,10 +1095,10 @@ TEST_F(ServerTests, UpdateTermWhenReceivingHeartBeat) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
@@ -1137,10 +1133,10 @@ TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerSameTerm) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = newTerm;
-    server.ReceiveMessage(message, leaderId);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = newTerm;
+    server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
@@ -1175,18 +1171,18 @@ TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerSameTerm) {
     server.Configure(configuration);
     server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
-    auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = newTerm;
-    server.ReceiveMessage(message, leaderId);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = newTerm;
+    server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
     leadershipChangeAnnounced = false;
 
     // Act
-    message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = newTerm;
-    server.ReceiveMessage(message, leaderId);
+    message = Raft::Message();
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = newTerm;
+    server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
@@ -1221,10 +1217,10 @@ TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerNewerTerm) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = newTerm;
-    server.ReceiveMessage(message, leaderId);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = newTerm;
+    server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
@@ -1259,18 +1255,18 @@ TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerNewerTerm) {
     server.Configure(configuration);
     server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
-    auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = newTerm;
-    server.ReceiveMessage(message, leaderId);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = newTerm;
+    server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
     leadershipChangeAnnounced = false;
 
     // Act
-    message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = newTerm;
-    server.ReceiveMessage(message, leaderId);
+    message = Raft::Message();
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = newTerm;
+    server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
@@ -1305,18 +1301,18 @@ TEST_F(ServerTests, ReceivingTwoHeartBeatAsFollowerSequentialTerms) {
     server.Configure(configuration);
     server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
-    auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = firstTerm;
-    server.ReceiveMessage(message, firstLeaderId);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = firstTerm;
+    server.ReceiveMessage(message.Serialize(), firstLeaderId);
     server.WaitForAtLeastOneWorkerLoop();
     leadershipChangeAnnounced = false;
 
     // Act
-    message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = secondTerm;
-    server.ReceiveMessage(message, secondLeaderId);
+    message = Raft::Message();
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = secondTerm;
+    server.ReceiveMessage(message.Serialize(), secondLeaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
@@ -1333,10 +1329,10 @@ TEST_F(ServerTests, ReceivingHeartBeatFromSameTermShouldResetElectionTimeout) {
 
     // Act
     while (mockTimeKeeper->currentTime <= configuration.maximumElectionTimeout * 2) {
-        const auto message = std::make_shared< Raft::Message >();
-        message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-        message->impl_->appendEntries.term = 2;
-        server.ReceiveMessage(message, 2);
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntries;
+        message.appendEntries.term = 2;
+        server.ReceiveMessage(message.Serialize(), 2);
         mockTimeKeeper->currentTime += 0.001;
         server.WaitForAtLeastOneWorkerLoop();
         ASSERT_TRUE(messagesSent.empty());
@@ -1350,16 +1346,16 @@ TEST_F(ServerTests, IgnoreHeartBeatFromOldTerm) {
     server.Configure(configuration);
     server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
-    auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
 
     // Act
-    message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = 1;
-    server.ReceiveMessage(message, 2);
+    message = Raft::Message();
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 1;
+    server.ReceiveMessage(message.Serialize(), 2);
 
     // Assert
     EXPECT_EQ(2, server.GetConfiguration().currentTerm);
@@ -1375,10 +1371,10 @@ TEST_F(ServerTests, ReceivingHeartBeatFromOldTermShouldNotResetElectionTimeout) 
     // Act
     bool electionStarted = false;
     while (mockTimeKeeper->currentTime <= configuration.maximumElectionTimeout * 2) {
-        const auto message = std::make_shared< Raft::Message >();
-        message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-        message->impl_->appendEntries.term = 13;
-        server.ReceiveMessage(message, 2);
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntries;
+        message.appendEntries.term = 13;
+        server.ReceiveMessage(message.Serialize(), 2);
         mockTimeKeeper->currentTime += 0.001;
         server.WaitForAtLeastOneWorkerLoop();
         if (!messagesSent.empty()) {
@@ -1401,11 +1397,11 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermRequestVoteRec
     messagesSent.clear();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
-    message->impl_->requestVote.term = 3;
-    message->impl_->requestVote.candidateId = 2;
-    server.ReceiveMessage(message, 2);
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 3;
+    message.requestVote.candidateId = 2;
+    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
     mockTimeKeeper->currentTime += configuration.minimumElectionTimeout - 0.001;
@@ -1482,11 +1478,11 @@ TEST_F(ServerTests, NoLeadershipGainWhenNotYetLeader) {
         if (instance == configuration.selfInstanceNumber) {
             continue;
         }
-        const auto message = std::make_shared< Raft::Message >();
-        message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
-        message->impl_->requestVoteResults.term = 1;
-        message->impl_->requestVoteResults.voteGranted = true;
-        server.ReceiveMessage(message, instance);
+        Raft::Message message;
+        message.type = Raft::Message::Type::RequestVoteResults;
+        message.requestVoteResults.term = 1;
+        message.requestVoteResults.voteGranted = true;
+        server.ReceiveMessage(message.Serialize(), instance);
         server.WaitForAtLeastOneWorkerLoop();
         EXPECT_FALSE(leadershipChangeAnnounced) << votesGranted;
         ++votesGranted;
@@ -1524,11 +1520,11 @@ TEST_F(ServerTests, NoLeadershipGainWhenAlreadyLeader) {
         const auto wasLeader = (
             server.GetElectionState() == Raft::IServer::ElectionState::Leader
         );
-        const auto message = std::make_shared< Raft::Message >();
-        message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
-        message->impl_->requestVoteResults.term = 1;
-        message->impl_->requestVoteResults.voteGranted = true;
-        server.ReceiveMessage(message, instance);
+        Raft::Message message;
+        message.type = Raft::Message::Type::RequestVoteResults;
+        message.requestVoteResults.term = 1;
+        message.requestVoteResults.voteGranted = true;
+        server.ReceiveMessage(message.Serialize(), instance);
         server.WaitForAtLeastOneWorkerLoop();
         if (server.GetElectionState() == Raft::IServer::ElectionState::Leader) {
             if (wasLeader) {
@@ -1619,9 +1615,9 @@ TEST_F(ServerTests, LeaderAppendLogEntry) {
         appendEntriesReceivedPerInstance[instanceNumber] = false;
     }
     for (const auto& messageSent: messagesSent) {
-        if (messageSent.message->impl_->type == Raft::MessageImpl::Type::AppendEntries) {
+        if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
             appendEntriesReceivedPerInstance[messageSent.receiverInstanceNumber] = true;
-            const auto serializedMessage = messageSent.message->Serialize();
+            const auto serializedMessage = messageSent.message.Serialize();
             EXPECT_EQ(
                 expectedSerializedMessage,
                 Json::Value::FromEncoding(serializedMessage)
@@ -1670,11 +1666,11 @@ TEST_F(ServerTests, FollowerAppendLogEntry) {
 
     // Act
     EXPECT_EQ(0, server.GetLastIndex());
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = 9;
-    message->impl_->log = entries;
-    server.ReceiveMessage(message, leaderId);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 9;
+    message.log = entries;
+    server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
@@ -1698,19 +1694,6 @@ TEST_F(ServerTests, LeaderDoNotAdvanceCommitIndexWhenMajorityOfClusterHasNotYetA
     Raft::LogEntry secondEntry;
     secondEntry.term = 1;
     entries.push_back(std::move(secondEntry));
-    const auto expectedSerializedMessage = Json::Object({
-        {"type", "AppendEntries"},
-        {"term", 1},
-        {"leaderCommit", 0},
-        {"log", Json::Array({
-            Json::Object({
-                {"term", 1},
-            }),
-            Json::Object({
-                {"term", 1},
-            }),
-        })},
-    });
 
     // Act
     server.AppendLogEntries(entries);
@@ -1733,9 +1716,9 @@ TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEn
     // Act
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = std::make_shared< Raft::Message >();
-            message->impl_->type = Raft::MessageImpl::Type::AppendEntriesResults;
-            server.ReceiveMessage(message, instance);
+            Raft::Message message;
+            message.type = Raft::Message::Type::AppendEntriesResults;
+            server.ReceiveMessage(message.Serialize(), instance);
             server.WaitForAtLeastOneWorkerLoop();
             EXPECT_EQ(0, server.GetCommitIndex());
         }
@@ -1745,9 +1728,9 @@ TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEn
     size_t responseCount = 0;
     for (auto instance: configuration.instanceNumbers) {
         if (instance != configuration.selfInstanceNumber) {
-            const auto message = std::make_shared< Raft::Message >();
-            message->impl_->type = Raft::MessageImpl::Type::AppendEntriesResults;
-            server.ReceiveMessage(message, instance);
+            Raft::Message message;
+            message.type = Raft::Message::Type::AppendEntriesResults;
+            server.ReceiveMessage(message.Serialize(), instance);
             server.WaitForAtLeastOneWorkerLoop();
             ++responseCount;
             if (responseCount > configuration.instanceNumbers.size() - responseCount) {
@@ -1771,22 +1754,22 @@ TEST_F(ServerTests, FollowerAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLog
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    const auto message = std::make_shared< Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = 9;
-    message->impl_->appendEntries.leaderCommit = 0;
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 9;
+    message.appendEntries.leaderCommit = 0;
     Raft::LogEntry firstEntry;
     firstEntry.term = 4;
-    message->impl_->log.push_back(std::move(firstEntry));
-    server.ReceiveMessage(message, leaderId);
+    message.log.push_back(std::move(firstEntry));
+    server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
     EXPECT_EQ(0, server.GetCommitIndex());
-    message->impl_->appendEntries.leaderCommit = 1;
-    message->impl_->log.clear();
+    message.appendEntries.leaderCommit = 1;
+    message.log.clear();
     Raft::LogEntry secondEntry;
     secondEntry.term = 5;
-    message->impl_->log.push_back(std::move(secondEntry));
-    server.ReceiveMessage(message, leaderId);
+    message.log.push_back(std::move(secondEntry));
+    server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
@@ -1807,18 +1790,6 @@ TEST_F(ServerTests, AppendEntriesWhenNotLeader) {
     Raft::LogEntry secondEntry;
     secondEntry.term = 1;
     entries.push_back(std::move(secondEntry));
-    const auto expectedSerializedMessage = Json::Object({
-        {"type", "AppendEntries"},
-        {"term", 1},
-        {"log", Json::Array({
-            Json::Object({
-                {"term", 1},
-            }),
-            Json::Object({
-                {"term", 1},
-            }),
-        })},
-    });
 
     // Act
     server.AppendLogEntries(entries);

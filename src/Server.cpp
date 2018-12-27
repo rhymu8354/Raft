@@ -6,7 +6,7 @@
  * © 2018 by Richard Walters
  */
 
-#include "MessageImpl.hpp"
+#include "Message.hpp"
 
 #include <algorithm>
 #include <future>
@@ -43,7 +43,7 @@ namespace {
         /**
          * This is the last request sent to the instance.
          */
-        std::shared_ptr< Raft::Message > lastRequest;
+        std::string lastRequest;
     };
 
     /**
@@ -54,7 +54,7 @@ namespace {
         /**
          * This is the message to be sent.
          */
-        std::shared_ptr< Raft::Message > message;
+        std::string message;
 
         /**
          * This is the unique identifier of the server to which to send the
@@ -343,12 +343,6 @@ namespace Raft {
         SendMessageDelegate sendMessageDelegate;
 
         /**
-         * This is the delegate to be called later whenever the server
-         * wants to create a message object.
-         */
-        CreateMessageDelegate createMessageDelegate;
-
-        /**
          * This is the delegate to be called later whenever a leadership change
          * occurs in the server cluster.
          */
@@ -409,7 +403,7 @@ namespace Raft {
          *     This is the current time, according to the time keeper.
          */
         void QueueMessageToBeSent(
-            std::shared_ptr< Message > message,
+            std::string message,
             int instanceNumber,
             double now
         ) {
@@ -417,7 +411,7 @@ namespace Raft {
             instance.timeLastRequestSent = now;
             instance.lastRequest = message;
             MessageToBeSent messageToBeSent;
-            messageToBeSent.message = message;
+            messageToBeSent.message = std::move(message);
             messageToBeSent.receiverInstanceNumber = instanceNumber;
             shared->messagesToBeSent.push(std::move(messageToBeSent));
             workerAskedToStopOrWakeUp.notify_one();
@@ -494,18 +488,18 @@ namespace Raft {
          *     This is the current time according to the time keeper.
          */
         void SendInitialVoteRequests(double now) {
-            const auto message = createMessageDelegate();
-            message->impl_->type = MessageImpl::Type::RequestVote;
-            message->impl_->requestVote.candidateId = shared->configuration.selfInstanceNumber;
-            message->impl_->requestVote.term = shared->configuration.currentTerm;
-            message->impl_->requestVote.lastLogIndex = shared->lastIndex;
+            Message message;
+            message.type = Message::Type::RequestVote;
+            message.requestVote.candidateId = shared->configuration.selfInstanceNumber;
+            message.requestVote.term = shared->configuration.currentTerm;
+            message.requestVote.lastLogIndex = shared->lastIndex;
             for (auto instanceNumber: shared->configuration.instanceNumbers) {
                 if (instanceNumber == shared->configuration.selfInstanceNumber) {
                     continue;
                 }
                 auto& instance = shared->instances[instanceNumber];
                 instance.awaitingVote = true;
-                QueueMessageToBeSent(message, instanceNumber, now);
+                QueueMessageToBeSent(message.Serialize(), instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
         }
@@ -530,10 +524,10 @@ namespace Raft {
          *     This is the current time according to the time keeper.
          */
         void QueueHeartBeatsToBeSent(double now) {
-            const auto message = createMessageDelegate();
-            message->impl_->type = MessageImpl::Type::AppendEntries;
-            message->impl_->appendEntries.term = shared->configuration.currentTerm;
-            message->impl_->appendEntries.leaderCommit = shared->commitIndex;
+            Message message;
+            message.type = Message::Type::AppendEntries;
+            message.appendEntries.term = shared->configuration.currentTerm;
+            message.appendEntries.leaderCommit = shared->commitIndex;
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
                 "Sending heartbeat (term %u)",
@@ -543,7 +537,7 @@ namespace Raft {
                 if (instanceNumber == shared->configuration.selfInstanceNumber) {
                     continue;
                 }
-                QueueMessageToBeSent(message, instanceNumber, now);
+                QueueMessageToBeSent(message.Serialize(), instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = now;
         }
@@ -562,11 +556,11 @@ namespace Raft {
             double now,
             const std::vector< LogEntry >& entries
         ) {
-            const auto message = createMessageDelegate();
-            message->impl_->type = MessageImpl::Type::AppendEntries;
-            message->impl_->appendEntries.term = shared->configuration.currentTerm;
-            message->impl_->appendEntries.leaderCommit = shared->commitIndex;
-            message->impl_->log = entries;
+            Message message;
+            message.type = Message::Type::AppendEntries;
+            message.appendEntries.term = shared->configuration.currentTerm;
+            message.appendEntries.leaderCommit = shared->commitIndex;
+            message.log = entries;
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
                 "Sending log entries (%zu entries, term %u)",
@@ -577,7 +571,7 @@ namespace Raft {
                 if (instanceNumber == shared->configuration.selfInstanceNumber) {
                     continue;
                 }
-                QueueMessageToBeSent(message, instanceNumber, now);
+                QueueMessageToBeSent(message.Serialize(), instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
         }
@@ -713,13 +707,13 @@ namespace Raft {
          *     message.
          */
         void OnReceiveRequestVote(
-            const MessageImpl::RequestVoteDetails& messageDetails,
+            const Message::RequestVoteDetails& messageDetails,
             int senderInstanceNumber
         ) {
             const auto now = timeKeeper->GetCurrentTime();
-            const auto response = createMessageDelegate();
-            response->impl_->type = MessageImpl::Type::RequestVoteResults;
-            response->impl_->requestVoteResults.term = std::max(
+            Message response;
+            response.type = Message::Type::RequestVoteResults;
+            response.requestVoteResults.term = std::max(
                 shared->configuration.currentTerm,
                 messageDetails.term
             );
@@ -731,7 +725,7 @@ namespace Raft {
                     messageDetails.term,
                     shared->configuration.currentTerm
                 );
-                response->impl_->requestVoteResults.voteGranted = false;
+                response.requestVoteResults.voteGranted = false;
             } else if (
                 (shared->configuration.currentTerm == messageDetails.term)
                 && shared->votedThisTerm
@@ -745,7 +739,7 @@ namespace Raft {
                     messageDetails.term,
                     shared->configuration.currentTerm
                 );
-                response->impl_->requestVoteResults.voteGranted = false;
+                response.requestVoteResults.voteGranted = false;
             } else {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
@@ -754,13 +748,17 @@ namespace Raft {
                     messageDetails.term,
                     shared->configuration.currentTerm
                 );
-                response->impl_->requestVoteResults.voteGranted = true;
+                response.requestVoteResults.voteGranted = true;
                 shared->votedThisTerm = true;
                 shared->votedFor = senderInstanceNumber;
                 UpdateCurrentTerm(messageDetails.term);
                 RevertToFollower();
             }
-            QueueMessageToBeSent(response, senderInstanceNumber, now);
+            QueueMessageToBeSent(
+                response.Serialize(),
+                senderInstanceNumber,
+                now
+            );
         }
 
         /**
@@ -775,7 +773,7 @@ namespace Raft {
          *     message.
          */
         void OnReceiveRequestVoteResults(
-            const MessageImpl::RequestVoteResultsDetails& messageDetails,
+            const Message::RequestVoteResultsDetails& messageDetails,
             int senderInstanceNumber
         ) {
             auto& instance = shared->instances[senderInstanceNumber];
@@ -838,7 +836,7 @@ namespace Raft {
          *     message.
          */
         void OnReceiveAppendEntries(
-            const MessageImpl::AppendEntriesDetails& messageDetails,
+            const Message::AppendEntriesDetails& messageDetails,
             std::vector< LogEntry >&& entries,
             int senderInstanceNumber
         ) {
@@ -889,7 +887,7 @@ namespace Raft {
          *     message.
          */
         void OnReceiveAppendEntriesResults(
-            const MessageImpl::AppendEntriesResultsDetails& messageDetails,
+            const Message::AppendEntriesResultsDetails& messageDetails,
             int senderInstanceNumber
         ) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
@@ -1091,11 +1089,6 @@ namespace Raft {
         return true;
     }
 
-    void Server::SetCreateMessageDelegate(CreateMessageDelegate createMessageDelegate) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->createMessageDelegate = createMessageDelegate;
-    }
-
     void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->sendMessageDelegate = sendMessageDelegate;
@@ -1138,30 +1131,31 @@ namespace Raft {
     }
 
     void Server::ReceiveMessage(
-        std::shared_ptr< Message > message,
+        const std::string& serializedMessage,
         int senderInstanceNumber
     ) {
+        Message message(serializedMessage);
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        switch (message->impl_->type) {
-            case MessageImpl::Type::RequestVote: {
-                impl_->OnReceiveRequestVote(message->impl_->requestVote, senderInstanceNumber);
+        switch (message.type) {
+            case Message::Type::RequestVote: {
+                impl_->OnReceiveRequestVote(message.requestVote, senderInstanceNumber);
             } break;
 
-            case MessageImpl::Type::RequestVoteResults: {
-                impl_->OnReceiveRequestVoteResults(message->impl_->requestVoteResults, senderInstanceNumber);
+            case Message::Type::RequestVoteResults: {
+                impl_->OnReceiveRequestVoteResults(message.requestVoteResults, senderInstanceNumber);
             } break;
 
-            case MessageImpl::Type::AppendEntries: {
+            case Message::Type::AppendEntries: {
                 impl_->OnReceiveAppendEntries(
-                    message->impl_->appendEntries,
-                    std::move(message->impl_->log),
+                    message.appendEntries,
+                    std::move(message.log),
                     senderInstanceNumber
                 );
             } break;
 
-            case MessageImpl::Type::AppendEntriesResults: {
+            case Message::Type::AppendEntriesResults: {
                 impl_->OnReceiveAppendEntriesResults(
-                    message->impl_->appendEntriesResults,
+                    message.appendEntriesResults,
                     senderInstanceNumber
                 );
             } break;

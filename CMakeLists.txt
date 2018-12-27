@@ -9,15 +9,13 @@ set(Headers
     include/Raft/ILog.hpp
     include/Raft/IServer.hpp
     include/Raft/LogEntry.hpp
-    include/Raft/Message.hpp
     include/Raft/Server.hpp
     include/Raft/TimeKeeper.hpp
-    src/MessageImpl.hpp
+    src/Message.hpp
 )
 
 set(Sources
     src/Message.cpp
-    src/MessageImpl.cpp
     src/Server.cpp
 )
 

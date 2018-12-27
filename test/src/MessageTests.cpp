@@ -7,19 +7,18 @@
  * © 2018 by Richard Walters
  */
 
-#include <src/MessageImpl.hpp>
+#include "../../src/Message.hpp"
 
 #include <gtest/gtest.h>
 #include <Json/Value.hpp>
-#include <Raft/Message.hpp>
 
 TEST(MessageTests, SerializeRequestVote) {
     // Arrange
-    const auto message = std::make_shared < Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVote;
-    message->impl_->requestVote.term = 42;
-    message->impl_->requestVote.candidateId = 5;
-    message->impl_->requestVote.lastLogIndex = 99;
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 42;
+    message.requestVote.candidateId = 5;
+    message.requestVote.lastLogIndex = 99;
 
     // Act
     EXPECT_EQ(
@@ -29,7 +28,7 @@ TEST(MessageTests, SerializeRequestVote) {
             {"candidateId", 5},
             {"lastLogIndex", 99},
         }),
-        Json::Value::FromEncoding(message->Serialize())
+        Json::Value::FromEncoding(message.Serialize())
     );
 }
 
@@ -43,21 +42,21 @@ TEST(MessageTests, DeserializeRequestVote) {
     }).ToEncoding();
 
     // Act
-    const auto message = std::make_shared < Raft::Message >(serializedMessage);
+    Raft::Message message(serializedMessage);
 
     // Act
-    EXPECT_EQ(Raft::MessageImpl::Type::RequestVote, message->impl_->type);
-    EXPECT_EQ(42, message->impl_->requestVote.term);
-    EXPECT_EQ(5, message->impl_->requestVote.candidateId);
-    EXPECT_EQ(11, message->impl_->requestVote.lastLogIndex);
+    EXPECT_EQ(Raft::Message::Type::RequestVote, message.type);
+    EXPECT_EQ(42, message.requestVote.term);
+    EXPECT_EQ(5, message.requestVote.candidateId);
+    EXPECT_EQ(11, message.requestVote.lastLogIndex);
 }
 
 TEST(MessageTests, SerializeRequestVoteResponse) {
     // Arrange
-    const auto message = std::make_shared < Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::RequestVoteResults;
-    message->impl_->requestVoteResults.term = 16;
-    message->impl_->requestVoteResults.voteGranted = true;
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVoteResults;
+    message.requestVoteResults.term = 16;
+    message.requestVoteResults.voteGranted = true;
 
     // Act
     EXPECT_EQ(
@@ -66,7 +65,7 @@ TEST(MessageTests, SerializeRequestVoteResponse) {
             {"term", 16},
             {"voteGranted", true}
         }),
-        Json::Value::FromEncoding(message->Serialize())
+        Json::Value::FromEncoding(message.Serialize())
     );
 }
 
@@ -79,20 +78,20 @@ TEST(MessageTests, DeserializeRequestVoteResults) {
     }).ToEncoding();
 
     // Act
-    const auto message = std::make_shared < Raft::Message >(serializedMessage);
+    Raft::Message message(serializedMessage);
 
     // Act
-    EXPECT_EQ(Raft::MessageImpl::Type::RequestVoteResults, message->impl_->type);
-    EXPECT_EQ(16, message->impl_->requestVoteResults.term);
-    EXPECT_TRUE(message->impl_->requestVoteResults.voteGranted);
+    EXPECT_EQ(Raft::Message::Type::RequestVoteResults, message.type);
+    EXPECT_EQ(16, message.requestVoteResults.term);
+    EXPECT_TRUE(message.requestVoteResults.voteGranted);
 }
 
 TEST(MessageTests, SerializeHeartBeat) {
     // Arrange
-    const auto message = std::make_shared < Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = 8;
-    message->impl_->appendEntries.leaderCommit = 85;
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 8;
+    message.appendEntries.leaderCommit = 85;
 
     // Act
     EXPECT_EQ(
@@ -102,7 +101,7 @@ TEST(MessageTests, SerializeHeartBeat) {
             {"leaderCommit", 85},
             {"log", Json::Array({})},
         }),
-        Json::Value::FromEncoding(message->Serialize())
+        Json::Value::FromEncoding(message.Serialize())
     );
 }
 
@@ -116,26 +115,26 @@ TEST(MessageTests, DeserializeHeartBeat) {
     }).ToEncoding();
 
     // Act
-    const auto message = std::make_shared < Raft::Message >(serializedMessage);
+    Raft::Message message(serializedMessage);
 
     // Act
-    EXPECT_EQ(Raft::MessageImpl::Type::AppendEntries, message->impl_->type);
-    EXPECT_EQ(8, message->impl_->appendEntries.term);
-    EXPECT_EQ(18, message->impl_->appendEntries.leaderCommit);
+    EXPECT_EQ(Raft::Message::Type::AppendEntries, message.type);
+    EXPECT_EQ(8, message.appendEntries.term);
+    EXPECT_EQ(18, message.appendEntries.leaderCommit);
 }
 
 TEST(MessageTests, SerializeAppendEntriesWithContent) {
     // Arrange
-    const auto message = std::make_shared < Raft::Message >();
-    message->impl_->type = Raft::MessageImpl::Type::AppendEntries;
-    message->impl_->appendEntries.term = 8;
-    message->impl_->appendEntries.leaderCommit = 77;
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 8;
+    message.appendEntries.leaderCommit = 77;
     Raft::LogEntry firstEntry;
     firstEntry.term = 7;
-    message->impl_->log.push_back(std::move(firstEntry));
+    message.log.push_back(std::move(firstEntry));
     Raft::LogEntry secondEntry;
     secondEntry.term = 8;
-    message->impl_->log.push_back(std::move(secondEntry));
+    message.log.push_back(std::move(secondEntry));
 
     // Act
     EXPECT_EQ(
@@ -152,7 +151,7 @@ TEST(MessageTests, SerializeAppendEntriesWithContent) {
                 }),
             })},
         }),
-        Json::Value::FromEncoding(message->Serialize())
+        Json::Value::FromEncoding(message.Serialize())
     );
 }
 
@@ -173,25 +172,25 @@ TEST(MessageTests, DeserializeAppendEntriesWithContent) {
     }).ToEncoding();
 
     // Act
-    const auto message = std::make_shared < Raft::Message >(serializedMessage);
+    Raft::Message message(serializedMessage);
 
     // Act
-    EXPECT_EQ(Raft::MessageImpl::Type::AppendEntries, message->impl_->type);
-    EXPECT_EQ(8, message->impl_->appendEntries.term);
-    EXPECT_EQ(33, message->impl_->appendEntries.leaderCommit);
-    ASSERT_EQ(2, message->impl_->log.size());
-    EXPECT_EQ(7, message->impl_->log[0].term);
-    EXPECT_EQ(8, message->impl_->log[1].term);
+    EXPECT_EQ(Raft::Message::Type::AppendEntries, message.type);
+    EXPECT_EQ(8, message.appendEntries.term);
+    EXPECT_EQ(33, message.appendEntries.leaderCommit);
+    ASSERT_EQ(2, message.log.size());
+    EXPECT_EQ(7, message.log[0].term);
+    EXPECT_EQ(8, message.log[1].term);
 }
 
 TEST(MessageTests, SerializeUnknown) {
     // Arrange
-    const auto message = std::make_shared < Raft::Message >();
+    Raft::Message message;
 
     // Act
     EXPECT_EQ(
         Json::Object({}),
-        Json::Value::FromEncoding(message->Serialize())
+        Json::Value::FromEncoding(message.Serialize())
     );
 }
 
@@ -200,8 +199,8 @@ TEST(MessageTests, DeserializeGarbage) {
     const auto serializedMessage = "admLUL PogChamp";
 
     // Act
-    const auto message = std::make_shared < Raft::Message >(serializedMessage);
+    Raft::Message message(serializedMessage);
 
     // Act
-    EXPECT_EQ(Raft::MessageImpl::Type::Unknown, message->impl_->type);
+    EXPECT_EQ(Raft::Message::Type::Unknown, message.type);
 }

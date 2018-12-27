@@ -15,7 +15,6 @@
 #include <functional>
 #include <memory>
 #include <ostream>
-#include <Raft/Message.hpp>
 #include <vector>
 
 namespace Raft {
@@ -104,8 +103,8 @@ namespace Raft {
          * This declares the type of delegate used to request that a message
          * be sent to another server in the cluster.
          *
-         * @param[in] message
-         *     This is the message to send.
+         * @param[in] serializedMessage
+         *     This is the serialized message to send.
          *
          * @param[in] receiverInstanceNumber
          *     This is the unique identifier of the server to whom to send the
@@ -113,20 +112,9 @@ namespace Raft {
          */
         using SendMessageDelegate = std::function<
             void(
-                std::shared_ptr< Message > message,
+                const std::string& serializedMessage,
                 int receiverInstanceNumber
             )
-        >;
-
-        /**
-         * This declares the type of delegate used to create a new message
-         * object.
-         *
-         * @return
-         *     A new concrete message object is returned.
-         */
-        using CreateMessageDelegate = std::function<
-            std::shared_ptr< Message >()
         >;
 
         /**
@@ -174,16 +162,6 @@ namespace Raft {
          *     was successfully set is returned.
          */
         virtual bool Configure(const Configuration& configuration) = 0;
-
-        /**
-         * This method is called to set up the delegate to be called whenever
-         * the server wants to create a message object.
-         *
-         * @param[in] createMessageDelegate
-         *     This is the delegate to be called later whenever the server
-         *     wants to create a message object.
-         */
-        virtual void SetCreateMessageDelegate(CreateMessageDelegate createMessageDelegate) = 0;
 
         /**
          * This method is called to set up the delegate to be called later
@@ -234,15 +212,16 @@ namespace Raft {
          * This method is called whenever the server receives a message
          * from another server in the cluster.
          *
-         * @param[in] message
-         *     This is the message received from another server in the cluster.
+         * @param[in] serializedMessage
+         *     This is the serialized message received from another server
+         *     in the cluster.
          *
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
          */
         virtual void ReceiveMessage(
-            std::shared_ptr< Message > message,
+            const std::string& serializedMessage,
             int senderInstanceNumber
         ) = 0;
 
