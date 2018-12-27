@@ -148,6 +148,17 @@ struct ServerTests
         message.appendEntries.term = term;
         server.ReceiveMessage(message.Serialize(), leaderId);
         server.WaitForAtLeastOneWorkerLoop();
+        messagesSent.clear();
+    }
+
+    void BecomeCandidate(int term = 1) {
+        configuration.currentTerm = term - 1;
+        server.Configure(configuration);
+        server.Mobilize(mockLog);
+        server.WaitForAtLeastOneWorkerLoop();
+        mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
+        server.WaitForAtLeastOneWorkerLoop();
+        messagesSent.clear();
     }
 
     // ::testing::Test
@@ -1389,12 +1400,7 @@ TEST_F(ServerTests, ReceivingHeartBeatFromOldTermShouldNotResetElectionTimeout) 
 
 TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermRequestVoteReceived) {
     // Arrange
-    server.Configure(configuration);
-    server.Mobilize(mockLog);
-    server.WaitForAtLeastOneWorkerLoop();
-    mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
-    messagesSent.clear();
+    BecomeCandidate();
 
     // Act
     Raft::Message message;
@@ -1409,6 +1415,26 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermRequestVoteRec
 
     // Assert
     EXPECT_EQ(0, messagesSent.size());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
+    EXPECT_EQ(3, server.GetConfiguration().currentTerm);
+}
+
+TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermRequestVoteResultsReceived) {
+    // Arrange
+    BecomeCandidate(1);
+
+    // Act
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVoteResults;
+    message.requestVoteResults.term = 3;
+    message.requestVoteResults.voteGranted = false;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
     EXPECT_EQ(
         Raft::IServer::ElectionState::Follower,
         server.GetElectionState()

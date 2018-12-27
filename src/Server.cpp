@@ -817,6 +817,10 @@ namespace Raft {
                     senderInstanceNumber,
                     shared->configuration.currentTerm
                 );
+                if (messageDetails.term > shared->configuration.currentTerm) {
+                    UpdateCurrentTerm(messageDetails.term);
+                    RevertToFollower();
+                }
             }
             instance.awaitingVote = false;
         }
