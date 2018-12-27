@@ -637,11 +637,11 @@ namespace Raft {
         void SendQueuedLeadershipAnnouncements(
             std::unique_lock< decltype(shared->mutex) >& lock
         ) {
+            decltype(shared->leadershipAnnouncementsToBeSent) leadershipAnnouncementsToBeSent;
+            leadershipAnnouncementsToBeSent.swap(shared->leadershipAnnouncementsToBeSent);
             if (leadershipChangeDelegate == nullptr) {
                 return;
             }
-            decltype(shared->leadershipAnnouncementsToBeSent) leadershipAnnouncementsToBeSent;
-            leadershipAnnouncementsToBeSent.swap(shared->leadershipAnnouncementsToBeSent);
             auto leadershipChangeDelegateCopy = leadershipChangeDelegate;
             lock.unlock();
             SendLeadershipAnnouncements(
@@ -662,11 +662,11 @@ namespace Raft {
         void SendQueuedAppendLogAnnouncements(
             std::unique_lock< decltype(shared->mutex) >& lock
         ) {
+            decltype(shared->appendEntriesAnnouncementsToBeSent) appendEntriesAnnouncementsToBeSent;
+            appendEntriesAnnouncementsToBeSent.swap(shared->appendEntriesAnnouncementsToBeSent);
             if (appendEntriesDelegate == nullptr) {
                 return;
             }
-            decltype(shared->appendEntriesAnnouncementsToBeSent) appendEntriesAnnouncementsToBeSent;
-            appendEntriesAnnouncementsToBeSent.swap(shared->appendEntriesAnnouncementsToBeSent);
             auto appendEntriesDelegateCopy = appendEntriesDelegate;
             lock.unlock();
             SendAppendEntriesAnnouncements(
