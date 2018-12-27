@@ -767,6 +767,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermNoVotePending) {
     message.type = Raft::Message::Type::RequestVote;
     message.requestVote.term = 0;
     message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
     server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -820,6 +821,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForSame) {
     message.type = Raft::Message::Type::RequestVote;
     message.requestVote.term = 1;
     message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
     server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
@@ -829,6 +831,7 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForSame) {
     message.type = Raft::Message::Type::RequestVote;
     message.requestVote.term = 1;
     message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
     server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -876,6 +879,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenFollower) {
     message.type = Raft::Message::Type::RequestVote;
     message.requestVote.term = 1;
     message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
     server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -903,6 +907,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenCandidate) {
     message.type = Raft::Message::Type::RequestVote;
     message.requestVote.term = 2;
     message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
     server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime += configuration.minimumElectionTimeout - 0.001;
@@ -931,6 +936,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenLeader) {
     message.type = Raft::Message::Type::RequestVote;
     message.requestVote.term = 2;
     message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
     server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -974,6 +980,7 @@ TEST_F(ServerTests, AfterRevertToFollowerDoNotStartNewElectionBeforeMinimumTimeo
     message.type = Raft::Message::Type::RequestVote;
     message.requestVote.term = 2;
     message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
     server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
@@ -1460,6 +1467,7 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermRequestVoteRec
     message.type = Raft::Message::Type::RequestVote;
     message.requestVote.term = 3;
     message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
     server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
     messagesSent.clear();
