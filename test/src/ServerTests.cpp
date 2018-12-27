@@ -66,7 +66,8 @@ namespace {
                 || (index > entries.size())
             ) {
                 invalidEntryIndexed = true;
-                return Raft::LogEntry();
+                static Raft::LogEntry outOfRangeReturnValue;
+                return outOfRangeReturnValue;
             }
             return entries[index - 1];
         }
@@ -1147,11 +1148,12 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameTermHeartbeatReceived
 TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
     // Arrange
     BecomeLeader();
-    server.SetCommitIndex(42);
     const auto expectedSerializedMessage = Json::Object({
         {"type", "AppendEntries"},
         {"term", 1},
-        {"leaderCommit", 42},
+        {"leaderCommit", 0},
+        {"prevLogIndex", 0},
+        {"prevLogTerm", 0},
         {"log", Json::Array({
         })},
     });
@@ -1725,39 +1727,44 @@ TEST_F(ServerTests, AnnounceLeaderWhenAFollower) {
 
 TEST_F(ServerTests, LeaderAppendLogEntry) {
     // Arrange
-    BecomeLeader();
-    server.SetCommitIndex(42);
+    Raft::LogEntry committedEntry;
+    committedEntry.term = 1;
+    mockLog->entries.push_back(std::move(committedEntry));
+    BecomeLeader(3);
+    server.SetCommitIndex(1);
     std::vector< Raft::LogEntry > entries;
     Raft::LogEntry firstEntry;
-    firstEntry.term = 1;
+    firstEntry.term = 2;
     entries.push_back(std::move(firstEntry));
     Raft::LogEntry secondEntry;
-    secondEntry.term = 1;
+    secondEntry.term = 3;
     entries.push_back(std::move(secondEntry));
     const auto expectedSerializedMessage = Json::Object({
         {"type", "AppendEntries"},
-        {"term", 1},
-        {"leaderCommit", 42},
+        {"term", 3},
+        {"leaderCommit", 1},
+        {"prevLogIndex", 1},
+        {"prevLogTerm", 1},
         {"log", Json::Array({
             Json::Object({
-                {"term", 1},
+                {"term", 2},
             }),
             Json::Object({
-                {"term", 1},
+                {"term", 3},
             }),
         })},
     });
 
     // Act
-    EXPECT_EQ(0, server.GetLastIndex());
+    EXPECT_EQ(1, server.GetLastIndex());
     server.AppendLogEntries(entries);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
-    EXPECT_EQ(2, server.GetLastIndex());
-    ASSERT_EQ(entries.size(), mockLog->entries.size());
-    for (size_t i = 0; i < entries.size(); ++i) {
-        EXPECT_EQ(entries[i].term, mockLog->entries[i].term);
+    EXPECT_EQ(3, server.GetLastIndex());
+    ASSERT_EQ(entries.size() + 1, mockLog->entries.size());
+    for (size_t i = 1; i < entries.size(); ++i) {
+        EXPECT_EQ(entries[i].term, mockLog->entries[i + 1].term);
     }
     std::map< int, bool > appendEntriesReceivedPerInstance;
     for (auto instanceNumber: configuration.instanceNumbers) {
@@ -1964,4 +1971,64 @@ TEST_F(ServerTests, InitializeLastIndex) {
 
     // Assert
     EXPECT_EQ(2, server.GetLastIndex());
+}
+
+TEST_F(ServerTests, LeaderInitialAppendEntriesFromEndOfLog) {
+    // Arrange
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 3;
+    mockLog->entries.push_back(std::move(firstEntry));
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 7;
+    mockLog->entries.push_back(std::move(secondEntry));
+    BecomeLeader(8);
+
+    // Act
+    mockTimeKeeper->currentTime += configuration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    for (const auto& messageSent: messagesSent) {
+        if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+            EXPECT_EQ(2, messageSent.message.appendEntries.prevLogIndex);
+            EXPECT_EQ(7, messageSent.message.appendEntries.prevLogTerm);
+            EXPECT_TRUE(messageSent.message.log.empty());
+        }
+    }
+}
+
+TEST_F(ServerTests, LeaderAppendOlderEntriesAfterDiscoveringFollowerIsBehind) {
+    // Arrange
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 3;
+    mockLog->entries.push_back(std::move(firstEntry));
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 7;
+    mockLog->entries.push_back(std::move(secondEntry));
+    BecomeLeader(8);
+    mockTimeKeeper->currentTime += configuration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    messagesSent.clear();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = 8;
+    message.appendEntriesResults.success = false;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(Raft::Message::Type::AppendEntries, messagesSent[0].message.type);
+    EXPECT_EQ(1, messagesSent[0].message.appendEntries.prevLogIndex);
+    EXPECT_EQ(3, messagesSent[0].message.appendEntries.prevLogTerm);
+    ASSERT_EQ(1, messagesSent[0].message.log.size());
+    EXPECT_EQ(secondEntry.term, messagesSent[0].message.log[0].term);
+}
+
+TEST_F(ServerTests, ReinitializeVolatileFollowerStateAfterElection) {
+}
+
+TEST_F(ServerTests, IgnoreAppendEntriesResultsIfNotLeader) {
 }
