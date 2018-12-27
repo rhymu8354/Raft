@@ -781,6 +781,68 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermNoVotePending) {
     EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
 }
 
+TEST_F(ServerTests, ReceiveVoteRequestWhenOurLogIsGreaterTerm) {
+    // Arrange
+    configuration.currentTerm = 2;
+    server.Configure(configuration);
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 2;
+    mockLog->entries.push_back(std::move(firstEntry));
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 3;
+    message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 1;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
+    );
+    EXPECT_EQ(3, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
+}
+
+TEST_F(ServerTests, ReceiveVoteRequestWhenOurLogIsSameTermGreaterIndex) {
+    // Arrange
+    configuration.currentTerm = 2;
+    server.Configure(configuration);
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 1;
+    mockLog->entries.push_back(std::move(firstEntry));
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 1;
+    mockLog->entries.push_back(std::move(secondEntry));
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 3;
+    message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 1;
+    message.requestVote.lastLogIndex = 1;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
+    );
+    EXPECT_EQ(3, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
+}
+
 TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForAnother) {
     // Arrange
     server.Configure(configuration);

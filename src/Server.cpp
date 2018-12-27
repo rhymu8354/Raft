@@ -722,6 +722,12 @@ namespace Raft {
                 shared->configuration.currentTerm,
                 messageDetails.term
             );
+            const auto lastIndex = shared->lastIndex;
+            const auto lastTerm = (
+                (shared->lastIndex == 0)
+                ? 0
+                : shared->logKeeper->operator[](shared->lastIndex).term
+            );
             if (shared->configuration.currentTerm > messageDetails.term) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
@@ -743,6 +749,23 @@ namespace Raft {
                     shared->votedFor,
                     messageDetails.term,
                     shared->configuration.currentTerm
+                );
+                response.requestVoteResults.voteGranted = false;
+            } else if (
+                (lastTerm > messageDetails.lastLogTerm)
+                || (
+                    (lastTerm == messageDetails.lastLogTerm)
+                    && (lastIndex > messageDetails.lastLogIndex)
+                )
+            ) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1,
+                    "Rejecting vote for server %u (our log at %d:%d is more up to date than theirs at %d:%d)",
+                    senderInstanceNumber,
+                    lastIndex,
+                    lastTerm,
+                    messageDetails.lastLogIndex,
+                    messageDetails.lastLogTerm
                 );
                 response.requestVoteResults.voteGranted = false;
             } else {
