@@ -96,6 +96,8 @@ TEST(MessageTests, SerializeHeartBeat) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = 8;
     message.appendEntries.leaderCommit = 85;
+    message.appendEntries.prevLogIndex = 2;
+    message.appendEntries.prevLogTerm = 7;
 
     // Act
     EXPECT_EQ(
@@ -103,6 +105,8 @@ TEST(MessageTests, SerializeHeartBeat) {
             {"type", "AppendEntries"},
             {"term", 8},
             {"leaderCommit", 85},
+            {"prevLogIndex", 2},
+            {"prevLogTerm", 7},
             {"log", Json::Array({})},
         }),
         Json::Value::FromEncoding(message.Serialize())
@@ -115,6 +119,8 @@ TEST(MessageTests, DeserializeHeartBeat) {
         {"type", "AppendEntries"},
         {"term", 8},
         {"leaderCommit", 18},
+        {"prevLogIndex", 6},
+        {"prevLogTerm", 1},
         {"log", Json::Array({})},
     }).ToEncoding();
 
@@ -125,6 +131,8 @@ TEST(MessageTests, DeserializeHeartBeat) {
     EXPECT_EQ(Raft::Message::Type::AppendEntries, message.type);
     EXPECT_EQ(8, message.appendEntries.term);
     EXPECT_EQ(18, message.appendEntries.leaderCommit);
+    EXPECT_EQ(6, message.appendEntries.prevLogIndex);
+    EXPECT_EQ(1, message.appendEntries.prevLogTerm);
 }
 
 TEST(MessageTests, SerializeAppendEntriesWithContent) {
@@ -133,6 +141,8 @@ TEST(MessageTests, SerializeAppendEntriesWithContent) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = 8;
     message.appendEntries.leaderCommit = 77;
+    message.appendEntries.prevLogIndex = 2;
+    message.appendEntries.prevLogTerm = 7;
     Raft::LogEntry firstEntry;
     firstEntry.term = 7;
     message.log.push_back(std::move(firstEntry));
@@ -146,6 +156,8 @@ TEST(MessageTests, SerializeAppendEntriesWithContent) {
             {"type", "AppendEntries"},
             {"term", 8},
             {"leaderCommit", 77},
+            {"prevLogIndex", 2},
+            {"prevLogTerm", 7},
             {"log", Json::Array({
                 Json::Object({
                     {"term", 7},
@@ -165,6 +177,8 @@ TEST(MessageTests, DeserializeAppendEntriesWithContent) {
         {"type", "AppendEntries"},
         {"term", 8},
         {"leaderCommit", 33},
+        {"prevLogIndex", 5},
+        {"prevLogTerm", 6},
         {"log", Json::Array({
             Json::Object({
                 {"term", 7},
@@ -182,6 +196,8 @@ TEST(MessageTests, DeserializeAppendEntriesWithContent) {
     EXPECT_EQ(Raft::Message::Type::AppendEntries, message.type);
     EXPECT_EQ(8, message.appendEntries.term);
     EXPECT_EQ(33, message.appendEntries.leaderCommit);
+    EXPECT_EQ(5, message.appendEntries.prevLogIndex);
+    EXPECT_EQ(6, message.appendEntries.prevLogTerm);
     ASSERT_EQ(2, message.log.size());
     EXPECT_EQ(7, message.log[0].term);
     EXPECT_EQ(8, message.log[1].term);
@@ -207,4 +223,39 @@ TEST(MessageTests, DeserializeGarbage) {
 
     // Act
     EXPECT_EQ(Raft::Message::Type::Unknown, message.type);
+}
+
+TEST(MessageTests, SerializeAppendEntriesResults) {
+    // Arrange
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = 8;
+    message.appendEntriesResults.success = true;
+
+    // Act
+    EXPECT_EQ(
+        Json::Object({
+            {"type", "AppendEntriesResults"},
+            {"term", 8},
+            {"success", true},
+        }),
+        Json::Value::FromEncoding(message.Serialize())
+    );
+}
+
+TEST(MessageTests, DeserializeAppendEntriesResults) {
+    // Arrange
+    const auto serializedMessage = Json::Object({
+        {"type", "AppendEntriesResults"},
+        {"term", 5},
+        {"success", false},
+    }).ToEncoding();
+
+    // Act
+    Raft::Message message(serializedMessage);
+
+    // Act
+    EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, message.type);
+    EXPECT_EQ(5, message.appendEntriesResults.term);
+    EXPECT_FALSE(message.appendEntriesResults.success);
 }

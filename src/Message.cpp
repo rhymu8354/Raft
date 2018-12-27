@@ -29,6 +29,8 @@ namespace Raft {
             type = Message::Type::AppendEntries;
             appendEntries.term = json["term"];
             appendEntries.leaderCommit = json["leaderCommit"];
+            appendEntries.prevLogIndex = json["prevLogIndex"];
+            appendEntries.prevLogTerm = json["prevLogTerm"];
             const auto& serializedLogEntries = json["log"];
             for (size_t i = 0; i < serializedLogEntries.GetSize(); ++i) {
                 LogEntry logEntry;
@@ -37,6 +39,8 @@ namespace Raft {
             }
         } else if (typeAsString == "AppendEntriesResults") {
             type = Message::Type::AppendEntriesResults;
+            appendEntriesResults.term = json["term"];
+            appendEntriesResults.success = json["success"];
         }
     }
 
@@ -61,6 +65,8 @@ namespace Raft {
                 json["type"] = "AppendEntries";
                 json["term"] = appendEntries.term;
                 json["leaderCommit"] = appendEntries.leaderCommit;
+                json["prevLogIndex"] = appendEntries.prevLogIndex;
+                json["prevLogTerm"] = appendEntries.prevLogTerm;
                 json["log"] = Json::Array({});
                 auto& serializedLog = json["log"];
                 for (const auto& logEntry: log) {
@@ -73,6 +79,8 @@ namespace Raft {
 
             case Message::Type::AppendEntriesResults: {
                 json["type"] = "AppendEntriesResults";
+                json["term"] = appendEntriesResults.term;
+                json["success"] = appendEntriesResults.success;
             } break;
 
             default: {

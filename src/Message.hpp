@@ -119,6 +119,18 @@ namespace Raft {
              * cluster.
              */
             size_t leaderCommit = 0;
+
+            /**
+             * This is the index of the log entry that comes just before the
+             * entries included with this message.
+             */
+            size_t prevLogIndex = 0;
+
+            /**
+             * This is the term of the log entry that comes just before the
+             * entries included with this message.
+             */
+            int prevLogTerm = 0;
         };
 
         /**
@@ -126,6 +138,16 @@ namespace Raft {
          * messages.
          */
         struct AppendEntriesResultsDetails {
+            /**
+             * This is the current term in effect at the sender.
+             */
+            int term = 0;
+
+            /**
+             * This indicates whether or not the server accepted the last
+             * AppendEntries message.
+             */
+            bool success = false;
         };
 
         // Properties
