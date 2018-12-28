@@ -231,12 +231,14 @@ TEST(MessageTests, SerializeAppendEntriesResults) {
     message.type = Raft::Message::Type::AppendEntriesResults;
     message.appendEntriesResults.term = 8;
     message.appendEntriesResults.success = true;
+    message.appendEntriesResults.matchIndex = 5;
 
     // Act
     EXPECT_EQ(
         Json::Object({
             {"type", "AppendEntriesResults"},
             {"term", 8},
+            {"matchIndex", 5},
             {"success", true},
         }),
         Json::Value::FromEncoding(message.Serialize())
@@ -248,6 +250,7 @@ TEST(MessageTests, DeserializeAppendEntriesResults) {
     const auto serializedMessage = Json::Object({
         {"type", "AppendEntriesResults"},
         {"term", 5},
+        {"matchIndex", 10},
         {"success", false},
     }).ToEncoding();
 
@@ -258,4 +261,5 @@ TEST(MessageTests, DeserializeAppendEntriesResults) {
     EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, message.type);
     EXPECT_EQ(5, message.appendEntriesResults.term);
     EXPECT_FALSE(message.appendEntriesResults.success);
+    EXPECT_EQ(10, message.appendEntriesResults.matchIndex);
 }

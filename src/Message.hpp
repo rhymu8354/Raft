@@ -148,6 +148,12 @@ namespace Raft {
              * AppendEntries message.
              */
             bool success = false;
+
+            /**
+             * This is the index of the last log entry which the follower
+             * has determined matches what the leader has.
+             */
+            size_t matchIndex = 0;
         };
 
         // Properties

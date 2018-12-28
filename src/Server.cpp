@@ -55,12 +55,6 @@ namespace {
          * on this server.
          */
         size_t matchIndex = 0;
-
-        /**
-         * If awaiting an AppendEntries response, this is the number of
-         * entries that were sent in the AppendEntries message.
-         */
-        size_t numEntriesLastSent = 0;
     };
 
     /**
@@ -550,7 +544,6 @@ namespace Raft {
             for (size_t i = instance.nextIndex; i <= shared->lastIndex; ++i) {
                 message.log.push_back(shared->logKeeper->operator[](i));
             }
-            instance.numEntriesLastSent = message.log.size();
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
                 "Sending log entries (%zu entries, term %u)",
@@ -595,7 +588,6 @@ namespace Raft {
                 ) {
                     continue;
                 }
-                instance.numEntriesLastSent = 0;
                 QueueMessageToBeSent(message, instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = now;
@@ -640,7 +632,6 @@ namespace Raft {
                 ) {
                     continue;
                 }
-                instance.numEntriesLastSent = message.log.size();
                 QueueMessageToBeSent(message, instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = timeKeeper->GetCurrentTime();
@@ -985,12 +976,14 @@ namespace Raft {
             auto& instance = shared->instances[senderInstanceNumber];
             instance.awaitingResponse = false;
             if (messageDetails.success) {
-                instance.nextIndex += instance.numEntriesLastSent;
-                instance.matchIndex = instance.nextIndex - 1;
+                instance.matchIndex = messageDetails.matchIndex;
+                instance.nextIndex = messageDetails.matchIndex + 1;
                 if (instance.nextIndex <= shared->lastIndex) {
                     AttemptLogReplication(senderInstanceNumber);
                 }
             } else {
+                // TODO: potential optimization: set nextIndex = matchIndex
+                // from the results.
                 --instance.nextIndex;
                 AttemptLogReplication(senderInstanceNumber);
             }
@@ -1183,6 +1176,11 @@ namespace Raft {
     void Server::SetLastIndex(size_t lastIndex) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->shared->lastIndex = lastIndex;
+    }
+
+    size_t Server::GetMatchIndex(int instanceId) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        return impl_->shared->instances[instanceId].matchIndex;
     }
 
     bool Server::Configure(const Configuration& configuration) {

@@ -130,6 +130,20 @@ namespace Raft {
         void SetLastIndex(size_t lastIndex);
 
         /**
+         * Return the current match index for the server with the given
+         * identifier.
+         *
+         * @param[in] instanceId
+         *     This is the unique identifier of the server for which to return
+         *     the current match index.
+         *
+         * @return
+         *     The current match index for the server with the given
+         *     identifier is returned.
+         */
+        size_t GetMatchIndex(int instanceId);
+
+        /**
          * This method puts the server back into the state it was in when
          * first mobilized.
          */

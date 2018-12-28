@@ -41,6 +41,7 @@ namespace Raft {
             type = Message::Type::AppendEntriesResults;
             appendEntriesResults.term = json["term"];
             appendEntriesResults.success = json["success"];
+            appendEntriesResults.matchIndex = json["matchIndex"];
         }
     }
 
@@ -81,6 +82,7 @@ namespace Raft {
                 json["type"] = "AppendEntriesResults";
                 json["term"] = appendEntriesResults.term;
                 json["success"] = appendEntriesResults.success;
+                json["matchIndex"] = appendEntriesResults.matchIndex;
             } break;
 
             default: {
