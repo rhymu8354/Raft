@@ -2165,8 +2165,97 @@ TEST_F(ServerTests, IgnoreAppendEntriesResultsIfNotLeader) {
     EXPECT_EQ(0, server.GetCommitIndex());
 }
 
-TEST_F(ServerTests, IgnoreStaleVotesFromPreviousTerm) {
-    // TODO
+TEST_F(ServerTests, IgnoreStaleYesVoteFromPreviousTerm) {
+    // Arrange
+    BecomeCandidate(2);
+
+    // Act
+    for (auto instance: configuration.instanceNumbers) {
+        Raft::Message message;
+        message.type = Raft::Message::Type::RequestVoteResults;
+        switch (instance) {
+            case 2: {
+                message.requestVoteResults.term = 1;
+                message.requestVoteResults.voteGranted = true;
+            } break;
+
+            case 5: { // self
+            } break;
+
+            case 6: {
+                message.requestVoteResults.term = 2;
+                message.requestVoteResults.voteGranted = true;
+            } break;
+
+            case 7: {
+                message.requestVoteResults.term = 2;
+                message.requestVoteResults.voteGranted = false;
+            } break;
+
+            case 11: {
+                message.requestVoteResults.term = 2;
+                message.requestVoteResults.voteGranted = false;
+            } break;
+        }
+        server.ReceiveMessage(message.Serialize(), instance);
+    }
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Candidate,
+        server.GetElectionState()
+    );
+}
+
+TEST_F(ServerTests, IgnoreStaleNoVoteFromPreviousTerm) {
+    // Arrange
+    BecomeCandidate(2);
+
+    // Act
+    for (auto instance: configuration.instanceNumbers) {
+        Raft::Message message;
+        message.type = Raft::Message::Type::RequestVoteResults;
+        switch (instance) {
+            case 2: {
+                message.requestVoteResults.term = 1;
+                message.requestVoteResults.voteGranted = false;
+            } break;
+
+            case 5: { // self
+            } break;
+
+            case 6: {
+                message.requestVoteResults.term = 2;
+                message.requestVoteResults.voteGranted = true;
+            } break;
+
+            case 7: {
+                message.requestVoteResults.term = 2;
+                message.requestVoteResults.voteGranted = false;
+            } break;
+
+            case 11: {
+                message.requestVoteResults.term = 2;
+                message.requestVoteResults.voteGranted = false;
+            } break;
+        }
+        server.ReceiveMessage(message.Serialize(), instance);
+    }
+    messagesSent.clear();
+    mockTimeKeeper->currentTime += configuration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Candidate,
+        server.GetElectionState()
+    );
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
+    EXPECT_EQ(Raft::Message::Type::RequestVote, messagesSent[0].message.type);
+    EXPECT_EQ(2, messagesSent[0].message.requestVote.term);
+    EXPECT_EQ(5, messagesSent[0].message.requestVote.candidateId);
 }
 
 TEST_F(ServerTests, RetransmitUnacknowledgedAppendEntries) {

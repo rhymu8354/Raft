@@ -852,6 +852,15 @@ namespace Raft {
             int senderInstanceNumber
         ) {
             auto& instance = shared->instances[senderInstanceNumber];
+            if (messageDetails.term < shared->configuration.currentTerm) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1,
+                    "Stale vote from server %u in term %u ignored",
+                    senderInstanceNumber,
+                    messageDetails.term
+                );
+                return;
+            }
             if (messageDetails.voteGranted) {
                 if (instance.awaitingResponse) {
                     ++shared->votesForUs;
