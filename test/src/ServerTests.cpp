@@ -1934,6 +1934,7 @@ TEST_F(ServerTests, FollowerAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLog
 
     // Assert
     EXPECT_EQ(1, server.GetCommitIndex());
+    EXPECT_EQ(1, mockLog->commitIndex);
 }
 
 TEST_F(ServerTests, AppendEntriesWhenNotLeader) {

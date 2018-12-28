@@ -951,6 +951,7 @@ namespace Raft {
             }
             RevertToFollower();
             shared->commitIndex = messageDetails.leaderCommit;
+            shared->logKeeper->Commit(shared->commitIndex);
             Message response;
             response.type = Message::Type::AppendEntriesResults;
             response.appendEntriesResults.term = shared->configuration.currentTerm;
