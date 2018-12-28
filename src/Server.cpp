@@ -51,7 +51,7 @@ namespace {
         size_t nextIndex = 0;
 
         /**
-         * This is the index of the highest  log entry known to be replicated
+         * This is the index of the highest log entry known to be replicated
          * on this server.
          */
         size_t matchIndex = 0;
