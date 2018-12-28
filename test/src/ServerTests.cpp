@@ -2021,23 +2021,15 @@ TEST_F(ServerTests, LeaderAppendOlderEntriesAfterDiscoveringFollowerIsBehind) {
 
 TEST_F(ServerTests, AppendEntriesNotSentIfLastNotYetAcknowledged) {
     // Arrange
-    Raft::LogEntry firstEntry, secondEntry;
-    firstEntry.term = 2;
-    secondEntry.term = 3;
-    mockLog->entries.push_back(std::move(firstEntry));
+    Raft::LogEntry testEntry;
+    testEntry.term = 2;
     BecomeLeader(8);
     mockTimeKeeper->currentTime += configuration.minimumElectionTimeout / 2 + 0.001;
-    server.WaitForAtLeastOneWorkerLoop();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = 8;
-    message.appendEntriesResults.success = false;
-    server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
     messagesSent.clear();
-    server.AppendLogEntries({secondEntry});
+    server.AppendLogEntries({testEntry});
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
