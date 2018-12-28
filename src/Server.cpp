@@ -223,6 +223,26 @@ namespace {
     };
 
     /**
+     * Return a human-readable string representation of the given server
+     * election state.
+     *
+     * @param[in] electionState
+     *     This is the election state to turn into a string.
+     *
+     * @return
+     *     A human-readable string representation of the given server
+     *     election state is returned.
+     */
+    std::string ElectionStateToString(Raft::Server::ElectionState electionState) {
+        switch (electionState) {
+            case Raft::Server::ElectionState::Follower: return "Follower";
+            case Raft::Server::ElectionState::Candidate: return "Candidate";
+            case Raft::Server::ElectionState::Leader: return "Leader";
+            default: return "???";
+        }
+    }
+
+    /**
      * This function sends the given messages to other servers, using the given
      * delegate.
      *
