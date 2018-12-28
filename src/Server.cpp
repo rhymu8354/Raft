@@ -950,9 +950,49 @@ namespace Raft {
                 }
             }
             RevertToFollower();
-            shared->logKeeper->Append(entries);
-            shared->lastIndex += entries.size();
             shared->commitIndex = messageDetails.leaderCommit;
+            Message response;
+            response.type = Message::Type::AppendEntriesResults;
+            response.appendEntriesResults.term = shared->configuration.currentTerm;
+            if (
+                (messageDetails.prevLogIndex > shared->lastIndex)
+                || (
+                    shared->logKeeper->operator[](messageDetails.prevLogIndex).term
+                    != messageDetails.prevLogTerm
+                )
+            ) {
+                response.appendEntriesResults.success = false;
+                response.appendEntriesResults.matchIndex = 0;
+            } else {
+                response.appendEntriesResults.success = true;
+                size_t nextIndex = messageDetails.prevLogIndex + 1;
+                std::vector< LogEntry > entriesToAdd;
+                bool conflictFound = false;
+                for (size_t i = 0; i < entries.size(); ++i) {
+                    auto& newEntry = entries[i];
+                    const auto logIndex = messageDetails.prevLogIndex + i + 1;
+                    if (
+                        conflictFound
+                        || (logIndex > shared->lastIndex)
+                    ) {
+                        entriesToAdd.push_back(std::move(newEntry));
+                    } else {
+                        const auto& oldEntry = shared->logKeeper->operator[](logIndex);
+                        if (oldEntry.term != newEntry.term) {
+                            conflictFound = true;
+                            shared->logKeeper->RollBack(logIndex - 1);
+                            entriesToAdd.push_back(std::move(newEntry));
+                        }
+                    }
+                }
+                if (!entriesToAdd.empty()) {
+                    shared->logKeeper->Append(entriesToAdd);
+                }
+                shared->lastIndex = shared->logKeeper->GetSize();
+                response.appendEntriesResults.matchIndex = shared->lastIndex;
+            }
+            const auto now = timeKeeper->GetCurrentTime();
+            QueueMessageToBeSent(response, senderInstanceNumber, now);
         }
 
         /**

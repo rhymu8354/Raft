@@ -1068,7 +1068,6 @@ TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
-    EXPECT_EQ(0, messagesSent.size());
     EXPECT_EQ(
         Raft::IServer::ElectionState::Follower,
         server.GetElectionState()
@@ -1103,7 +1102,6 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermHeartbeatRecei
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
-    EXPECT_EQ(0, messagesSent.size());
     EXPECT_EQ(
         Raft::IServer::ElectionState::Follower,
         server.GetElectionState()
@@ -1138,7 +1136,6 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameTermHeartbeatReceived
     server.WaitForAtLeastOneWorkerLoop();
 
     // Assert
-    EXPECT_EQ(0, messagesSent.size());
     EXPECT_EQ(
         Raft::IServer::ElectionState::Follower,
         server.GetElectionState()
@@ -1470,7 +1467,10 @@ TEST_F(ServerTests, ReceivingHeartBeatFromSameTermShouldResetElectionTimeout) {
         server.ReceiveMessage(message.Serialize(), 2);
         mockTimeKeeper->currentTime += 0.001;
         server.WaitForAtLeastOneWorkerLoop();
-        ASSERT_TRUE(messagesSent.empty());
+        EXPECT_EQ(
+            Raft::Server::ElectionState::Follower,
+            server.GetElectionState()
+        );
     }
 
     // Assert
@@ -1810,6 +1810,8 @@ TEST_F(ServerTests, FollowerAppendLogEntry) {
     Raft::Message message;
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = 9;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     message.log = entries;
     server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
@@ -2364,4 +2366,100 @@ TEST_F(ServerTests, ReinitializeVolatileLeaderStateAfterElection) {
             EXPECT_EQ(0, server.GetMatchIndex(instance));
         }
     }
+}
+
+TEST_F(ServerTests, FollowerReceiveAppendEntriesSuccess) {
+    // Arrange
+    Raft::LogEntry oldConflictingEntry, newConflictingEntry, nextEntry;
+    oldConflictingEntry.term = 6;
+    newConflictingEntry.term = 7;
+    nextEntry.term = 8;
+    mockLog->entries = {oldConflictingEntry};
+    BecomeFollower(2, 8);
+
+    // Act
+    messagesSent.clear();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 8;
+    message.appendEntries.leaderCommit = 1;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
+    message.log = {newConflictingEntry, nextEntry};
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(2, mockLog->entries.size());
+    EXPECT_EQ(newConflictingEntry.term, mockLog->entries[0].term);
+    EXPECT_EQ(nextEntry.term, mockLog->entries[1].term);
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
+    EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
+    EXPECT_EQ(8, messagesSent[0].message.appendEntriesResults.term);
+    EXPECT_TRUE(messagesSent[0].message.appendEntriesResults.success);
+    EXPECT_EQ(2, messagesSent[0].message.appendEntriesResults.matchIndex);
+}
+
+TEST_F(ServerTests, FollowerReceiveAppendEntriesFailureOldTerm) {
+    // Arrange
+    Raft::LogEntry oldConflictingEntry, newConflictingEntry, nextEntry;
+    oldConflictingEntry.term = 6;
+    newConflictingEntry.term = 7;
+    nextEntry.term = 8;
+    mockLog->entries = {oldConflictingEntry};
+    BecomeFollower(2, 8);
+
+    // Act
+    messagesSent.clear();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 8;
+    message.appendEntries.leaderCommit = 1;
+    message.appendEntries.prevLogIndex = 1;
+    message.appendEntries.prevLogTerm = 7;
+    message.log = {nextEntry};
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(1, mockLog->entries.size());
+    EXPECT_EQ(oldConflictingEntry.term, mockLog->entries[0].term);
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
+    EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
+    EXPECT_EQ(8, messagesSent[0].message.appendEntriesResults.term);
+    EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
+    EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.matchIndex);
+}
+
+TEST_F(ServerTests, FollowerReceiveAppendEntriesFailurePreviousNotFound) {
+    // Arrange
+    Raft::LogEntry oldConflictingEntry, newConflictingEntry, nextEntry;
+    oldConflictingEntry.term = 6;
+    newConflictingEntry.term = 7;
+    nextEntry.term = 8;
+    mockLog->entries = {};
+    BecomeFollower(2, 8);
+
+    // Act
+    messagesSent.clear();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 8;
+    message.appendEntries.leaderCommit = 1;
+    message.appendEntries.prevLogIndex = 1;
+    message.appendEntries.prevLogTerm = 7;
+    message.log = {nextEntry};
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(0, mockLog->entries.size());
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
+    EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
+    EXPECT_EQ(8, messagesSent[0].message.appendEntriesResults.term);
+    EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
+    EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.matchIndex);
 }
