@@ -79,6 +79,13 @@ namespace Raft {
             int currentTerm = 0;
 
             /**
+             * If the server has voted for another server to be the leader this
+             * term, this is the unique identifier of the server for whom we
+             * voted.
+             */
+            int votedFor = 0;
+
+            /**
              * This is the lower bound of the range of time, starting from the
              * last time the server either started or received a message from
              * the cluster leader, within which to trigger an election.

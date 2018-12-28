@@ -175,12 +175,6 @@ namespace {
         bool votedThisTerm = false;
 
         /**
-         * If the server has voted for another server to be the leader this
-         * term, this is the unique identifier of the server for whom we voted.
-         */
-        int votedFor = 0;
-
-        /**
          * This holds information this server tracks about the other servers.
          */
         std::map< int, InstanceInfo > instances;
@@ -468,7 +462,7 @@ namespace Raft {
         void StepUpAsCandidate() {
             shared->electionState = IServer::ElectionState::Candidate;
             shared->votedThisTerm = true;
-            shared->votedFor = shared->configuration.selfInstanceNumber;
+            shared->configuration.votedFor = shared->configuration.selfInstanceNumber;
             shared->votesForUs = 1;
             for (auto& instanceEntry: shared->instances) {
                 instanceEntry.second.awaitingResponse = false;
@@ -791,13 +785,13 @@ namespace Raft {
             } else if (
                 (shared->configuration.currentTerm == messageDetails.term)
                 && shared->votedThisTerm
-                && (shared->votedFor != senderInstanceNumber)
+                && (shared->configuration.votedFor != senderInstanceNumber)
             ) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
                     "Rejecting vote for server %u (already voted for %u for term %u -- we are in term %u)",
                     senderInstanceNumber,
-                    shared->votedFor,
+                    shared->configuration.votedFor,
                     messageDetails.term,
                     shared->configuration.currentTerm
                 );
@@ -829,7 +823,7 @@ namespace Raft {
                 );
                 response.requestVoteResults.voteGranted = true;
                 shared->votedThisTerm = true;
-                shared->votedFor = senderInstanceNumber;
+                shared->configuration.votedFor = senderInstanceNumber;
                 UpdateCurrentTerm(messageDetails.term);
                 RevertToFollower();
             }
