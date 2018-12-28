@@ -970,16 +970,20 @@ namespace Raft {
             const Message::AppendEntriesResultsDetails& messageDetails,
             int senderInstanceNumber
         ) {
-            auto& instance = shared->instances[senderInstanceNumber];
-            instance.awaitingResponse = false;
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
-                "Received AppendEntriesResults(%s, term %zu) from server %d (we are in term %d)",
+                "Received AppendEntriesResults(%s, term %zu) from server %d (we are %s in term %d)",
                 (messageDetails.success ? "success" : "failure"),
                 messageDetails.term,
                 senderInstanceNumber,
+                ElectionStateToString(shared->electionState).c_str(),
                 shared->configuration.currentTerm
             );
+            if (shared->electionState != ElectionState::Leader) {
+                return;
+            }
+            auto& instance = shared->instances[senderInstanceNumber];
+            instance.awaitingResponse = false;
             if (messageDetails.success) {
                 instance.nextIndex += instance.numEntriesLastSent;
                 instance.matchIndex = instance.nextIndex - 1;

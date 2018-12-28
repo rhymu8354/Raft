@@ -2133,6 +2133,29 @@ TEST_F(ServerTests, IgnoreRequestVoteResultsIfFollower) {
 }
 
 TEST_F(ServerTests, IgnoreAppendEntriesResultsIfNotLeader) {
+    // Arrange
+    configuration.currentTerm = 1;
+    server.Configure(configuration);
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = 1;
+    message.appendEntriesResults.success = true;
+
+    // Act
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            server.ReceiveMessage(message.Serialize(), instance);
+        }
+    }
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    for (const auto& messageSent: messagesSent) {
+        EXPECT_NE(Raft::Message::Type::AppendEntries, messageSent.message.type);
+    }
+    EXPECT_EQ(0, server.GetCommitIndex());
 }
 
 TEST_F(ServerTests, IgnoreStaleVotesFromPreviousTerm) {
