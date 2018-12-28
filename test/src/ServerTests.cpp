@@ -175,9 +175,7 @@ struct ServerTests
         messagesSent.clear();
     }
 
-    // ::testing::Test
-
-    virtual void SetUp() {
+    void SetUpServer() {
         diagnosticsUnsubscribeDelegate = server.SubscribeToDiagnostics(
             [this](
                 std::string senderName,
@@ -204,6 +202,12 @@ struct ServerTests
                 ServerSentMessage(message, receiverInstanceNumber);
             }
         );
+    }
+
+    // ::testing::Test
+
+    virtual void SetUp() {
+        SetUpServer();
         configuration.instanceNumbers = {2, 5, 6, 7, 11};
         configuration.selfInstanceNumber = 5;
         configuration.minimumElectionTimeout = 0.1;
@@ -2470,4 +2474,146 @@ TEST_F(ServerTests, FollowerReceiveAppendEntriesFailurePreviousNotFound) {
     EXPECT_EQ(8, messagesSent[0].message.appendEntriesResults.term);
     EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
     EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.matchIndex);
+}
+
+TEST_F(ServerTests, ConfigurationUpdateWhenVoteIsCastAsFollower) {
+    // Arrange
+    bool configurationCallbackReceived = false;
+    Raft::IServer::Configuration newConfiguration;
+    const auto configurationChangeDelegate = [
+        &configurationCallbackReceived,
+        &newConfiguration
+    ](
+        const Raft::IServer::Configuration& configuration
+    ) {
+        configurationCallbackReceived = true;
+        newConfiguration = configuration;
+    };
+    server.SetConfigurationChangeDelegate(configurationChangeDelegate);
+    server.Configure(configuration);
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 1;
+    message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
+
+    // Act
+    server.ReceiveMessage(message.Serialize(), 2);
+
+    // Assert
+    ASSERT_TRUE(configurationCallbackReceived);
+    EXPECT_EQ(2, newConfiguration.votedFor);
+}
+
+TEST_F(ServerTests, ConfigurationUpdateWhenVoteIsCastAsCandidate) {
+    // Arrange
+    bool configurationCallbackReceived = false;
+    Raft::IServer::Configuration newConfiguration;
+    const auto configurationChangeDelegate = [
+        &configurationCallbackReceived,
+        &newConfiguration
+    ](
+        const Raft::IServer::Configuration& configuration
+    ) {
+        configurationCallbackReceived = true;
+        newConfiguration = configuration;
+    };
+    server.SetConfigurationChangeDelegate(configurationChangeDelegate);
+
+    // Act
+    BecomeCandidate(4);
+
+    // Assert
+    ASSERT_TRUE(configurationCallbackReceived);
+    EXPECT_EQ(newConfiguration.selfInstanceNumber, newConfiguration.votedFor);
+    EXPECT_EQ(4, newConfiguration.currentTerm);
+}
+
+TEST_F(ServerTests, CrashedFollowerRestartsAndRepeatsVoteResults) {
+    // Arrange
+    Raft::IServer::Configuration newConfiguration;
+    const auto configurationChangeDelegate = [
+        &newConfiguration
+    ](
+        const Raft::IServer::Configuration& configuration
+    ) {
+        newConfiguration = configuration;
+    };
+    server.SetConfigurationChangeDelegate(configurationChangeDelegate);
+    server.Configure(configuration);
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 1;
+    message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+    messagesSent.clear();
+    server.Demobilize();
+    server = Raft::Server();
+    SetUpServer();
+    server.Configure(newConfiguration);
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
+    );
+    EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
+}
+
+TEST_F(ServerTests, CrashedFollowerRestartsAndRejectsVoteFromDifferentCandidate) {
+    // Arrange
+    Raft::IServer::Configuration newConfiguration;
+    const auto configurationChangeDelegate = [
+        &newConfiguration
+    ](
+        const Raft::IServer::Configuration& configuration
+    ) {
+        newConfiguration = configuration;
+    };
+    server.SetConfigurationChangeDelegate(configurationChangeDelegate);
+    server.Configure(configuration);
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 1;
+    message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+    messagesSent.clear();
+    server.Demobilize();
+    server = Raft::Server();
+    SetUpServer();
+    server.Configure(newConfiguration);
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    message.requestVote.candidateId = 10;
+    server.ReceiveMessage(message.Serialize(), 10);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
+    );
+    EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
 }

@@ -86,6 +86,12 @@ namespace Raft {
             int votedFor = 0;
 
             /**
+             * This indicates whether or not the server has voted for another
+             * server to be the leader this term.
+             */
+            bool votedThisTerm = false;
+
+            /**
              * This is the lower bound of the range of time, starting from the
              * last time the server either started or received a message from
              * the cluster leader, within which to trigger an election.
@@ -143,6 +149,19 @@ namespace Raft {
             )
         >;
 
+        /**
+         * Declare the type of delegate used to announce that the server
+         * configuration has been changed.
+         *
+         * @param[in] newConfiguration
+         *     This is a reference to the server's new configuration.
+         */
+        using ConfigurationChangeDelegate = std::function<
+            void(
+                const Configuration& newConfiguration
+            )
+        >;
+
         // Methods
     public:
         /**
@@ -177,6 +196,16 @@ namespace Raft {
          *     change occurs in the server cluster.
          */
         virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) = 0;
+
+        /**
+         * Set up the delegate to be called later whenever the configuration
+         * for the server is changed.
+         *
+         * @param[in] configurationChangeDelegate
+         *     This is the delegate to be called later whenever the
+         *     configuration for the server is changed.
+         */
+        virtual void SetConfigurationChangeDelegate(ConfigurationChangeDelegate configurationChangeDelegate) = 0;
 
         /**
          * This method starts the server's worker thread.

@@ -169,12 +169,6 @@ namespace {
         size_t votesForUs = 0;
 
         /**
-         * This indicates whether or not the server has voted for another
-         * server to be the leader this term.
-         */
-        bool votedThisTerm = false;
-
-        /**
          * This holds information this server tracks about the other servers.
          */
         std::map< int, InstanceInfo > instances;
@@ -335,6 +329,12 @@ namespace Raft {
         LeadershipChangeDelegate leadershipChangeDelegate;
 
         /**
+         * This is the delegate to be called later whenever the server's
+         * configuration is changed.
+         */
+        ConfigurationChangeDelegate configurationChangeDelegate;
+
+        /**
          * This thread performs any background tasks required of the
          * server, such as starting an election if no message is received
          * from the cluster leader before the next timeout.
@@ -461,7 +461,7 @@ namespace Raft {
          */
         void StepUpAsCandidate() {
             shared->electionState = IServer::ElectionState::Candidate;
-            shared->votedThisTerm = true;
+            shared->configuration.votedThisTerm = true;
             shared->configuration.votedFor = shared->configuration.selfInstanceNumber;
             shared->votesForUs = 1;
             for (auto& instanceEntry: shared->instances) {
@@ -472,6 +472,7 @@ namespace Raft {
                 "Timeout -- starting new election (term %u)",
                 shared->configuration.currentTerm
             );
+            PublishConfiguration();
         }
 
         /**
@@ -746,6 +747,16 @@ namespace Raft {
         }
 
         /**
+         * Issue delegate calls to announce the server's configuration.
+         */
+        void PublishConfiguration() {
+            if (configurationChangeDelegate == nullptr) {
+                return;
+            }
+            configurationChangeDelegate(shared->configuration);
+        }
+
+        /**
          * This method is called whenever the server receives a request to vote
          * for another server in the cluster.
          *
@@ -784,7 +795,7 @@ namespace Raft {
                 response.requestVoteResults.voteGranted = false;
             } else if (
                 (shared->configuration.currentTerm == messageDetails.term)
-                && shared->votedThisTerm
+                && shared->configuration.votedThisTerm
                 && (shared->configuration.votedFor != senderInstanceNumber)
             ) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
@@ -822,10 +833,11 @@ namespace Raft {
                     shared->configuration.currentTerm
                 );
                 response.requestVoteResults.voteGranted = true;
-                shared->votedThisTerm = true;
+                shared->configuration.votedThisTerm = true;
                 shared->configuration.votedFor = senderInstanceNumber;
                 UpdateCurrentTerm(messageDetails.term);
                 RevertToFollower();
+                PublishConfiguration();
             }
             QueueMessageToBeSent(response, senderInstanceNumber, now);
         }
@@ -1247,6 +1259,11 @@ namespace Raft {
     void Server::SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->leadershipChangeDelegate = leadershipChangeDelegate;
+    }
+
+    void Server::SetConfigurationChangeDelegate(ConfigurationChangeDelegate configurationChangeDelegate) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->configurationChangeDelegate = configurationChangeDelegate;
     }
 
     void Server::Mobilize(std::shared_ptr< ILog > logKeeper) {
