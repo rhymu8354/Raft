@@ -2316,6 +2316,52 @@ TEST_F(ServerTests, IgnoreDuplicateAppendEntriesResults) {
     EXPECT_EQ(1, server.GetMatchIndex(2));
 }
 
-TEST_F(ServerTests, ReinitializeVolatileFollowerStateAfterElection) {
-    // TODO
+TEST_F(ServerTests, ReinitializeVolatileLeaderStateAfterElection) {
+    // Arrange
+    BecomeLeader(7);
+    Raft::LogEntry testEntry;
+    testEntry.term = 7;
+    server.AppendLogEntries({testEntry});
+    server.WaitForAtLeastOneWorkerLoop();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = 7;
+    message.appendEntriesResults.success = true;
+    message.appendEntriesResults.matchIndex = 1;
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            server.ReceiveMessage(message.Serialize(), instance);
+        }
+    }
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    message = Raft::Message();
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 8;
+    message.appendEntries.leaderCommit = 1;
+    message.appendEntries.prevLogIndex = 1;
+    message.appendEntries.prevLogTerm = 7;
+    server.ReceiveMessage(message.Serialize(), 2);
+    mockTimeKeeper->currentTime += configuration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            Raft::Message message;
+            message.type = Raft::Message::Type::RequestVoteResults;
+            message.requestVoteResults.term = 9;
+            message.requestVoteResults.voteGranted = true;
+            server.ReceiveMessage(message.Serialize(), instance);
+        }
+    }
+    server.WaitForAtLeastOneWorkerLoop();
+    messagesSent.clear();
+
+    // Assert
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            EXPECT_EQ(2, server.GetNextIndex(instance));
+            EXPECT_EQ(0, server.GetMatchIndex(instance));
+        }
+    }
 }

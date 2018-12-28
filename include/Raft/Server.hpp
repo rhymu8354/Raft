@@ -130,6 +130,20 @@ namespace Raft {
         void SetLastIndex(size_t lastIndex);
 
         /**
+         * Return the index of the next log entry to be sent to the server with
+         * the given identifier.
+         *
+         * @param[in] instanceId
+         *     This is the unique identifier of the server for which to return
+         *     the next log entry index.
+         *
+         * @return
+         *     The index of the next log entry to be sent to the server with
+         *     the given identifier is returned.
+         */
+        size_t GetNextIndex(int instanceId);
+
+        /**
          * Return the current match index for the server with the given
          * identifier.
          *
