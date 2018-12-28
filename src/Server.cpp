@@ -935,7 +935,10 @@ namespace Raft {
                     );
                     if (
                         (shared->electionState == IServer::ElectionState::Candidate)
-                        && (shared->votesForUs >= shared->configuration.instanceNumbers.size() / 2 + 1)
+                        && (
+                            shared->votesForUs
+                            > shared->configuration.instanceNumbers.size() - shared->votesForUs
+                        )
                     ) {
                         AssumeLeadership();
                     }
