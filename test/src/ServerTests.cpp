@@ -2086,6 +2086,26 @@ TEST_F(ServerTests, NextIndexAdvancedAndNextEntryAppendedAfterPreviousAcknowledg
     EXPECT_TRUE(sendEntrySent);
 }
 
+TEST_F(ServerTests, NoHeartBeatShouldBeSentWhilePreviousAppendEntriesUnacknowledged) {
+    // Arrange
+    BecomeLeader();
+    messagesSent.clear();
+    Raft::LogEntry testEntry;
+    testEntry.term = 2;
+    server.AppendLogEntries({testEntry});
+
+    // Act
+    mockTimeKeeper->currentTime += configuration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    for (const auto& messageSent: messagesSent) {
+        if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+            EXPECT_FALSE(messageSent.message.log.empty());
+        }
+    }
+}
+
 TEST_F(ServerTests, RetransmitUnacknowledgedAppendEntries) {
 }
 

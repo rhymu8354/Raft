@@ -568,10 +568,13 @@ namespace Raft {
                 shared->configuration.currentTerm
             );
             for (auto instanceNumber: shared->configuration.instanceNumbers) {
-                if (instanceNumber == shared->configuration.selfInstanceNumber) {
+                auto& instance = shared->instances[instanceNumber];
+                if (
+                    (instanceNumber == shared->configuration.selfInstanceNumber)
+                    || instance.awaitingResponse
+                ) {
                     continue;
                 }
-                auto& instance = shared->instances[instanceNumber];
                 instance.numEntriesLastSent = 0;
                 QueueMessageToBeSent(message, instanceNumber, now);
             }
