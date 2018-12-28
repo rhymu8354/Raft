@@ -1056,6 +1056,7 @@ namespace Raft {
                     && (shared->logKeeper->operator[](indexMatchCountEntry->first).term == shared->configuration.currentTerm)
                 ) {
                     shared->commitIndex = indexMatchCountEntry->first;
+                    shared->logKeeper->Commit(shared->commitIndex);
                     break;
                 }
             }

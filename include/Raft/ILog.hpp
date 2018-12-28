@@ -56,6 +56,17 @@ namespace Raft {
          *     These are the entries to append to the log.
          */
         virtual void Append(const std::vector< Raft::LogEntry >& entries) = 0;
+
+        /**
+         * Let the log know that all entries up to and including the given
+         * entry have been replicated to a majority of servers in the cluster,
+         * and so can be applied to the server state.
+         *
+         * @param[in] index
+         *     This is the index of the last entry in the log that a majority
+         *     of servers in the cluster have successfully stored.
+         */
+        virtual void Commit(size_t index) = 0;
     };
 
 }

@@ -53,6 +53,7 @@ namespace {
 
         std::vector< Raft::LogEntry > entries;
         bool invalidEntryIndexed = false;
+        size_t commitIndex = 0;
 
         // Raft::ILog
 
@@ -82,6 +83,10 @@ namespace {
                 newEntries.end(),
                 std::back_inserter(entries)
             );
+        }
+
+        virtual void Commit(size_t index) override {
+            commitIndex = index;
         }
     };
 
@@ -1888,8 +1893,10 @@ TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEn
             server.WaitForAtLeastOneWorkerLoop();
             if (successfulResponseCount + 1 > configuration.instanceNumbers.size() - successfulResponseCount - 1) {
                 EXPECT_EQ(2, server.GetCommitIndex()) << successfulResponseCount << " out of " << responseCount;
+                EXPECT_EQ(2, mockLog->commitIndex);
             } else {
                 EXPECT_EQ(0, server.GetCommitIndex()) << successfulResponseCount << " out of " << responseCount;
+                EXPECT_EQ(0, mockLog->commitIndex);
             }
         }
     }
