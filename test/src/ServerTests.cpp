@@ -2505,6 +2505,7 @@ TEST_F(ServerTests, ConfigurationUpdateWhenVoteIsCastAsFollower) {
     // Assert
     ASSERT_TRUE(configurationCallbackReceived);
     EXPECT_EQ(2, newConfiguration.votedFor);
+    EXPECT_TRUE(newConfiguration.votedThisTerm);
 }
 
 TEST_F(ServerTests, ConfigurationUpdateWhenVoteIsCastAsCandidate) {
@@ -2527,6 +2528,7 @@ TEST_F(ServerTests, ConfigurationUpdateWhenVoteIsCastAsCandidate) {
 
     // Assert
     ASSERT_TRUE(configurationCallbackReceived);
+    EXPECT_TRUE(newConfiguration.votedThisTerm);
     EXPECT_EQ(newConfiguration.selfInstanceNumber, newConfiguration.votedFor);
     EXPECT_EQ(4, newConfiguration.currentTerm);
 }
@@ -2616,4 +2618,98 @@ TEST_F(ServerTests, CrashedFollowerRestartsAndRejectsVoteFromDifferentCandidate)
     );
     EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
     EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
+}
+
+TEST_F(ServerTests, ConfigurationUpdateForNewTermWhenReceivingVoteRequestForNewCandidate) {
+    // Arrange
+    bool configurationCallbackReceived = false;
+    Raft::IServer::Configuration newConfiguration;
+    const auto configurationChangeDelegate = [
+        &configurationCallbackReceived,
+        &newConfiguration
+    ](
+        const Raft::IServer::Configuration& configuration
+    ) {
+        configurationCallbackReceived = true;
+        newConfiguration = configuration;
+    };
+    server.SetConfigurationChangeDelegate(configurationChangeDelegate);
+    configuration.currentTerm = 4;
+    server.Configure(configuration);
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 5;
+    message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_TRUE(configurationCallbackReceived);
+    EXPECT_EQ(5, newConfiguration.currentTerm);
+}
+
+TEST_F(ServerTests, ConfigurationUpdateForNewTermWhenVoteRejectedByNewerTermServer) {
+    // Arrange
+    bool configurationCallbackReceived = false;
+    Raft::IServer::Configuration newConfiguration;
+    const auto configurationChangeDelegate = [
+        &configurationCallbackReceived,
+        &newConfiguration
+    ](
+        const Raft::IServer::Configuration& configuration
+    ) {
+        configurationCallbackReceived = true;
+        newConfiguration = configuration;
+    };
+    BecomeCandidate(4);
+    server.SetConfigurationChangeDelegate(configurationChangeDelegate);
+
+    // Act
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVoteResults;
+    message.requestVoteResults.term = 5;
+    message.requestVoteResults.voteGranted = false;
+    server.ReceiveMessage(message.Serialize(), 2);
+
+    // Assert
+    ASSERT_TRUE(configurationCallbackReceived);
+    EXPECT_EQ(5, newConfiguration.currentTerm);
+}
+
+TEST_F(ServerTests, ConfigurationUpdateForNewTermWhenReceiveAppendEntriesFromNewerTermLeader) {
+    // Arrange
+    bool configurationCallbackReceived = false;
+    Raft::IServer::Configuration newConfiguration;
+    const auto configurationChangeDelegate = [
+        &configurationCallbackReceived,
+        &newConfiguration
+    ](
+        const Raft::IServer::Configuration& configuration
+    ) {
+        configurationCallbackReceived = true;
+        newConfiguration = configuration;
+    };
+    server.SetConfigurationChangeDelegate(configurationChangeDelegate);
+    configuration.currentTerm = 4;
+    server.Configure(configuration);
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 5;
+    message.appendEntries.leaderCommit = 95;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
+    server.ReceiveMessage(message.Serialize(), 2);
+
+    // Assert
+    ASSERT_TRUE(configurationCallbackReceived);
+    EXPECT_EQ(5, newConfiguration.currentTerm);
 }

@@ -510,7 +510,7 @@ namespace Raft {
          *     This is the current time according to the time keeper.
          */
         void StartElection(double now) {
-            ++shared->configuration.currentTerm;
+            UpdateCurrentTerm(shared->configuration.currentTerm + 1);
             StepUpAsCandidate();
             SendInitialVoteRequests(now);
         }
@@ -712,6 +712,7 @@ namespace Raft {
                 shared->thisTermLeaderAnnounced = false;
             }
             shared->configuration.currentTerm = newTerm;
+            PublishConfiguration();
         }
 
         /**
