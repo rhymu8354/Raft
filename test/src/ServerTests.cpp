@@ -2106,14 +2106,40 @@ TEST_F(ServerTests, NoHeartBeatShouldBeSentWhilePreviousAppendEntriesUnacknowled
     }
 }
 
-TEST_F(ServerTests, RetransmitUnacknowledgedAppendEntries) {
-}
+TEST_F(ServerTests, IgnoreRequestVoteResultsIfFollower) {
+    // Arrange
+    configuration.currentTerm = 1;
+    server.Configure(configuration);
+    server.Mobilize(mockLog);
+    server.WaitForAtLeastOneWorkerLoop();
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVoteResults;
+    message.requestVoteResults.term = 1;
+    message.requestVoteResults.voteGranted = true;
 
-TEST_F(ServerTests, ReinitializeVolatileFollowerStateAfterElection) {
+    // Act
+    for (auto instance: configuration.instanceNumbers) {
+        if (instance != configuration.selfInstanceNumber) {
+            server.ReceiveMessage(message.Serialize(), instance);
+        }
+    }
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
 }
 
 TEST_F(ServerTests, IgnoreAppendEntriesResultsIfNotLeader) {
 }
 
 TEST_F(ServerTests, IgnoreStaleVotesFromPreviousTerm) {
+}
+
+TEST_F(ServerTests, RetransmitUnacknowledgedAppendEntries) {
+}
+
+TEST_F(ServerTests, ReinitializeVolatileFollowerStateAfterElection) {
 }
