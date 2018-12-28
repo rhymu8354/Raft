@@ -2159,10 +2159,47 @@ TEST_F(ServerTests, IgnoreAppendEntriesResultsIfNotLeader) {
 }
 
 TEST_F(ServerTests, IgnoreStaleVotesFromPreviousTerm) {
+    // TODO
 }
 
 TEST_F(ServerTests, RetransmitUnacknowledgedAppendEntries) {
+    // Arrange
+    Raft::LogEntry testEntry;
+    testEntry.term = 3;
+    BecomeLeader(3);
+
+    // Act
+    server.AppendLogEntries({testEntry});
+    server.WaitForAtLeastOneWorkerLoop();
+    messagesSent.clear();
+    mockTimeKeeper->currentTime += configuration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    std::map< int, bool > appendEntriesReceivedPerInstance;
+    for (auto instanceNumber: configuration.instanceNumbers) {
+        appendEntriesReceivedPerInstance[instanceNumber] = false;
+    }
+    for (const auto& messageSent: messagesSent) {
+        if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+            appendEntriesReceivedPerInstance[messageSent.receiverInstanceNumber] = true;
+            ASSERT_EQ(1, messageSent.message.log.size());
+            EXPECT_EQ(3, messageSent.message.log[0].term);
+        }
+    }
+    for (auto instanceNumber: configuration.instanceNumbers) {
+        if (instanceNumber == configuration.selfInstanceNumber) {
+            EXPECT_FALSE(appendEntriesReceivedPerInstance[instanceNumber]);
+        } else {
+            EXPECT_TRUE(appendEntriesReceivedPerInstance[instanceNumber]);
+        }
+    }
+}
+
+TEST_F(ServerTests, IgnoreDuplicateAppendEntriesResults) {
+    // TODO
 }
 
 TEST_F(ServerTests, ReinitializeVolatileFollowerStateAfterElection) {
+    // TODO
 }
