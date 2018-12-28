@@ -140,7 +140,6 @@ namespace Raft {
         virtual bool Configure(const Configuration& configuration) override;
         virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) override;
         virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) override;
-        virtual void SetAppendEntriesDelegate(AppendEntriesDelegate appendEntriesDelegate) override;
         virtual void Mobilize(std::shared_ptr< ILog > logKeeper) override;
         virtual void Demobilize() override;
         virtual void ReceiveMessage(

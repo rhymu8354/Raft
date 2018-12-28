@@ -99,17 +99,6 @@ namespace {
     };
 
     /**
-     * This holds information used to store a log entries append announcement
-     * to be sent later.
-     */
-    struct AppendEntriesAnnouncementToBeSent {
-        /**
-         * These are the new log entries provided by the cluster leader.
-         */
-        std::vector< Raft::LogEntry > entries;
-    };
-
-    /**
      * This contains the private properties of a Server class instance
      * that may live longer than the Server class instance itself.
      */
@@ -148,12 +137,6 @@ namespace {
          * This holds leadership announcements to be sent by the worker thread.
          */
         std::queue< LeadershipAnnouncementToBeSent > leadershipAnnouncementsToBeSent;
-
-        /**
-         * This holds log entry append announcements to be sent by the worker
-         * thread.
-         */
-        std::queue< AppendEntriesAnnouncementToBeSent > appendEntriesAnnouncementsToBeSent;
 
         /**
          * If this is not nullptr, then the worker thread should set the result
@@ -288,28 +271,6 @@ namespace {
         }
     }
 
-    /**
-     * This function sends the given append entries announcements, using the
-     * given delegate.
-     *
-     * @param[in] appendEntriesDelegate
-     *     This is the delegate to use to send append entries announcements.
-     *
-     * @param[in,out] appendEntriesAnnouncementsToBeSent
-     *     This holds the append entries announcements to be sent, and is
-     *     consumed by the function.
-     */
-    void SendAppendEntriesAnnouncements(
-        Raft::IServer::AppendEntriesDelegate appendEntriesDelegate,
-        std::queue< AppendEntriesAnnouncementToBeSent >&& appendEntriesAnnouncementsToBeSent
-    ) {
-        while (!appendEntriesAnnouncementsToBeSent.empty()) {
-            auto& appendEntriesAnnouncementToBeSent = appendEntriesAnnouncementsToBeSent.front();
-            appendEntriesDelegate(std::move(appendEntriesAnnouncementToBeSent.entries));
-            appendEntriesAnnouncementsToBeSent.pop();
-        }
-    }
-
 }
 
 namespace Raft {
@@ -364,12 +325,6 @@ namespace Raft {
          * occurs in the server cluster.
          */
         LeadershipChangeDelegate leadershipChangeDelegate;
-
-        /**
-         * This is the delegate to be called whenever new log entries are
-         * provided by the cluster leader.
-         */
-        AppendEntriesDelegate appendEntriesDelegate;
 
         /**
          * This thread performs any background tasks required of the
@@ -488,20 +443,6 @@ namespace Raft {
             leadershipAnnouncementToBeSent.leaderId = leaderId;
             leadershipAnnouncementToBeSent.term = term;
             shared->leadershipAnnouncementsToBeSent.push(std::move(leadershipAnnouncementToBeSent));
-            workerAskedToStopOrWakeUp.notify_one();
-        }
-
-        /**
-         * This method queues a log entries append announcement message to be
-         * sent later.
-         *
-         * @param[in] entries
-         *     These are the new log entries provided by the cluster leader.
-         */
-        void QueueAppendEntriesAnnouncement(std::vector< LogEntry >&& entries) {
-            AppendEntriesAnnouncementToBeSent appendEntriesAnnouncementToBeSent;
-            appendEntriesAnnouncementToBeSent.entries = std::move(entries);
-            shared->appendEntriesAnnouncementsToBeSent.push(std::move(appendEntriesAnnouncementToBeSent));
             workerAskedToStopOrWakeUp.notify_one();
         }
 
@@ -752,31 +693,6 @@ namespace Raft {
         }
 
         /**
-         * This method is called in order to send any queued log entry append
-         * announcements.
-         *
-         * @param[in] lock
-         *     This is the object holding the mutex protecting the shared
-         *     properties of the server.
-         */
-        void SendQueuedAppendLogAnnouncements(
-            std::unique_lock< decltype(shared->mutex) >& lock
-        ) {
-            decltype(shared->appendEntriesAnnouncementsToBeSent) appendEntriesAnnouncementsToBeSent;
-            appendEntriesAnnouncementsToBeSent.swap(shared->appendEntriesAnnouncementsToBeSent);
-            if (appendEntriesDelegate == nullptr) {
-                return;
-            }
-            auto appendEntriesDelegateCopy = appendEntriesDelegate;
-            lock.unlock();
-            SendAppendEntriesAnnouncements(
-                appendEntriesDelegateCopy,
-                std::move(appendEntriesAnnouncementsToBeSent)
-            );
-            lock.lock();
-        }
-
-        /**
          * This method is called to update the current cluster election term.
          *
          * @param[in] newTerm
@@ -1014,9 +930,6 @@ namespace Raft {
             shared->logKeeper->Append(entries);
             shared->lastIndex += entries.size();
             shared->commitIndex = messageDetails.leaderCommit;
-            if (!entries.empty()) {
-                QueueAppendEntriesAnnouncement(std::move(entries));
-            }
         }
 
         /**
@@ -1146,7 +1059,6 @@ namespace Raft {
             QueueRetransmissionsToBeSent(now);
             SendQueuedMessages(lock);
             SendQueuedLeadershipAnnouncements(lock);
-            SendQueuedAppendLogAnnouncements(lock);
         }
 
         /**
@@ -1260,11 +1172,6 @@ namespace Raft {
     void Server::SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->leadershipChangeDelegate = leadershipChangeDelegate;
-    }
-
-    void Server::SetAppendEntriesDelegate(AppendEntriesDelegate appendEntriesDelegate) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->appendEntriesDelegate = appendEntriesDelegate;
     }
 
     void Server::Mobilize(std::shared_ptr< ILog > logKeeper) {

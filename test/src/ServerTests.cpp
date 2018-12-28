@@ -1791,21 +1791,6 @@ TEST_F(ServerTests, LeaderAppendLogEntry) {
 
 TEST_F(ServerTests, FollowerAppendLogEntry) {
     // Arrange
-    bool appendEntriesReceived = false;
-    struct {
-        std::vector< Raft::LogEntry > entries;
-    } appendEntriesDetails;
-    server.SetAppendEntriesDelegate(
-        [
-            &appendEntriesReceived,
-            &appendEntriesDetails
-        ](
-            const std::vector< Raft::LogEntry >& entries
-        ){
-            appendEntriesReceived = true;
-            appendEntriesDetails.entries = entries;
-        }
-    );
     constexpr int leaderId = 2;
     constexpr int newTerm = 9;
     configuration.currentTerm = 0;
@@ -1831,12 +1816,9 @@ TEST_F(ServerTests, FollowerAppendLogEntry) {
 
     // Assert
     EXPECT_EQ(2, server.GetLastIndex());
-    ASSERT_TRUE(appendEntriesReceived);
     ASSERT_EQ(entries.size(), mockLog->entries.size());
-    ASSERT_EQ(entries.size(), appendEntriesDetails.entries.size());
     for (size_t i = 0; i < entries.size(); ++i) {
         EXPECT_EQ(entries[i].term, mockLog->entries[i].term);
-        EXPECT_EQ(entries[i].term, appendEntriesDetails.entries[i].term);
     }
 }
 

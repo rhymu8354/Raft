@@ -136,19 +136,6 @@ namespace Raft {
             )
         >;
 
-        /**
-         * This declares the type of delegate used to forward new log entries
-         * provided by the cluster leader.
-         *
-         * @param[in] entries
-         *     These are the new log entries provided by the cluster leader.
-         */
-        using AppendEntriesDelegate = std::function<
-            void(
-                std::vector< Raft::LogEntry >&& entries
-            )
-        >;
-
         // Methods
     public:
         /**
@@ -183,16 +170,6 @@ namespace Raft {
          *     change occurs in the server cluster.
          */
         virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) = 0;
-
-        /**
-         * Set up the given delegate to be called later whenever the server
-         * cluster leader provides more entries to be appended to the log.
-         *
-         * @param[in] appendEntriesDelegate
-         *     This is the delegate to be called later whenever the server
-         *     cluster leader provides more entries to be appended to the log.
-         */
-        virtual void SetAppendEntriesDelegate(AppendEntriesDelegate appendEntriesDelegate) = 0;
 
         /**
          * This method starts the server's worker thread.
