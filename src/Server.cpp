@@ -988,8 +988,8 @@ namespace Raft {
                 1,
                 "Received AppendEntries(%zu entries building on %zu from term %d) from server %d in term %d (we are in term %d)",
                 entries.size(),
-                0,
-                0,
+                messageDetails.prevLogIndex,
+                messageDetails.prevLogTerm,
                 senderInstanceNumber,
                 messageDetails.term,
                 shared->configuration.currentTerm
@@ -1039,8 +1039,8 @@ namespace Raft {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
                 "Received AppendEntriesResults(%s, term %zu) from server %d (we are in term %d)",
-                "success",
-                0,
+                (messageDetails.success ? "success" : "failure"),
+                messageDetails.term,
                 senderInstanceNumber,
                 shared->configuration.currentTerm
             );
