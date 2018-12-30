@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <condition_variable>
+#include <functional>
 #include <gtest/gtest.h>
 #include <Json/Value.hpp>
 #include <limits>
@@ -34,8 +35,27 @@ namespace {
         // Properties
 
         double currentTime = 0.0;
+        std::vector< std::function< void() > > destructionDelegates;
+
+        // Lifecycle
+
+        ~MockTimeKeeper() {
+            for (const auto& destructionDelegate: destructionDelegates) {
+                destructionDelegate();
+            }
+        }
+        MockTimeKeeper(const MockTimeKeeper&) = delete;
+        MockTimeKeeper(MockTimeKeeper&&) = delete;
+        MockTimeKeeper& operator=(const MockTimeKeeper&) = delete;
+        MockTimeKeeper& operator=(MockTimeKeeper&&) = delete;
 
         // Methods
+
+        MockTimeKeeper() = default;
+
+        void RegisterDestructionDelegate(std::function< void() > destructionDelegate) {
+            destructionDelegates.push_back(destructionDelegate);
+        }
 
         // Http::TimeKeeper
 
@@ -55,6 +75,27 @@ namespace {
         std::vector< Raft::LogEntry > entries;
         bool invalidEntryIndexed = false;
         size_t commitIndex = 0;
+        std::vector< std::function< void() > > destructionDelegates;
+
+        // Lifecycle
+
+        ~MockLog() {
+            for (const auto& destructionDelegate: destructionDelegates) {
+                destructionDelegate();
+            }
+        }
+        MockLog(const MockLog&) = delete;
+        MockLog(MockLog&&) = delete;
+        MockLog& operator=(const MockLog&) = delete;
+        MockLog& operator=(MockLog&&) = delete;
+
+        // Methods
+
+        MockLog() = default;
+
+        void RegisterDestructionDelegate(std::function< void() > destructionDelegate) {
+            destructionDelegates.push_back(destructionDelegate);
+        }
 
         // Raft::ILog
 
@@ -100,6 +141,27 @@ namespace {
         // Properties
 
         Raft::IPersistentState::Variables variables;
+        std::vector< std::function< void() > > destructionDelegates;
+
+        // Lifecycle
+
+        ~MockPersistentState() {
+            for (const auto& destructionDelegate: destructionDelegates) {
+                destructionDelegate();
+            }
+        }
+        MockPersistentState(const MockPersistentState&) = delete;
+        MockPersistentState(MockPersistentState&&) = delete;
+        MockPersistentState& operator=(const MockPersistentState&) = delete;
+        MockPersistentState& operator=(MockPersistentState&&) = delete;
+
+        // Methods
+
+        MockPersistentState() = default;
+
+        void RegisterDestructionDelegate(std::function< void() > destructionDelegate) {
+            destructionDelegates.push_back(destructionDelegate);
+        }
 
         // Raft::IPersistentState
 
@@ -137,9 +199,9 @@ struct ServerTests
     Raft::Server::ServerConfiguration serverConfiguration;
     std::vector< std::string > diagnosticMessages;
     SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate diagnosticsUnsubscribeDelegate;
-    const std::shared_ptr< MockTimeKeeper > mockTimeKeeper = std::make_shared< MockTimeKeeper >();
-    const std::shared_ptr< MockLog > mockLog = std::make_shared< MockLog >();
-    const std::shared_ptr< MockPersistentState > mockPersistentState = std::make_shared< MockPersistentState >();
+    std::shared_ptr< MockTimeKeeper > mockTimeKeeper = std::make_shared< MockTimeKeeper >();
+    std::shared_ptr< MockLog > mockLog = std::make_shared< MockLog >();
+    std::shared_ptr< MockPersistentState > mockPersistentState = std::make_shared< MockPersistentState >();
     std::vector< MessageInfo > messagesSent;
 
     // Methods
@@ -257,6 +319,40 @@ TEST_F(ServerTests, MobilizeTwiceDoesNotCrash) {
 
     // Act
     MobilizeServer();
+}
+
+TEST_F(ServerTests, LogKeeperReleasedOnDemobilize) {
+    // Arrange
+    bool logDestroyed = false;
+    const auto onLogDestroyed = [&logDestroyed]{
+        logDestroyed = true;
+    };
+    mockLog->RegisterDestructionDelegate(onLogDestroyed);
+    MobilizeServer();
+    mockLog = nullptr;
+
+    // Act
+    server.Demobilize();
+
+    // Assert
+    EXPECT_TRUE(logDestroyed);
+}
+
+TEST_F(ServerTests, PersistentStateReleasedOnDemobilize) {
+    // Arrange
+    bool persistentStateDestroyed = false;
+    const auto onPersistentStateDestroyed = [&persistentStateDestroyed]{
+        persistentStateDestroyed = true;
+    };
+    mockPersistentState->RegisterDestructionDelegate(onPersistentStateDestroyed);
+    MobilizeServer();
+    mockPersistentState = nullptr;
+
+    // Act
+    server.Demobilize();
+
+    // Assert
+    EXPECT_TRUE(persistentStateDestroyed);
 }
 
 TEST_F(ServerTests, ElectionNeverStartsBeforeMinimumTimeoutInterval) {

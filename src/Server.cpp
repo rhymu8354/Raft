@@ -1280,6 +1280,8 @@ namespace Raft {
         impl_->workerAskedToStopOrWakeUp.notify_one();
         lock.unlock();
         impl_->worker.join();
+        impl_->shared->persistentStateKeeper = nullptr;
+        impl_->shared->logKeeper = nullptr;
     }
 
     void Server::ReceiveMessage(
