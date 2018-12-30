@@ -174,12 +174,6 @@ namespace {
         std::map< int, InstanceInfo > instances;
 
         /**
-         * This counts the number of followers which have acknowledged the
-         * latest entries added to the log.
-         */
-        size_t appendEntriesResponses = 0;
-
-        /**
          * This is the index of the last log entry known to have been appended
          * to a majority of servers in the cluster.
          */
@@ -1340,7 +1334,6 @@ namespace Raft {
         }
         impl_->shared->logKeeper->Append(entries);
         const auto now = impl_->timeKeeper->GetCurrentTime();
-        impl_->shared->appendEntriesResponses = 0;
         impl_->shared->lastIndex += entries.size();
         impl_->QueueAppendEntriesToBeSent(now, entries);
     }
