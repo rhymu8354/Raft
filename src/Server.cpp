@@ -512,7 +512,7 @@ namespace Raft {
         /**
          * Queue an AppendEntries message to the server with the given unique
          * identifier, containing all log entries starting with the one at the
-         * given index.
+         * next index currently recorded for the server.
          *
          * @param[in] instanceId
          *     This is the unique identifier of the server to which to attempt
