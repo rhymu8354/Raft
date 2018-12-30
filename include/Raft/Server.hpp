@@ -69,14 +69,6 @@ namespace Raft {
         void SetTimeKeeper(std::shared_ptr< TimeKeeper > timeKeeper);
 
         /**
-         * This method returns the server's current configuration.
-         *
-         * @return
-         *     The server's current configuration is returned.
-         */
-        const Configuration& GetConfiguration() const;
-
-        /**
          * This method blocks until the Coordinator's worker thread executes at
          * least one more loop.
          */
@@ -165,11 +157,14 @@ namespace Raft {
 
         // IServer
     public:
-        virtual bool Configure(const Configuration& configuration) override;
         virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) override;
         virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) override;
-        virtual void SetConfigurationChangeDelegate(ConfigurationChangeDelegate configurationChangeDelegate) override;
-        virtual void Mobilize(std::shared_ptr< ILog > logKeeper) override;
+        virtual void Mobilize(
+            std::shared_ptr< ILog > logKeeper,
+            std::shared_ptr< IPersistentState > persistentStateKeeper,
+            const ClusterConfiguration& clusterConfiguration,
+            const ServerConfiguration& serverConfiguration
+        ) override;
         virtual void Demobilize() override;
         virtual void ReceiveMessage(
             const std::string& serializedMessage,

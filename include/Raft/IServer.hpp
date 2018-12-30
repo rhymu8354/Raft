@@ -10,6 +10,7 @@
  */
 
 #include "ILog.hpp"
+#include "IPersistentState.hpp"
 #include "LogEntry.hpp"
 
 #include <functional>
@@ -60,38 +61,26 @@ namespace Raft {
         };
 
         /**
-         * This is used to instruct the server on how it should configure
-         * itself.
+         * This holds the properties which make up the configuration of the
+         * overall server cluster.
          */
-        struct Configuration {
+        struct ClusterConfiguration {
             /**
              * This holds the unique identifiers of all servers in the cluster.
              */
             std::set< int > instanceIds;
+        };
 
+        /**
+         * This holds the properties which make up the configuration for just
+         * this server and not any other servers in the cluster.
+         */
+        struct ServerConfiguration {
             /**
              * This is the unique identifier of this server, amongst all the
              * servers in the cluster.
              */
             int selfInstanceId = 0;
-
-            /**
-             * This is the last term the server has seen.
-             */
-            int currentTerm = 0;
-
-            /**
-             * If the server has voted for another server to be the leader this
-             * term, this is the unique identifier of the server for whom we
-             * voted.
-             */
-            int votedFor = 0;
-
-            /**
-             * This indicates whether or not the server has voted for another
-             * server to be the leader this term.
-             */
-            bool votedThisTerm = false;
 
             /**
              * This is the lower bound of the range of time, starting from the
@@ -151,33 +140,8 @@ namespace Raft {
             )
         >;
 
-        /**
-         * Declare the type of delegate used to announce that the server
-         * configuration has been changed.
-         *
-         * @param[in] newConfiguration
-         *     This is a reference to the server's new configuration.
-         */
-        using ConfigurationChangeDelegate = std::function<
-            void(
-                const Configuration& newConfiguration
-            )
-        >;
-
         // Methods
     public:
-        /**
-         * This method changes the configuration of the server.
-         *
-         * @param[in] configuration
-         *     This holds the configuration items for the server.
-         *
-         * @return
-         *     An indication of whether or not the configuration
-         *     was successfully set is returned.
-         */
-        virtual bool Configure(const Configuration& configuration) = 0;
-
         /**
          * This method is called to set up the delegate to be called later
          * whenever the server wants to send a message to another server in the
@@ -200,23 +164,28 @@ namespace Raft {
         virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) = 0;
 
         /**
-         * Set up the delegate to be called later whenever the configuration
-         * for the server is changed.
-         *
-         * @param[in] configurationChangeDelegate
-         *     This is the delegate to be called later whenever the
-         *     configuration for the server is changed.
-         */
-        virtual void SetConfigurationChangeDelegate(ConfigurationChangeDelegate configurationChangeDelegate) = 0;
-
-        /**
          * This method starts the server's worker thread.
          *
          * @param[in] logKeeper
          *     This is the object which is responsible for keeping
          *     the actual log and making it persistent.
+         *
+         * @param[in] persistentState
+         *     This is the object which is responsible for keeping
+         *     the server state variables which need to be persistent.
+         *
+         * @param[in] clusterConfiguration
+         *     This holds the configuration items for the cluster.
+         *
+         * @param[in] serverConfiguration
+         *     This holds the configuration items for the server.
          */
-        virtual void Mobilize(std::shared_ptr< ILog > logKeeper) = 0;
+        virtual void Mobilize(
+            std::shared_ptr< ILog > logKeeper,
+            std::shared_ptr< IPersistentState > persistentStateKeeper,
+            const ClusterConfiguration& clusterConfiguration,
+            const ServerConfiguration& serverConfiguration
+        ) = 0;
 
         /**
          * This method stops the server's worker thread.
