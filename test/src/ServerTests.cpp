@@ -355,6 +355,24 @@ TEST_F(ServerTests, PersistentStateReleasedOnDemobilize) {
     EXPECT_TRUE(persistentStateDestroyed);
 }
 
+TEST_F(ServerTests, TimeKeeperReleasedOnDestruction) {
+    // Arrange
+    bool timeKeeperDestroyed = false;
+    const auto onTimeKeeperDestroyed = [&timeKeeperDestroyed]{
+        timeKeeperDestroyed = true;
+    };
+    mockTimeKeeper->RegisterDestructionDelegate(onTimeKeeperDestroyed);
+    MobilizeServer();
+    mockTimeKeeper = nullptr;
+
+    // Act
+    server.Demobilize();
+    server = Raft::Server();
+
+    // Assert
+    EXPECT_TRUE(timeKeeperDestroyed);
+}
+
 TEST_F(ServerTests, ElectionNeverStartsBeforeMinimumTimeoutInterval) {
     // Arrange
     MobilizeServer();
