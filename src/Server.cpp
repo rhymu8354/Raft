@@ -1016,7 +1016,7 @@ namespace Raft {
         ) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
-                "Received AppendEntriesResults(%s, term %zu) from server %d (we are %s in term %d)",
+                "Received AppendEntriesResults(%s, term %d) from server %d (we are %s in term %d)",
                 (messageDetails.success ? "success" : "failure"),
                 messageDetails.term,
                 senderInstanceNumber,
