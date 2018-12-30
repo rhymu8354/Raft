@@ -137,8 +137,8 @@ struct ServerTests
         server.WaitForAtLeastOneWorkerLoop();
         mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
         server.WaitForAtLeastOneWorkerLoop();
-        for (auto instance: configuration.instanceNumbers) {
-            if (instance != configuration.selfInstanceNumber) {
+        for (auto instance: configuration.instanceIds) {
+            if (instance != configuration.selfInstanceId) {
                 Raft::Message message;
                 message.type = Raft::Message::Type::RequestVoteResults;
                 message.requestVoteResults.term = term;
@@ -208,8 +208,8 @@ struct ServerTests
 
     virtual void SetUp() {
         SetUpServer();
-        configuration.instanceNumbers = {2, 5, 6, 7, 11};
-        configuration.selfInstanceNumber = 5;
+        configuration.instanceIds = {2, 5, 6, 7, 11};
+        configuration.selfInstanceId = 5;
         configuration.minimumElectionTimeout = 0.1;
         configuration.maximumElectionTimeout = 0.2;
         configuration.rpcTimeout = 0.01;
@@ -224,8 +224,8 @@ struct ServerTests
 
 TEST_F(ServerTests, InitialConfiguration) {
     // Arrange
-    configuration.instanceNumbers = {2, 5, 6, 7, 11};
-    configuration.selfInstanceNumber = 5;
+    configuration.instanceIds = {2, 5, 6, 7, 11};
+    configuration.selfInstanceId = 5;
 
     // Act
     server.Configure(configuration);
@@ -233,12 +233,12 @@ TEST_F(ServerTests, InitialConfiguration) {
     // Assert
     const auto actualConfiguration = server.GetConfiguration();
     EXPECT_EQ(
-        configuration.instanceNumbers,
-        actualConfiguration.instanceNumbers
+        configuration.instanceIds,
+        actualConfiguration.instanceIds
     );
     EXPECT_EQ(
-        actualConfiguration.selfInstanceNumber,
-        configuration.selfInstanceNumber
+        actualConfiguration.selfInstanceId,
+        configuration.selfInstanceId
     );
 }
 
@@ -351,14 +351,14 @@ TEST_F(ServerTests, RequestVoteNotSentToAllServersExceptSelf) {
     // Assert
     EXPECT_EQ(4, messagesSent.size());
     std::set< int > instances(
-        configuration.instanceNumbers.begin(),
-        configuration.instanceNumbers.end()
+        configuration.instanceIds.begin(),
+        configuration.instanceIds.end()
     );
     for (const auto messageInfo: messagesSent) {
         (void)instances.erase(messageInfo.receiverInstanceNumber);
     }
     EXPECT_EQ(
-        std::set< int >{ configuration.selfInstanceNumber },
+        std::set< int >{ configuration.selfInstanceId },
         instances
     );
 }
@@ -471,8 +471,8 @@ TEST_F(ServerTests, ServerDoesReceiveUnanimousVoteInElection) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             Raft::Message message;
             message.type = Raft::Message::Type::RequestVoteResults;
             message.requestVoteResults.term = 1;
@@ -498,8 +498,8 @@ TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             Raft::Message message;
             message.type = Raft::Message::Type::RequestVoteResults;
             if (instance == 11) {
@@ -528,7 +528,7 @@ TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
-    for (auto instance: configuration.instanceNumbers) {
+    for (auto instance: configuration.instanceIds) {
         switch (instance) {
             case 6:
             case 7:
@@ -562,7 +562,7 @@ TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
         messagesSent[0].message.type
     );
     EXPECT_EQ(
-        configuration.selfInstanceNumber,
+        configuration.selfInstanceId,
         messagesSent[0].message.requestVote.candidateId
     );
     EXPECT_EQ(
@@ -578,7 +578,7 @@ TEST_F(ServerTests, ServerDoesNotRetransmitTooQuickly) {
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
-    for (auto instance: configuration.instanceNumbers) {
+    for (auto instance: configuration.instanceIds) {
         switch (instance) {
             case 6:
             case 7:
@@ -614,7 +614,7 @@ TEST_F(ServerTests, ServerRegularRetransmissions) {
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
-    for (auto instance: configuration.instanceNumbers) {
+    for (auto instance: configuration.instanceIds) {
         switch (instance) {
             case 6:
             case 7:
@@ -660,7 +660,7 @@ TEST_F(ServerTests, ServerRegularRetransmissions) {
             messageSent.message.type
         );
         EXPECT_EQ(
-            configuration.selfInstanceNumber,
+            configuration.selfInstanceId,
             messageSent.message.requestVote.candidateId
         );
         EXPECT_EQ(
@@ -679,8 +679,8 @@ TEST_F(ServerTests, ServerDoesNotReceiveAnyVotesInElection) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             Raft::Message message;
             message.type = Raft::Message::Type::RequestVoteResults;
             message.requestVoteResults.term = 1;
@@ -706,8 +706,8 @@ TEST_F(ServerTests, ServerAlmostWinsElection) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             Raft::Message message;
             message.type = Raft::Message::Type::RequestVoteResults;
             if (
@@ -740,8 +740,8 @@ TEST_F(ServerTests, TimeoutBeforeMajorityVoteOrNewLeaderHeartbeat) {
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             Raft::Message message;
             message.type = Raft::Message::Type::RequestVoteResults;
             message.requestVoteResults.term = 1;
@@ -1097,8 +1097,8 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermHeartbeatRecei
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = 2;
     server.ReceiveMessage(message.Serialize(), 2);
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             Raft::Message message;
             message.type = Raft::Message::Type::RequestVoteResults;
             message.requestVoteResults.term = 1;
@@ -1131,8 +1131,8 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameTermHeartbeatReceived
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = 1;
     server.ReceiveMessage(message.Serialize(), 2);
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             Raft::Message message;
             message.type = Raft::Message::Type::RequestVoteResults;
             message.requestVoteResults.term = 1;
@@ -1170,7 +1170,7 @@ TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
 
     // Assert
     std::map< int, size_t > heartbeatsReceivedPerInstance;
-    for (auto instanceNumber: configuration.instanceNumbers) {
+    for (auto instanceNumber: configuration.instanceIds) {
         heartbeatsReceivedPerInstance[instanceNumber] = 0;
     }
     for (const auto& messageSent: messagesSent) {
@@ -1183,8 +1183,8 @@ TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
             );
         }
     }
-    for (auto instanceNumber: configuration.instanceNumbers) {
-        if (instanceNumber == configuration.selfInstanceNumber) {
+    for (auto instanceNumber: configuration.instanceIds) {
+        if (instanceNumber == configuration.selfInstanceId) {
             EXPECT_EQ(0, heartbeatsReceivedPerInstance[instanceNumber]);
         } else {
             EXPECT_NE(0, heartbeatsReceivedPerInstance[instanceNumber]);
@@ -1199,8 +1199,8 @@ TEST_F(ServerTests, RepeatVotesShouldNotCount) {
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             Raft::Message message;
             message.type = Raft::Message::Type::RequestVoteResults;
             message.requestVoteResults.term = 1;
@@ -1599,7 +1599,7 @@ TEST_F(ServerTests, LeadershipGainAnnouncement) {
 
     // Act
     configuration.currentTerm = 0;
-    configuration.selfInstanceNumber = 5;
+    configuration.selfInstanceId = 5;
     BecomeLeader();
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1625,17 +1625,17 @@ TEST_F(ServerTests, NoLeadershipGainWhenNotYetLeader) {
 
     // Act
     configuration.currentTerm = 0;
-    configuration.selfInstanceNumber = 5;
+    configuration.selfInstanceId = 5;
     server.Configure(configuration);
     server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
-    auto instanceNumbersEntry = configuration.instanceNumbers.begin();
+    auto instanceNumbersEntry = configuration.instanceIds.begin();
     size_t votesGranted = 0;
     do {
         const auto instance = *instanceNumbersEntry++;
-        if (instance == configuration.selfInstanceNumber) {
+        if (instance == configuration.selfInstanceId) {
             continue;
         }
         Raft::Message message;
@@ -1646,7 +1646,7 @@ TEST_F(ServerTests, NoLeadershipGainWhenNotYetLeader) {
         server.WaitForAtLeastOneWorkerLoop();
         EXPECT_FALSE(leadershipChangeAnnounced) << votesGranted;
         ++votesGranted;
-    } while (votesGranted + 1 < configuration.instanceNumbers.size() / 2);
+    } while (votesGranted + 1 < configuration.instanceIds.size() / 2);
 
     // Assert
 }
@@ -1667,14 +1667,14 @@ TEST_F(ServerTests, NoLeadershipGainWhenAlreadyLeader) {
 
     // Act
     configuration.currentTerm = 0;
-    configuration.selfInstanceNumber = 5;
+    configuration.selfInstanceId = 5;
     server.Configure(configuration);
     server.Mobilize(mockLog);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime = configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance == configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance == configuration.selfInstanceId) {
             continue;
         }
         const auto wasLeader = (
@@ -1724,7 +1724,7 @@ TEST_F(ServerTests, AnnounceLeaderWhenAFollower) {
 
     // Act
     configuration.currentTerm = 0;
-    configuration.selfInstanceNumber = 5;
+    configuration.selfInstanceId = 5;
     BecomeFollower(leaderId, newTerm);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1776,7 +1776,7 @@ TEST_F(ServerTests, LeaderAppendLogEntry) {
         EXPECT_EQ(entries[i].term, mockLog->entries[i + 1].term);
     }
     std::map< int, bool > appendEntriesReceivedPerInstance;
-    for (auto instanceNumber: configuration.instanceNumbers) {
+    for (auto instanceNumber: configuration.instanceIds) {
         appendEntriesReceivedPerInstance[instanceNumber] = false;
     }
     for (const auto& messageSent: messagesSent) {
@@ -1789,8 +1789,8 @@ TEST_F(ServerTests, LeaderAppendLogEntry) {
             );
         }
     }
-    for (auto instanceNumber: configuration.instanceNumbers) {
-        if (instanceNumber == configuration.selfInstanceNumber) {
+    for (auto instanceNumber: configuration.instanceIds) {
+        if (instanceNumber == configuration.selfInstanceId) {
             EXPECT_FALSE(appendEntriesReceivedPerInstance[instanceNumber]);
         } else {
             EXPECT_TRUE(appendEntriesReceivedPerInstance[instanceNumber]);
@@ -1803,7 +1803,7 @@ TEST_F(ServerTests, FollowerAppendLogEntry) {
     constexpr int leaderId = 2;
     constexpr int newTerm = 9;
     configuration.currentTerm = 0;
-    configuration.selfInstanceNumber = 5;
+    configuration.selfInstanceId = 5;
     BecomeFollower(leaderId, newTerm);
     server.WaitForAtLeastOneWorkerLoop();
     std::vector< Raft::LogEntry > entries;
@@ -1863,8 +1863,8 @@ TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEn
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             Raft::Message message;
             message.type = Raft::Message::Type::AppendEntriesResults;
             message.appendEntriesResults.term = 7;
@@ -1879,8 +1879,8 @@ TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEn
     server.WaitForAtLeastOneWorkerLoop();
     size_t successfulResponseCount = 0;
     size_t responseCount = 0;
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             Raft::Message message;
             message.type = Raft::Message::Type::AppendEntriesResults;
             message.appendEntriesResults.term = 7;
@@ -1895,7 +1895,7 @@ TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEn
             ++responseCount;
             server.ReceiveMessage(message.Serialize(), instance);
             server.WaitForAtLeastOneWorkerLoop();
-            if (successfulResponseCount + 1 > configuration.instanceNumbers.size() - successfulResponseCount - 1) {
+            if (successfulResponseCount + 1 > configuration.instanceIds.size() - successfulResponseCount - 1) {
                 EXPECT_EQ(2, server.GetCommitIndex()) << successfulResponseCount << " out of " << responseCount;
                 EXPECT_EQ(2, mockLog->commitIndex);
             } else {
@@ -1913,7 +1913,7 @@ TEST_F(ServerTests, FollowerAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLog
     constexpr int leaderId = 2;
     constexpr int newTerm = 9;
     configuration.currentTerm = 0;
-    configuration.selfInstanceNumber = 5;
+    configuration.selfInstanceId = 5;
     BecomeFollower(leaderId, newTerm);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1946,7 +1946,7 @@ TEST_F(ServerTests, AppendEntriesWhenNotLeader) {
     constexpr int leaderId = 2;
     constexpr int newTerm = 1;
     configuration.currentTerm = 0;
-    configuration.selfInstanceNumber = 5;
+    configuration.selfInstanceId = 5;
     BecomeFollower(leaderId, newTerm);
     std::vector< Raft::LogEntry > entries;
     Raft::LogEntry firstEntry;
@@ -2138,8 +2138,8 @@ TEST_F(ServerTests, IgnoreRequestVoteResultsIfFollower) {
     message.requestVoteResults.voteGranted = true;
 
     // Act
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             server.ReceiveMessage(message.Serialize(), instance);
         }
     }
@@ -2165,8 +2165,8 @@ TEST_F(ServerTests, IgnoreAppendEntriesResultsIfNotLeader) {
     message.appendEntriesResults.matchIndex = 42;
 
     // Act
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             server.ReceiveMessage(message.Serialize(), instance);
         }
     }
@@ -2184,7 +2184,7 @@ TEST_F(ServerTests, IgnoreStaleYesVoteFromPreviousTerm) {
     BecomeCandidate(2);
 
     // Act
-    for (auto instance: configuration.instanceNumbers) {
+    for (auto instance: configuration.instanceIds) {
         Raft::Message message;
         message.type = Raft::Message::Type::RequestVoteResults;
         switch (instance) {
@@ -2227,7 +2227,7 @@ TEST_F(ServerTests, IgnoreStaleNoVoteFromPreviousTerm) {
     BecomeCandidate(2);
 
     // Act
-    for (auto instance: configuration.instanceNumbers) {
+    for (auto instance: configuration.instanceIds) {
         Raft::Message message;
         message.type = Raft::Message::Type::RequestVoteResults;
         switch (instance) {
@@ -2287,7 +2287,7 @@ TEST_F(ServerTests, RetransmitUnacknowledgedAppendEntries) {
 
     // Assert
     std::map< int, bool > appendEntriesReceivedPerInstance;
-    for (auto instanceNumber: configuration.instanceNumbers) {
+    for (auto instanceNumber: configuration.instanceIds) {
         appendEntriesReceivedPerInstance[instanceNumber] = false;
     }
     for (const auto& messageSent: messagesSent) {
@@ -2297,8 +2297,8 @@ TEST_F(ServerTests, RetransmitUnacknowledgedAppendEntries) {
             EXPECT_EQ(3, messageSent.message.log[0].term);
         }
     }
-    for (auto instanceNumber: configuration.instanceNumbers) {
-        if (instanceNumber == configuration.selfInstanceNumber) {
+    for (auto instanceNumber: configuration.instanceIds) {
+        if (instanceNumber == configuration.selfInstanceId) {
             EXPECT_FALSE(appendEntriesReceivedPerInstance[instanceNumber]);
         } else {
             EXPECT_TRUE(appendEntriesReceivedPerInstance[instanceNumber]);
@@ -2342,8 +2342,8 @@ TEST_F(ServerTests, ReinitializeVolatileLeaderStateAfterElection) {
     message.appendEntriesResults.term = 7;
     message.appendEntriesResults.success = true;
     message.appendEntriesResults.matchIndex = 1;
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             server.ReceiveMessage(message.Serialize(), instance);
         }
     }
@@ -2359,8 +2359,8 @@ TEST_F(ServerTests, ReinitializeVolatileLeaderStateAfterElection) {
     server.ReceiveMessage(message.Serialize(), 2);
     mockTimeKeeper->currentTime += configuration.maximumElectionTimeout;
     server.WaitForAtLeastOneWorkerLoop();
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             Raft::Message message;
             message.type = Raft::Message::Type::RequestVoteResults;
             message.requestVoteResults.term = 9;
@@ -2372,8 +2372,8 @@ TEST_F(ServerTests, ReinitializeVolatileLeaderStateAfterElection) {
     messagesSent.clear();
 
     // Assert
-    for (auto instance: configuration.instanceNumbers) {
-        if (instance != configuration.selfInstanceNumber) {
+    for (auto instance: configuration.instanceIds) {
+        if (instance != configuration.selfInstanceId) {
             EXPECT_EQ(2, server.GetNextIndex(instance));
             EXPECT_EQ(0, server.GetMatchIndex(instance));
         }
@@ -2529,7 +2529,7 @@ TEST_F(ServerTests, ConfigurationUpdateWhenVoteIsCastAsCandidate) {
     // Assert
     ASSERT_TRUE(configurationCallbackReceived);
     EXPECT_TRUE(newConfiguration.votedThisTerm);
-    EXPECT_EQ(newConfiguration.selfInstanceNumber, newConfiguration.votedFor);
+    EXPECT_EQ(newConfiguration.selfInstanceId, newConfiguration.votedFor);
     EXPECT_EQ(4, newConfiguration.currentTerm);
 }
 

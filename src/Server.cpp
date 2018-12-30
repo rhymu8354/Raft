@@ -456,7 +456,7 @@ namespace Raft {
         void StepUpAsCandidate() {
             shared->electionState = IServer::ElectionState::Candidate;
             shared->configuration.votedThisTerm = true;
-            shared->configuration.votedFor = shared->configuration.selfInstanceNumber;
+            shared->configuration.votedFor = shared->configuration.selfInstanceId;
             shared->votesForUs = 1;
             for (auto& instanceEntry: shared->instances) {
                 instanceEntry.second.awaitingResponse = false;
@@ -479,7 +479,7 @@ namespace Raft {
         void SendInitialVoteRequests(double now) {
             Message message;
             message.type = Message::Type::RequestVote;
-            message.requestVote.candidateId = shared->configuration.selfInstanceNumber;
+            message.requestVote.candidateId = shared->configuration.selfInstanceId;
             message.requestVote.term = shared->configuration.currentTerm;
             message.requestVote.lastLogIndex = shared->lastIndex;
             if (shared->lastIndex > 0) {
@@ -487,8 +487,8 @@ namespace Raft {
             } else {
                 message.requestVote.lastLogTerm = 0;
             }
-            for (auto instanceNumber: shared->configuration.instanceNumbers) {
-                if (instanceNumber == shared->configuration.selfInstanceNumber) {
+            for (auto instanceNumber: shared->configuration.instanceIds) {
+                if (instanceNumber == shared->configuration.selfInstanceId) {
                     continue;
                 }
                 auto& instance = shared->instances[instanceNumber];
@@ -570,10 +570,10 @@ namespace Raft {
                 "Sending heartbeat (term %u)",
                 shared->configuration.currentTerm
             );
-            for (auto instanceNumber: shared->configuration.instanceNumbers) {
+            for (auto instanceNumber: shared->configuration.instanceIds) {
                 auto& instance = shared->instances[instanceNumber];
                 if (
-                    (instanceNumber == shared->configuration.selfInstanceNumber)
+                    (instanceNumber == shared->configuration.selfInstanceId)
                     || instance.awaitingResponse
                 ) {
                     continue;
@@ -615,10 +615,10 @@ namespace Raft {
                 message.appendEntries.prevLogIndex + 1,
                 shared->configuration.currentTerm
             );
-            for (auto instanceNumber: shared->configuration.instanceNumbers) {
+            for (auto instanceNumber: shared->configuration.instanceIds) {
                 auto& instance = shared->instances[instanceNumber];
                 if (
-                    (instanceNumber == shared->configuration.selfInstanceNumber)
+                    (instanceNumber == shared->configuration.selfInstanceId)
                     || instance.awaitingResponse
                 ) {
                     continue;
@@ -734,7 +734,7 @@ namespace Raft {
                 "Received majority vote -- assuming leadership"
             );
             QueueLeadershipChangeAnnouncement(
-                shared->configuration.selfInstanceNumber,
+                shared->configuration.selfInstanceId,
                 shared->configuration.currentTerm
             );
             for (auto& instanceEntry: shared->instances) {
@@ -873,13 +873,13 @@ namespace Raft {
                         senderInstanceNumber,
                         shared->configuration.currentTerm,
                         shared->votesForUs,
-                        shared->configuration.instanceNumbers.size()
+                        shared->configuration.instanceIds.size()
                     );
                     if (
                         (shared->electionState == IServer::ElectionState::Candidate)
                         && (
                             shared->votesForUs
-                            > shared->configuration.instanceNumbers.size() - shared->votesForUs
+                            > shared->configuration.instanceIds.size() - shared->votesForUs
                         )
                     ) {
                         AssumeLeadership();
@@ -1042,7 +1042,7 @@ namespace Raft {
             }
             std::map< size_t, size_t > indexMatchCounts;
             for (const auto& instance: shared->instances) {
-                if (instance.first == shared->configuration.selfInstanceNumber) {
+                if (instance.first == shared->configuration.selfInstanceId) {
                     continue;
                 }
                 ++indexMatchCounts[instance.second.matchIndex];

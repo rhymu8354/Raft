@@ -67,13 +67,13 @@ namespace Raft {
             /**
              * This holds the unique identifiers of all servers in the cluster.
              */
-            std::set< int > instanceNumbers;
+            std::set< int > instanceIds;
 
             /**
              * This is the unique identifier of this server, amongst all the
              * servers in the cluster.
              */
-            int selfInstanceNumber = 0;
+            int selfInstanceId = 0;
 
             /**
              * This is the last term the server has seen.
