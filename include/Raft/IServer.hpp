@@ -15,6 +15,8 @@
 #include <functional>
 #include <memory>
 #include <ostream>
+#include <set>
+#include <string>
 #include <vector>
 
 namespace Raft {
@@ -65,7 +67,7 @@ namespace Raft {
             /**
              * This holds the unique identifiers of all servers in the cluster.
              */
-            std::vector< int > instanceNumbers;
+            std::set< int > instanceNumbers;
 
             /**
              * This is the unique identifier of this server, amongst all the
