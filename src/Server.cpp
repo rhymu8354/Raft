@@ -535,8 +535,9 @@ namespace Raft {
             }
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
-                "Sending log entries (%zu entries, term %u)",
+                "Sending log entries (%zu entries starting at %zu, term %u)",
                 message.log.size(),
+                instance.nextIndex,
                 shared->configuration.currentTerm
             );
             QueueMessageToBeSent(
@@ -609,8 +610,9 @@ namespace Raft {
             message.log = entries;
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
-                "Sending log entries (%zu entries, term %u)",
+                "Sending log entries (%zu entries starting at %zu, term %u)",
                 entries.size(),
+                message.appendEntries.prevLogIndex + 1,
                 shared->configuration.currentTerm
             );
             for (auto instanceNumber: shared->configuration.instanceNumbers) {
