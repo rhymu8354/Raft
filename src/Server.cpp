@@ -113,7 +113,7 @@ namespace {
         /**
          * This holds all configuration items for the server cluster.
          */
-        Raft::IServer::ClusterConfiguration clusterConfiguration;
+        Raft::ClusterConfiguration clusterConfiguration;
 
         /**
          * This holds all configuration items for the server instance.

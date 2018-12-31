@@ -195,7 +195,7 @@ struct ServerTests
     // Properties
 
     Raft::Server server;
-    Raft::Server::ClusterConfiguration clusterConfiguration;
+    Raft::ClusterConfiguration clusterConfiguration;
     Raft::Server::ServerConfiguration serverConfiguration;
     std::vector< std::string > diagnosticMessages;
     SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate diagnosticsUnsubscribeDelegate;

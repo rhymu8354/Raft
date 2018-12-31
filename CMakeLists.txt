@@ -6,6 +6,7 @@ cmake_minimum_required(VERSION 3.8)
 set(This Raft)
 
 set(Headers
+    include/Raft/ClusterConfiguration.hpp
     include/Raft/ILog.hpp
     include/Raft/IPersistentState.hpp
     include/Raft/IServer.hpp

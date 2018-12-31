@@ -9,6 +9,7 @@
  * © 2018 by Richard Walters
  */
 
+#include "ClusterConfiguration.hpp"
 #include "ILog.hpp"
 #include "IPersistentState.hpp"
 #include "LogEntry.hpp"
@@ -58,17 +59,6 @@ namespace Raft {
              * vote request in a newer term.
              */
             Leader,
-        };
-
-        /**
-         * This holds the properties which make up the configuration of the
-         * overall server cluster.
-         */
-        struct ClusterConfiguration {
-            /**
-             * This holds the unique identifiers of all servers in the cluster.
-             */
-            std::set< int > instanceIds;
         };
 
         /**
