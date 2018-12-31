@@ -17,6 +17,7 @@ set(Headers
 )
 
 set(Sources
+    src/LogEntry.cpp
     src/Message.cpp
     src/Server.cpp
 )
