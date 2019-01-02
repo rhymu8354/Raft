@@ -909,6 +909,9 @@ namespace Raft {
             const Message::RequestVoteDetails& messageDetails,
             int senderInstanceNumber
         ) {
+            if (!shared->isVotingMember) {
+                return;
+            }
             const auto now = timeKeeper->GetCurrentTime();
             Message response;
             response.type = Message::Type::RequestVoteResults;

@@ -2882,6 +2882,22 @@ TEST_F(ServerTests, NonVotingMemberJointConfig) {
 }
 
 TEST_F(ServerTests, NonVotingMemberShouldNotVoteForAnyCandidate) {
+    // Arrange
+    clusterConfiguration.instanceIds = {5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    MobilizeServer();
+
+    // Act
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 0;
+    message.requestVote.candidateId = 2;
+    message.requestVote.lastLogTerm = 999;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_TRUE(messagesSent.empty());
 }
 
 TEST_F(ServerTests, NonVotingMemberShouldNotStartNewElection) {
