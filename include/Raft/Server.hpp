@@ -133,7 +133,7 @@ namespace Raft {
          *     The index of the next log entry to be sent to the server with
          *     the given identifier is returned.
          */
-        size_t GetNextIndex(int instanceId);
+        size_t GetNextIndex(int instanceId) const;
 
         /**
          * Return the current match index for the server with the given
@@ -147,7 +147,7 @@ namespace Raft {
          *     The current match index for the server with the given
          *     identifier is returned.
          */
-        size_t GetMatchIndex(int instanceId);
+        size_t GetMatchIndex(int instanceId) const;
 
         /**
          * This method puts the server back into the state it was in when

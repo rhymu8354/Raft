@@ -1227,12 +1227,12 @@ namespace Raft {
         impl_->shared->lastIndex = lastIndex;
     }
 
-    size_t Server::GetNextIndex(int instanceId) {
+    size_t Server::GetNextIndex(int instanceId) const {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         return impl_->shared->instances[instanceId].nextIndex;
     }
 
-    size_t Server::GetMatchIndex(int instanceId) {
+    size_t Server::GetMatchIndex(int instanceId) const {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         return impl_->shared->instances[instanceId].matchIndex;
     }
