@@ -1266,8 +1266,11 @@ namespace Raft {
                 }
             } else {
                 if (
-                    timeSinceLastLeaderMessage
-                    >= shared->currentElectionTimeout
+                    shared->isVotingMember
+                    && (
+                        timeSinceLastLeaderMessage
+                        >= shared->currentElectionTimeout
+                    )
                 ) {
                     StartElection(now);
                 }

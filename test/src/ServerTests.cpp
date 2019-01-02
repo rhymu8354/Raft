@@ -2901,6 +2901,21 @@ TEST_F(ServerTests, NonVotingMemberShouldNotVoteForAnyCandidate) {
 }
 
 TEST_F(ServerTests, NonVotingMemberShouldNotStartNewElection) {
+    // Arrange
+    clusterConfiguration.instanceIds = {5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    MobilizeServer();
+
+    // Act
+    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
+    EXPECT_TRUE(messagesSent.empty());
 }
 
 TEST_F(ServerTests, NonVotingMemberFromStartupNoConfigInLog) {
