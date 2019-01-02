@@ -2669,7 +2669,6 @@ TEST_F(ServerTests, ApplyConfigVotingMemberSingleConfigOnStartup) {
     entry.term = 6;
     entry.command = std::move(command);
     mockLog->entries = {entry};
-    mockLog->commitIndex = 0;
 
     // Act
     MobilizeServer();
@@ -2689,7 +2688,6 @@ TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigOnStartup) {
     entry.term = 6;
     entry.command = std::move(command);
     mockLog->entries = {entry};
-    mockLog->commitIndex = 0;
 
     // Act
     MobilizeServer();
@@ -2801,7 +2799,6 @@ TEST_F(ServerTests, VotingMemberFromBothConfigsJointConfig) {
     entry.term = 6;
     entry.command = std::move(command);
     mockLog->entries = {entry};
-    mockLog->commitIndex = 0;
 
     // Act
     MobilizeServer();
@@ -2822,7 +2819,6 @@ TEST_F(ServerTests, VotingMemberFromNewConfigJointConfig) {
     entry.term = 6;
     entry.command = std::move(command);
     mockLog->entries = {entry};
-    mockLog->commitIndex = 0;
 
     // Act
     MobilizeServer();
@@ -2843,7 +2839,6 @@ TEST_F(ServerTests, VotingMemberFromOldConfigJointConfig) {
     entry.term = 6;
     entry.command = std::move(command);
     mockLog->entries = {entry};
-    mockLog->commitIndex = 0;
 
     // Act
     MobilizeServer();
@@ -2864,7 +2859,6 @@ TEST_F(ServerTests, NonVotingMemberJointConfig) {
     entry.term = 6;
     entry.command = std::move(command);
     mockLog->entries = {entry};
-    mockLog->commitIndex = 0;
 
     // Act
     MobilizeServer();
