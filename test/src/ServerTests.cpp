@@ -2790,10 +2790,88 @@ TEST_F(ServerTests, StepDownFromLeadershipOnceSingleConfigCommittedAndNotInClust
     // Assert
 }
 
-TEST_F(ServerTests, VotingMemberJointConfig) {
+TEST_F(ServerTests, VotingMemberFromBothConfigsJointConfig) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::JointConfigurationCommand >();
+    command->oldConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    command->newConfiguration.instanceIds = {2, 5, 6, 7};
+    Raft::LogEntry entry;
+    entry.term = 6;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    mockLog->commitIndex = 0;
+
+    // Act
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_TRUE(server.IsVotingMember());
+}
+
+TEST_F(ServerTests, VotingMemberFromNewConfigJointConfig) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::JointConfigurationCommand >();
+    command->oldConfiguration.instanceIds = {5, 6, 7, 11};
+    command->newConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::LogEntry entry;
+    entry.term = 6;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    mockLog->commitIndex = 0;
+
+    // Act
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_TRUE(server.IsVotingMember());
+}
+
+TEST_F(ServerTests, VotingMemberFromOldConfigJointConfig) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::JointConfigurationCommand >();
+    command->oldConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    command->newConfiguration.instanceIds = {5, 6, 7, 11};
+    Raft::LogEntry entry;
+    entry.term = 6;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    mockLog->commitIndex = 0;
+
+    // Act
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_TRUE(server.IsVotingMember());
 }
 
 TEST_F(ServerTests, NonVotingMemberJointConfig) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::JointConfigurationCommand >();
+    command->oldConfiguration.instanceIds = {5, 6, 7, 11};
+    command->newConfiguration.instanceIds = {5, 6, 7};
+    Raft::LogEntry entry;
+    entry.term = 6;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    mockLog->commitIndex = 0;
+
+    // Act
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_FALSE(server.IsVotingMember());
 }
 
 TEST_F(ServerTests, NonVotingMemberShouldNotVoteForAnyCandidate) {

@@ -116,6 +116,18 @@ namespace {
         Raft::ClusterConfiguration clusterConfiguration;
 
         /**
+         * This holds all configuration items to be set for the server once
+         * the current configuration transition is complete.
+         */
+        Raft::ClusterConfiguration nextClusterConfiguration;
+
+        /**
+         * This indicates whether or not the cluster is transitioning from the
+         * current configuration to the next configuration.
+         */
+        bool jointConfiguration = false;
+
+        /**
          * This holds all configuration items for the server instance.
          */
         Raft::IServer::ServerConfiguration serverConfiguration;
@@ -781,6 +793,12 @@ namespace Raft {
                     const auto command = std::static_pointer_cast< Raft::SingleConfigurationCommand >(entry.command);
                     shared->clusterConfiguration = command->configuration;
                     OnSetClusterConfiguration();
+                } else if (commandType == "JointConfiguration") {
+                    const auto command = std::static_pointer_cast< Raft::JointConfigurationCommand >(entry.command);
+                    shared->clusterConfiguration = command->oldConfiguration;
+                    shared->nextClusterConfiguration = command->newConfiguration;
+                    shared->jointConfiguration = true;
+                    OnSetClusterConfiguration();
                 }
             }
         }
@@ -828,7 +846,19 @@ namespace Raft {
                     shared->serverConfiguration.selfInstanceId
                 ) == shared->clusterConfiguration.instanceIds.end()
             ) {
-                shared->isVotingMember = false;
+                if (shared->jointConfiguration) {
+                    if (
+                        shared->nextClusterConfiguration.instanceIds.find(
+                            shared->serverConfiguration.selfInstanceId
+                        ) == shared->nextClusterConfiguration.instanceIds.end()
+                    ) {
+                        shared->isVotingMember = false;
+                    } else {
+                        shared->isVotingMember = true;
+                    }
+                } else {
+                    shared->isVotingMember = false;
+                }
             } else {
                 shared->isVotingMember = true;
             }
