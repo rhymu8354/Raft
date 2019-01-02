@@ -773,6 +773,37 @@ namespace Raft {
         }
 
         /**
+         * Set a single cluster configuration.
+         *
+         * @param[in] clusterConfiguration
+         *     This is the configuration to set.
+         */
+        void ApplyConfiguration(const ClusterConfiguration& clusterConfiguration) {
+            shared->clusterConfiguration = clusterConfiguration;
+            shared->jointConfiguration = false;
+            OnSetClusterConfiguration();
+        }
+
+        /**
+         * Set a joint cluster configuration.
+         *
+         * @param[in] clusterConfiguration
+         *     This is the current configuration to set.
+         *
+         * @param[in] nextClusterConfiguration
+         *     This is the next configuration to set.
+         */
+        void ApplyConfiguration(
+            const ClusterConfiguration& clusterConfiguration,
+            const ClusterConfiguration& nextClusterConfiguration
+        ) {
+            shared->clusterConfiguration = clusterConfiguration;
+            shared->nextClusterConfiguration = nextClusterConfiguration;
+            shared->jointConfiguration = true;
+            OnSetClusterConfiguration();
+        }
+
+        /**
          * Update the last index of the log, processing all log entries
          * between the previous last index and the new last index,
          * possibly rolling back to a previous state.
@@ -791,14 +822,13 @@ namespace Raft {
                 const auto commandType = entry.command->GetType();
                 if (commandType == "SingleConfiguration") {
                     const auto command = std::static_pointer_cast< Raft::SingleConfigurationCommand >(entry.command);
-                    shared->clusterConfiguration = command->configuration;
-                    OnSetClusterConfiguration();
+                    ApplyConfiguration(command->configuration);
                 } else if (commandType == "JointConfiguration") {
                     const auto command = std::static_pointer_cast< Raft::JointConfigurationCommand >(entry.command);
-                    shared->clusterConfiguration = command->oldConfiguration;
-                    shared->nextClusterConfiguration = command->newConfiguration;
-                    shared->jointConfiguration = true;
-                    OnSetClusterConfiguration();
+                    ApplyConfiguration(
+                        command->oldConfiguration,
+                        command->newConfiguration
+                    );
                 }
             }
         }
