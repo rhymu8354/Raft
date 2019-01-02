@@ -245,7 +245,7 @@ struct ServerTests
         messagesSent.clear();
     }
 
-    void BecomeFollower(
+    void ReceiveAppendEntriesFromMockLeader(
         int leaderId,
         int term
     ) {
@@ -1776,7 +1776,7 @@ TEST_F(ServerTests, AnnounceLeaderWhenAFollower) {
     // Act
     mockPersistentState->variables.currentTerm = 0;
     serverConfiguration.selfInstanceId = 5;
-    BecomeFollower(leaderId, newTerm);
+    ReceiveAppendEntriesFromMockLeader(leaderId, newTerm);
 
     // Assert
     ASSERT_TRUE(leadershipChangeAnnounced);
@@ -1854,7 +1854,7 @@ TEST_F(ServerTests, FollowerAppendLogEntry) {
     constexpr int newTerm = 9;
     mockPersistentState->variables.currentTerm = 0;
     serverConfiguration.selfInstanceId = 5;
-    BecomeFollower(leaderId, newTerm);
+    ReceiveAppendEntriesFromMockLeader(leaderId, newTerm);
     std::vector< Raft::LogEntry > entries;
     Raft::LogEntry firstEntry;
     firstEntry.term = 4;
@@ -1963,7 +1963,7 @@ TEST_F(ServerTests, FollowerAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLog
     constexpr int newTerm = 9;
     mockPersistentState->variables.currentTerm = 0;
     serverConfiguration.selfInstanceId = 5;
-    BecomeFollower(leaderId, newTerm);
+    ReceiveAppendEntriesFromMockLeader(leaderId, newTerm);
 
     // Act
     Raft::Message message;
@@ -1995,7 +1995,7 @@ TEST_F(ServerTests, AppendEntriesWhenNotLeader) {
     constexpr int newTerm = 1;
     mockPersistentState->variables.currentTerm = 0;
     serverConfiguration.selfInstanceId = 5;
-    BecomeFollower(leaderId, newTerm);
+    ReceiveAppendEntriesFromMockLeader(leaderId, newTerm);
     std::vector< Raft::LogEntry > entries;
     Raft::LogEntry firstEntry;
     firstEntry.term = 1;
@@ -2429,7 +2429,7 @@ TEST_F(ServerTests, FollowerReceiveAppendEntriesSuccess) {
     newConflictingEntry.term = 7;
     nextEntry.term = 8;
     mockLog->entries = {oldConflictingEntry};
-    BecomeFollower(2, 8);
+    ReceiveAppendEntriesFromMockLeader(2, 8);
 
     // Act
     messagesSent.clear();
@@ -2462,7 +2462,7 @@ TEST_F(ServerTests, FollowerReceiveAppendEntriesFailureOldTerm) {
     newConflictingEntry.term = 7;
     nextEntry.term = 8;
     mockLog->entries = {oldConflictingEntry};
-    BecomeFollower(2, 8);
+    ReceiveAppendEntriesFromMockLeader(2, 8);
 
     // Act
     messagesSent.clear();
@@ -2494,7 +2494,7 @@ TEST_F(ServerTests, FollowerReceiveAppendEntriesFailurePreviousNotFound) {
     newConflictingEntry.term = 7;
     nextEntry.term = 8;
     mockLog->entries = {};
-    BecomeFollower(2, 8);
+    ReceiveAppendEntriesFromMockLeader(2, 8);
 
     // Act
     messagesSent.clear();
@@ -2608,7 +2608,7 @@ TEST_F(ServerTests, CrashedFollowerRestartsAndRejectsVoteFromDifferentCandidate)
     EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
 }
 
-TEST_F(ServerTests, ConfigurationUpdateForNewTermWhenReceivingVoteRequestForNewCandidate) {
+TEST_F(ServerTests, PersistentStateUpdateForNewTermWhenReceivingVoteRequestForNewCandidate) {
     // Arrange
     mockPersistentState->variables.currentTerm = 4;
     MobilizeServer();
@@ -2626,7 +2626,7 @@ TEST_F(ServerTests, ConfigurationUpdateForNewTermWhenReceivingVoteRequestForNewC
     EXPECT_EQ(5, mockPersistentState->variables.currentTerm);
 }
 
-TEST_F(ServerTests, ConfigurationUpdateForNewTermWhenVoteRejectedByNewerTermServer) {
+TEST_F(ServerTests, PersistentStateUpdateForNewTermWhenVoteRejectedByNewerTermServer) {
     // Arrange
     BecomeCandidate(4);
 
@@ -2641,7 +2641,7 @@ TEST_F(ServerTests, ConfigurationUpdateForNewTermWhenVoteRejectedByNewerTermServ
     EXPECT_EQ(5, mockPersistentState->variables.currentTerm);
 }
 
-TEST_F(ServerTests, ConfigurationUpdateForNewTermWhenReceiveAppendEntriesFromNewerTermLeader) {
+TEST_F(ServerTests, PersistentStateUpdateForNewTermWhenReceiveAppendEntriesFromNewerTermLeader) {
     // Arrange
     mockPersistentState->variables.currentTerm = 4;
     MobilizeServer();
@@ -2659,24 +2659,6 @@ TEST_F(ServerTests, ConfigurationUpdateForNewTermWhenReceiveAppendEntriesFromNew
     EXPECT_EQ(5, mockPersistentState->variables.currentTerm);
 }
 
-TEST_F(ServerTests, ApplyConfigVotingMemberSingleConfigWhenCommitted) {
-    // Arrange
-    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
-    serverConfiguration.selfInstanceId = 2;
-    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
-    command->configuration.instanceIds = {2, 5, 6, 7};
-    Raft::LogEntry entry;
-    entry.term = 6;
-    entry.command = std::move(command);
-    mockLog->entries = {entry};
-
-    // Act
-    BecomeFollower(5, 6);
-
-    // Assert
-    EXPECT_TRUE(server.IsVotingMember());
-}
-
 TEST_F(ServerTests, ApplyConfigVotingMemberSingleConfigOnStartup) {
     // Arrange
     clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
@@ -2687,7 +2669,7 @@ TEST_F(ServerTests, ApplyConfigVotingMemberSingleConfigOnStartup) {
     entry.term = 6;
     entry.command = std::move(command);
     mockLog->entries = {entry};
-    mockLog->commitIndex = 1;
+    mockLog->commitIndex = 0;
 
     // Act
     MobilizeServer();
@@ -2697,7 +2679,27 @@ TEST_F(ServerTests, ApplyConfigVotingMemberSingleConfigOnStartup) {
     EXPECT_TRUE(server.IsVotingMember());
 }
 
-TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigWhenCommittedAsFollower) {
+TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigOnStartup) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->configuration.instanceIds = {5, 6, 7, 11};
+    Raft::LogEntry entry;
+    entry.term = 6;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    mockLog->commitIndex = 0;
+
+    // Act
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_FALSE(server.IsVotingMember());
+}
+
+TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigWhenAppendedAsFollower) {
     // Arrange
     clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
     serverConfiguration.selfInstanceId = 2;
@@ -2709,13 +2711,33 @@ TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigWhenCommittedAsFollowe
     mockLog->entries = {entry};
 
     // Act
-    BecomeFollower(5, 6);
+    ReceiveAppendEntriesFromMockLeader(5, 6);
 
     // Assert
     EXPECT_FALSE(server.IsVotingMember());
 }
 
-TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigWhenCommittedAsLeader) {
+TEST_F(ServerTests, BecomeNonVotingMemberWhenLeaderAndSingleConfigAppendedAndNotInClusterAnymore) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->configuration.instanceIds = {5, 6, 11};
+    const auto newInstanceIds = command->configuration.instanceIds;
+    Raft::LogEntry entry;
+    constexpr int term = 6;
+    entry.term = term;
+    entry.command = std::move(command);
+    BecomeLeader(term);
+
+    // Act
+    server.AppendLogEntries({entry});
+
+    // Assert
+    EXPECT_FALSE(server.IsVotingMember());
+}
+
+TEST_F(ServerTests, StepDownFromLeadershipOnceSingleConfigCommittedAndNotInClusterAnymore) {
     // Arrange
     clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
     serverConfiguration.selfInstanceId = 2;
@@ -2732,7 +2754,6 @@ TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigWhenCommittedAsLeader)
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    EXPECT_FALSE(server.IsVotingMember());
     for (const auto& messageSent: messagesSent) {
         if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
             EXPECT_TRUE(
@@ -2752,7 +2773,6 @@ TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigWhenCommittedAsLeader)
             ++responseCount;
             server.ReceiveMessage(message.Serialize(), instance);
             server.WaitForAtLeastOneWorkerLoop();
-            EXPECT_FALSE(server.IsVotingMember());
             if (responseCount >= 2) {
                 EXPECT_EQ(
                     Raft::IServer::ElectionState::Follower,
@@ -2770,10 +2790,10 @@ TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigWhenCommittedAsLeader)
     // Assert
 }
 
-TEST_F(ServerTests, ApplyConfigVotingMemberJointConfig) {
+TEST_F(ServerTests, VotingMemberJointConfig) {
 }
 
-TEST_F(ServerTests, ApplyConfigNonVotingMemberJointConfig) {
+TEST_F(ServerTests, NonVotingMemberJointConfig) {
 }
 
 TEST_F(ServerTests, NonVotingMemberShouldNotVoteForAnyCandidate) {
@@ -2782,8 +2802,8 @@ TEST_F(ServerTests, NonVotingMemberShouldNotVoteForAnyCandidate) {
 TEST_F(ServerTests, NonVotingMemberShouldNotStartNewElection) {
 }
 
-TEST_F(ServerTests, FollowerRevertConfigWhenRollingBackBeforeConfigChange) {
+TEST_F(ServerTests, NonVotingMemberFromStartupNoConfigInLog) {
 }
 
-TEST_F(ServerTests, NonVotingMemberFromStartupNoConfigInLog) {
+TEST_F(ServerTests, FollowerRevertConfigWhenRollingBackBeforeConfigChange) {
 }
