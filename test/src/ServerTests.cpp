@@ -2752,15 +2752,15 @@ TEST_F(ServerTests, StepDownFromLeadershipOnceSingleConfigCommittedAndNotInClust
     // Arrange
     clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
     serverConfiguration.selfInstanceId = 2;
+    constexpr int term = 6;
+    BecomeLeader(term);
     auto command = std::make_shared< Raft::SingleConfigurationCommand >();
     command->configuration.instanceIds = {5, 6, 11};
     const auto newInstanceIds = command->configuration.instanceIds;
     Raft::LogEntry entry;
-    constexpr int term = 6;
     entry.term = term;
     entry.command = std::move(command);
-    mockLog->entries = {entry};
-    BecomeLeader(term);
+    server.AppendLogEntries({entry});
     mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -2788,12 +2788,12 @@ TEST_F(ServerTests, StepDownFromLeadershipOnceSingleConfigCommittedAndNotInClust
                 EXPECT_EQ(
                     Raft::IServer::ElectionState::Follower,
                     server.GetElectionState()
-                );
+                ) << "responses: " << responseCount;
             } else {
                 EXPECT_EQ(
                     Raft::IServer::ElectionState::Leader,
                     server.GetElectionState()
-                );
+                ) << "responses: " << responseCount;
             }
         }
     }
