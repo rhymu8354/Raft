@@ -1403,13 +1403,13 @@ namespace Raft {
         }
         impl_->shared->logKeeper = logKeeper;
         impl_->shared->persistentStateKeeper = persistentStateKeeper;
-        impl_->shared->clusterConfiguration = clusterConfiguration;
         impl_->shared->serverConfiguration = serverConfiguration;
         impl_->shared->persistentStateCache = persistentStateKeeper->Load();
         impl_->shared->instances.clear();
         impl_->shared->electionState = IServer::ElectionState::Follower;
         impl_->shared->timeOfLastLeaderMessage = 0.0;
         impl_->shared->votesForUs = 0;
+        impl_->ApplyConfiguration(clusterConfiguration);
         impl_->SetLastIndex(logKeeper->GetSize());
         impl_->stopWorker = std::promise< void >();
         impl_->worker = std::thread(&Impl::Worker, impl_.get());

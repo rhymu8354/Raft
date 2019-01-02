@@ -2697,6 +2697,19 @@ TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigOnStartup) {
     EXPECT_FALSE(server.IsVotingMember());
 }
 
+TEST_F(ServerTests, NonVotingMemberOnStartupNoLog) {
+    // Arrange
+    clusterConfiguration.instanceIds = {5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+
+    // Act
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_FALSE(server.IsVotingMember());
+}
+
 TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigWhenAppendedAsFollower) {
     // Arrange
     clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
