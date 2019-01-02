@@ -247,13 +247,14 @@ struct ServerTests
 
     void ReceiveAppendEntriesFromMockLeader(
         int leaderId,
-        int term
+        int term,
+        size_t leaderCommit
     ) {
         MobilizeServer();
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntries;
         message.appendEntries.term = term;
-        message.appendEntries.leaderCommit = mockLog->entries.size();
+        message.appendEntries.leaderCommit = leaderCommit;
         if (mockLog->entries.empty()) {
             message.appendEntries.prevLogIndex = 0;
             message.appendEntries.prevLogTerm = 0;
@@ -264,6 +265,17 @@ struct ServerTests
         server.ReceiveMessage(message.Serialize(), leaderId);
         server.WaitForAtLeastOneWorkerLoop();
         messagesSent.clear();
+    }
+
+    void ReceiveAppendEntriesFromMockLeader(
+        int leaderId,
+        int term
+    ) {
+        ReceiveAppendEntriesFromMockLeader(
+            leaderId,
+            term,
+            mockLog->entries.size()
+        );
     }
 
     void BecomeCandidate(int term = 1) {
@@ -2918,8 +2930,31 @@ TEST_F(ServerTests, NonVotingMemberShouldNotStartNewElection) {
     EXPECT_TRUE(messagesSent.empty());
 }
 
-TEST_F(ServerTests, NonVotingMemberFromStartupNoConfigInLog) {
-}
-
 TEST_F(ServerTests, FollowerRevertConfigWhenRollingBackBeforeConfigChange) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    auto singleConfigCommand = std::make_shared< Raft::SingleConfigurationCommand >();
+    singleConfigCommand->oldConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    singleConfigCommand->configuration.instanceIds = {5, 6, 7, 11};
+    Raft::LogEntry entry1, entry2;
+    entry1.term = 6;
+    entry1.command = std::move(singleConfigCommand);
+    entry2.term = 7;
+    mockLog->entries = {entry1};
+    ReceiveAppendEntriesFromMockLeader(5, 6, 1);
+
+    // Act
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = 7;
+    message.appendEntries.leaderCommit = 1;
+    message.log = {entry2};
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
+    server.ReceiveMessage(message.Serialize(), 6);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_TRUE(server.IsVotingMember());
 }

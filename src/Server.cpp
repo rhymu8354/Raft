@@ -812,25 +812,41 @@ namespace Raft {
          *     This is the new value to set for the last index.
          */
         void SetLastIndex(size_t newLastIndex) {
-            const auto firstEntryToProcess = shared->lastIndex + 1;
-            shared->lastIndex = newLastIndex;
-            for (size_t i = firstEntryToProcess; i <= shared->lastIndex; ++i) {
-                const auto& entry = shared->logKeeper->operator[](i);
-                if (entry.command == nullptr) {
-                    continue;
+            if (newLastIndex < shared->lastIndex) {
+                for (int i = (int)shared->lastIndex; i >= (int)newLastIndex; --i) {
+                    const auto& entry = shared->logKeeper->operator[](i);
+                    if (entry.command == nullptr) {
+                        continue;
+                    }
+                    const auto commandType = entry.command->GetType();
+                    if (commandType == "SingleConfiguration") {
+                        const auto command = std::static_pointer_cast< Raft::SingleConfigurationCommand >(entry.command);
+                        ApplyConfiguration(command->oldConfiguration);
+                    } else if (commandType == "JointConfiguration") {
+                        const auto command = std::static_pointer_cast< Raft::JointConfigurationCommand >(entry.command);
+                        ApplyConfiguration(command->oldConfiguration);
+                    }
                 }
-                const auto commandType = entry.command->GetType();
-                if (commandType == "SingleConfiguration") {
-                    const auto command = std::static_pointer_cast< Raft::SingleConfigurationCommand >(entry.command);
-                    ApplyConfiguration(command->configuration);
-                } else if (commandType == "JointConfiguration") {
-                    const auto command = std::static_pointer_cast< Raft::JointConfigurationCommand >(entry.command);
-                    ApplyConfiguration(
-                        command->oldConfiguration,
-                        command->newConfiguration
-                    );
+            } else {
+                for (size_t i = shared->lastIndex + 1; i <= newLastIndex; ++i) {
+                    const auto& entry = shared->logKeeper->operator[](i);
+                    if (entry.command == nullptr) {
+                        continue;
+                    }
+                    const auto commandType = entry.command->GetType();
+                    if (commandType == "SingleConfiguration") {
+                        const auto command = std::static_pointer_cast< Raft::SingleConfigurationCommand >(entry.command);
+                        ApplyConfiguration(command->configuration);
+                    } else if (commandType == "JointConfiguration") {
+                        const auto command = std::static_pointer_cast< Raft::JointConfigurationCommand >(entry.command);
+                        ApplyConfiguration(
+                            command->oldConfiguration,
+                            command->newConfiguration
+                        );
+                    }
                 }
             }
+            shared->lastIndex = newLastIndex;
         }
 
         /**
@@ -1127,6 +1143,7 @@ namespace Raft {
                         const auto& oldEntry = shared->logKeeper->operator[](logIndex);
                         if (oldEntry.term != newEntry.term) {
                             conflictFound = true;
+                            SetLastIndex(logIndex - 1);
                             shared->logKeeper->RollBack(logIndex - 1);
                             entriesToAdd.push_back(std::move(newEntry));
                         }
