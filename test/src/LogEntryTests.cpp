@@ -14,6 +14,7 @@
 TEST(LogEntryTests, SerializeSingleConfigurationCommand) {
     // Arrange
     auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->oldConfiguration.instanceIds = {5, 42, 85, 13531, 8354};
     command->configuration.instanceIds = {42, 85, 13531, 8354};
     Raft::LogEntry entry;
     entry.term = 9;
@@ -25,6 +26,9 @@ TEST(LogEntryTests, SerializeSingleConfigurationCommand) {
             {"type", "SingleConfiguration"},
             {"term", 9},
             {"command", Json::Object({
+                {"oldConfiguration", Json::Object({
+                    {"instanceIds", Json::Array({5, 42, 85, 8354, 13531})},
+                })},
                 {"configuration", Json::Object({
                     {"instanceIds", Json::Array({42, 85, 8354, 13531})},
                 })},
@@ -40,6 +44,9 @@ TEST(LogEntryTests, DeserializeSingleConfigurationCommand) {
         {"type", "SingleConfiguration"},
         {"term", 9},
         {"command", Json::Object({
+            {"oldConfiguration", Json::Object({
+                {"instanceIds", Json::Array({5, 42, 85, 8354, 13531})},
+            })},
             {"configuration", Json::Object({
                 {"instanceIds", Json::Array({42, 85, 8354, 13531})},
             })},
@@ -56,6 +63,10 @@ TEST(LogEntryTests, DeserializeSingleConfigurationCommand) {
     EXPECT_EQ(
         std::set< int >({42, 85, 13531, 8354}),
         command->configuration.instanceIds
+    );
+    EXPECT_EQ(
+        std::set< int >({5, 42, 85, 13531, 8354}),
+        command->oldConfiguration.instanceIds
     );
 }
 

@@ -28,6 +28,7 @@ namespace Raft {
         // Properties
 
         ClusterConfiguration configuration;
+        ClusterConfiguration oldConfiguration;
 
         // Methods
 

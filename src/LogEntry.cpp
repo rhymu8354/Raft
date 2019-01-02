@@ -17,6 +17,10 @@ namespace Raft {
         for (size_t i = 0; i < instanceIds.GetSize(); ++i) {
             (void)configuration.instanceIds.insert(instanceIds[i]);
         }
+        const auto& oldInstanceIds = json["oldConfiguration"]["instanceIds"];
+        for (size_t i = 0; i < oldInstanceIds.GetSize(); ++i) {
+            (void)oldConfiguration.instanceIds.insert(oldInstanceIds[i]);
+        }
     }
 
     std::string SingleConfigurationCommand::GetType() const {
@@ -28,9 +32,16 @@ namespace Raft {
         for (const auto& instanceId: configuration.instanceIds) {
             instanceIdsArray.Add(instanceId);
         }
+        auto oldInstanceIdsArray = Json::Array({});
+        for (const auto& oldInstanceId: oldConfiguration.instanceIds) {
+            oldInstanceIdsArray.Add(oldInstanceId);
+        }
         return Json::Object({
             {"configuration", Json::Object({
                 {"instanceIds", std::move(instanceIdsArray)},
+            })},
+            {"oldConfiguration", Json::Object({
+                {"instanceIds", std::move(oldInstanceIdsArray)},
             })},
         });
     }
