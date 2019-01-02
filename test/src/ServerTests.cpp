@@ -18,6 +18,7 @@
 #include <mutex>
 #include <Raft/ILog.hpp>
 #include <Raft/IPersistentState.hpp>
+#include <Raft/LogEntry.hpp>
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
 #include <stddef.h>
@@ -252,6 +253,14 @@ struct ServerTests
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntries;
         message.appendEntries.term = term;
+        message.appendEntries.leaderCommit = mockLog->entries.size();
+        if (mockLog->entries.empty()) {
+            message.appendEntries.prevLogIndex = 0;
+            message.appendEntries.prevLogTerm = 0;
+        } else {
+            message.appendEntries.prevLogIndex = mockLog->entries.size();
+            message.appendEntries.prevLogTerm = term;
+        }
         server.ReceiveMessage(message.Serialize(), leaderId);
         server.WaitForAtLeastOneWorkerLoop();
         messagesSent.clear();
@@ -2648,4 +2657,133 @@ TEST_F(ServerTests, ConfigurationUpdateForNewTermWhenReceiveAppendEntriesFromNew
 
     // Assert
     EXPECT_EQ(5, mockPersistentState->variables.currentTerm);
+}
+
+TEST_F(ServerTests, ApplyConfigVotingMemberSingleConfigWhenCommitted) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->configuration.instanceIds = {2, 5, 6, 7};
+    Raft::LogEntry entry;
+    entry.term = 6;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+
+    // Act
+    BecomeFollower(5, 6);
+
+    // Assert
+    EXPECT_TRUE(server.IsVotingMember());
+}
+
+TEST_F(ServerTests, ApplyConfigVotingMemberSingleConfigOnStartup) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->configuration.instanceIds = {2, 5, 6, 7};
+    Raft::LogEntry entry;
+    entry.term = 6;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    mockLog->commitIndex = 1;
+
+    // Act
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_TRUE(server.IsVotingMember());
+}
+
+TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigWhenCommittedAsFollower) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->configuration.instanceIds = {5, 6, 7, 11};
+    Raft::LogEntry entry;
+    entry.term = 6;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+
+    // Act
+    BecomeFollower(5, 6);
+
+    // Assert
+    EXPECT_FALSE(server.IsVotingMember());
+}
+
+TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigWhenCommittedAsLeader) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->configuration.instanceIds = {5, 6, 11};
+    const auto newInstanceIds = command->configuration.instanceIds;
+    Raft::LogEntry entry;
+    constexpr int term = 6;
+    entry.term = term;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    BecomeLeader(term);
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    EXPECT_FALSE(server.IsVotingMember());
+    for (const auto& messageSent: messagesSent) {
+        if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+            EXPECT_TRUE(
+                newInstanceIds.find(messageSent.receiverInstanceNumber)
+                != newInstanceIds.end()
+            );
+        }
+    }
+    size_t responseCount = 0;
+    for (auto instance: newInstanceIds) {
+        if (instance != serverConfiguration.selfInstanceId) {
+            Raft::Message message;
+            message.type = Raft::Message::Type::AppendEntriesResults;
+            message.appendEntriesResults.term = term;
+            message.appendEntriesResults.success = true;
+            message.appendEntriesResults.matchIndex = 1;
+            ++responseCount;
+            server.ReceiveMessage(message.Serialize(), instance);
+            server.WaitForAtLeastOneWorkerLoop();
+            EXPECT_FALSE(server.IsVotingMember());
+            if (responseCount >= 2) {
+                EXPECT_EQ(
+                    Raft::IServer::ElectionState::Follower,
+                    server.GetElectionState()
+                );
+            } else {
+                EXPECT_EQ(
+                    Raft::IServer::ElectionState::Leader,
+                    server.GetElectionState()
+                );
+            }
+        }
+    }
+
+    // Assert
+}
+
+TEST_F(ServerTests, ApplyConfigVotingMemberJointConfig) {
+}
+
+TEST_F(ServerTests, ApplyConfigNonVotingMemberJointConfig) {
+}
+
+TEST_F(ServerTests, NonVotingMemberShouldNotVoteForAnyCandidate) {
+}
+
+TEST_F(ServerTests, NonVotingMemberShouldNotStartNewElection) {
+}
+
+TEST_F(ServerTests, FollowerRevertConfigWhenRollingBackBeforeConfigChange) {
+}
+
+TEST_F(ServerTests, NonVotingMemberFromStartupNoConfigInLog) {
 }

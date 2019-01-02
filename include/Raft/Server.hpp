@@ -150,6 +150,16 @@ namespace Raft {
         size_t GetMatchIndex(int instanceId) const;
 
         /**
+         * Return an indication of whether or not this server is a voting
+         * member of the cluster.
+         *
+         * @return
+         *     An indication of whether or not this server is a voting
+         *     member of the cluster is returned.
+         */
+        bool IsVotingMember() const;
+
+        /**
          * This method puts the server back into the state it was in when
          * first mobilized.
          */

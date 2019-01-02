@@ -179,6 +179,13 @@ namespace {
         size_t votesForUs = 0;
 
         /**
+         * This indicates whether or not the server is allowed to run for
+         * election to be leader of the cluster, or vote for another server to
+         * be leader.
+         */
+        bool isVotingMember = true;
+
+        /**
          * This holds information this server tracks about the other servers.
          */
         std::map< int, InstanceInfo > instances;
@@ -754,6 +761,80 @@ namespace Raft {
         }
 
         /**
+         * Update the last index of the log, processing all log entries
+         * between the previous last index and the new last index,
+         * possibly rolling back to a previous state.
+         *
+         * @param[in] newLastIndex
+         *     This is the new value to set for the last index.
+         */
+        void SetLastIndex(size_t newLastIndex) {
+            const auto firstEntryToProcess = shared->lastIndex + 1;
+            shared->lastIndex = newLastIndex;
+            for (size_t i = firstEntryToProcess; i <= shared->lastIndex; ++i) {
+                const auto& entry = shared->logKeeper->operator[](i);
+                if (entry.command == nullptr) {
+                    continue;
+                }
+                const auto commandType = entry.command->GetType();
+                if (commandType == "SingleConfiguration") {
+                    const auto command = std::static_pointer_cast< Raft::SingleConfigurationCommand >(entry.command);
+                    shared->clusterConfiguration = command->configuration;
+                    OnSetClusterConfiguration();
+                }
+            }
+        }
+
+        /**
+         * Update the commit index of the log, processing all log entries
+         * between the previous commit index and the new commit index.
+         *
+         * @param[in] newCommitIndex
+         *     This is the new value to set for the commit index.
+         */
+        void AdvanceCommitIndex(size_t newCommitIndex) {
+            const auto lastCommitIndex = shared->commitIndex;
+            shared->commitIndex = newCommitIndex;
+            shared->logKeeper->Commit(shared->commitIndex);
+            for (size_t i = lastCommitIndex + 1; i <= shared->commitIndex; ++i) {
+                const auto& entry = shared->logKeeper->operator[](i);
+                if (entry.command == nullptr) {
+                    continue;
+                }
+                const auto commandType = entry.command->GetType();
+                if (commandType == "SingleConfiguration") {
+                    const auto command = std::static_pointer_cast< Raft::SingleConfigurationCommand >(entry.command);
+                    if (
+                        (shared->electionState == ElectionState::Leader)
+                        && (
+                            shared->clusterConfiguration.instanceIds.find(
+                                shared->serverConfiguration.selfInstanceId
+                            ) == shared->clusterConfiguration.instanceIds.end()
+                        )
+                    ) {
+                        RevertToFollower();
+                    }
+                }
+            }
+        }
+
+        /**
+         * Perform any work that is required when the cluster configuration
+         * changes.
+         */
+        void OnSetClusterConfiguration() {
+            if (
+                shared->clusterConfiguration.instanceIds.find(
+                    shared->serverConfiguration.selfInstanceId
+                ) == shared->clusterConfiguration.instanceIds.end()
+            ) {
+                shared->isVotingMember = false;
+            } else {
+                shared->isVotingMember = true;
+            }
+        }
+
+        /**
          * This method is called whenever the server receives a request to vote
          * for another server in the cluster.
          *
@@ -953,8 +1034,7 @@ namespace Raft {
                 }
             }
             RevertToFollower();
-            shared->commitIndex = messageDetails.leaderCommit;
-            shared->logKeeper->Commit(shared->commitIndex);
+            AdvanceCommitIndex(messageDetails.leaderCommit);
             Message response;
             response.type = Message::Type::AppendEntriesResults;
             response.appendEntriesResults.term = shared->persistentStateCache.currentTerm;
@@ -992,7 +1072,7 @@ namespace Raft {
                 if (!entriesToAdd.empty()) {
                     shared->logKeeper->Append(entriesToAdd);
                 }
-                shared->lastIndex = shared->logKeeper->GetSize();
+                SetLastIndex(shared->logKeeper->GetSize());
                 response.appendEntriesResults.matchIndex = shared->lastIndex;
             }
             const auto now = timeKeeper->GetCurrentTime();
@@ -1059,8 +1139,7 @@ namespace Raft {
                     && (totalMatchCounts + 1 > shared->instances.size() - totalMatchCounts - 1)
                     && (shared->logKeeper->operator[](indexMatchCountEntry->first).term == shared->persistentStateCache.currentTerm)
                 ) {
-                    shared->commitIndex = indexMatchCountEntry->first;
-                    shared->logKeeper->Commit(shared->commitIndex);
+                    AdvanceCommitIndex(indexMatchCountEntry->first);
                     break;
                 }
             }
@@ -1237,6 +1316,11 @@ namespace Raft {
         return impl_->shared->instances[instanceId].matchIndex;
     }
 
+    bool Server::IsVotingMember() const {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        return impl_->shared->isVotingMember;
+    }
+
     void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->sendMessageDelegate = sendMessageDelegate;
@@ -1262,11 +1346,11 @@ namespace Raft {
         impl_->shared->clusterConfiguration = clusterConfiguration;
         impl_->shared->serverConfiguration = serverConfiguration;
         impl_->shared->persistentStateCache = persistentStateKeeper->Load();
-        impl_->shared->lastIndex = logKeeper->GetSize();
         impl_->shared->instances.clear();
         impl_->shared->electionState = IServer::ElectionState::Follower;
         impl_->shared->timeOfLastLeaderMessage = 0.0;
         impl_->shared->votesForUs = 0;
+        impl_->SetLastIndex(logKeeper->GetSize());
         impl_->stopWorker = std::promise< void >();
         impl_->worker = std::thread(&Impl::Worker, impl_.get());
     }
@@ -1331,7 +1415,7 @@ namespace Raft {
         }
         impl_->shared->logKeeper->Append(entries);
         const auto now = impl_->timeKeeper->GetCurrentTime();
-        impl_->shared->lastIndex += entries.size();
+        impl_->SetLastIndex(impl_->shared->lastIndex + entries.size());
         impl_->QueueAppendEntriesToBeSent(now, entries);
     }
 
