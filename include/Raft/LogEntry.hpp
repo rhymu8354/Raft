@@ -40,24 +40,6 @@ namespace Raft {
         virtual Json::Value Encode() const override;
     };
 
-    struct ProvisionalConfigurationCommand
-        : public Command
-    {
-        // Properties
-
-        ClusterConfiguration oldConfiguration;
-        ClusterConfiguration newConfiguration;
-
-        // Methods
-
-        ProvisionalConfigurationCommand(const Json::Value& json = nullptr);
-
-        // Command
-
-        virtual std::string GetType() const override;
-        virtual Json::Value Encode() const override;
-    };
-
     struct JointConfigurationCommand
         : public Command
     {

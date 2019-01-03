@@ -46,40 +46,6 @@ namespace Raft {
         });
     }
 
-    ProvisionalConfigurationCommand::ProvisionalConfigurationCommand(const Json::Value& json) {
-        const auto& oldInstanceIds = json["oldConfiguration"]["instanceIds"];
-        for (size_t i = 0; i < oldInstanceIds.GetSize(); ++i) {
-            (void)oldConfiguration.instanceIds.insert(oldInstanceIds[i]);
-        }
-        const auto& newInstanceIds = json["newConfiguration"]["instanceIds"];
-        for (size_t i = 0; i < newInstanceIds.GetSize(); ++i) {
-            (void)newConfiguration.instanceIds.insert(newInstanceIds[i]);
-        }
-    }
-
-    std::string ProvisionalConfigurationCommand::GetType() const {
-        return "ProvisionalConfiguration";
-    }
-
-    Json::Value ProvisionalConfigurationCommand::Encode() const {
-        auto oldInstanceIdsArray = Json::Array({});
-        for (const auto& instanceId: oldConfiguration.instanceIds) {
-            oldInstanceIdsArray.Add(instanceId);
-        }
-        auto newInstanceIdsArray = Json::Array({});
-        for (const auto& instanceId: newConfiguration.instanceIds) {
-            newInstanceIdsArray.Add(instanceId);
-        }
-        return Json::Object({
-            {"oldConfiguration", Json::Object({
-                {"instanceIds", std::move(oldInstanceIdsArray)},
-            })},
-            {"newConfiguration", Json::Object({
-                {"instanceIds", std::move(newInstanceIdsArray)},
-            })},
-        });
-    }
-
     JointConfigurationCommand::JointConfigurationCommand(const Json::Value& json) {
         const auto& oldInstanceIds = json["oldConfiguration"]["instanceIds"];
         for (size_t i = 0; i < oldInstanceIds.GetSize(); ++i) {
@@ -123,11 +89,6 @@ namespace Raft {
                 json["command"]
             );
             command = std::move(singleConfigurationCommand);
-        } else if (typeAsString == "ProvisionalConfiguration") {
-            const auto provisionalConfigurationCommand = std::make_shared< ProvisionalConfigurationCommand >(
-                json["command"]
-            );
-            command = std::move(provisionalConfigurationCommand);
         } else if (typeAsString == "JointConfiguration") {
             const auto jointConfigurationCommand = std::make_shared< JointConfigurationCommand >(
                 json["command"]
