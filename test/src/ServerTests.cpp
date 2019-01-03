@@ -3281,3 +3281,82 @@ TEST_F(ServerTests, LeaderMaintainsLeadershipIfInNewConfigurationOnceItIsCommitt
     );
     EXPECT_TRUE(server.IsVotingMember());
 }
+
+TEST_F(ServerTests, JointConcensusIsNotAchievedSolelyFromSimpleMajority) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 1;
+    clusterConfiguration.instanceIds = {1, 2, 3, 4, 5};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {11, 12, 13};
+    const std::set< int > newConfigurationNotIncludingSelfInstanceIds = {11, 12, 13};
+    const std::set< int > jointConfigurationNotIncludingSelfInstanceIds = {2, 3, 4, 5, 11, 12, 13};
+    const std::set< int > idsOfInstancesSuccessfullyMatchingLog = {1, 2, 3, 4, 5, 11};
+    auto command = std::make_shared< Raft::JointConfigurationCommand >();
+    command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    command->newConfiguration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry entry;
+    entry.term = term;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    BecomeLeader(term);
+
+    // Act
+    for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntriesResults;
+        message.appendEntriesResults.term = term;
+        if (idsOfInstancesSuccessfullyMatchingLog.find(instanceNumber) == idsOfInstancesSuccessfullyMatchingLog.end()) {
+            message.appendEntriesResults.success = false;
+            message.appendEntriesResults.matchIndex = 0;
+        } else {
+            message.appendEntriesResults.success = true;
+            message.appendEntriesResults.matchIndex = 1;
+        }
+        server.ReceiveMessage(message.Serialize(), instanceNumber);
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+
+    // Assert
+    EXPECT_EQ(0, server.GetCommitIndex());
+}
+
+TEST_F(ServerTests, CandidateNeedsSeparateMajoritiesToWinDuringJointConcensus) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 1;
+    clusterConfiguration.instanceIds = {1, 2, 3, 4, 5};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {11, 12, 13};
+    const std::set< int > newConfigurationNotIncludingSelfInstanceIds = {11, 12, 13};
+    const std::set< int > jointConfigurationNotIncludingSelfInstanceIds = {2, 3, 4, 5, 11, 12, 13};
+    const std::set< int > idsOfInstancesSuccessfullyMatchingLog = {1, 2, 3, 4, 5, 11};
+    auto command = std::make_shared< Raft::JointConfigurationCommand >();
+    command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    command->newConfiguration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry entry;
+    entry.term = term - 1;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    BecomeCandidate(term);
+
+    // Act
+    for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
+        Raft::Message message;
+        message.type = Raft::Message::Type::RequestVoteResults;
+        message.requestVoteResults.term = term;
+        if (idsOfInstancesSuccessfullyMatchingLog.find(instanceNumber) == idsOfInstancesSuccessfullyMatchingLog.end()) {
+            message.requestVoteResults.voteGranted = false;
+        } else {
+            message.requestVoteResults.voteGranted = true;
+        }
+        server.ReceiveMessage(message.Serialize(), instanceNumber);
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+
+    // Assert
+    EXPECT_NE(
+        Raft::IServer::ElectionState::Leader,
+        server.GetElectionState()
+    );
+}

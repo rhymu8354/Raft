@@ -201,9 +201,15 @@ namespace {
 
         /**
          * During an election, this is the number of votes we have received
-         * for ourselves.
+         * for ourselves amongst the servers in the current configuration.
          */
-        size_t votesForUs = 0;
+        size_t votesForUsCurrentConfig = 0;
+
+        /**
+         * During an election, this is the number of votes we have received
+         * for ourselves amongst the servers in the next configuration.
+         */
+        size_t votesForUsNextConfig = 0;
 
         /**
          * This indicates whether or not the server is allowed to run for
@@ -542,7 +548,24 @@ namespace Raft {
             shared->persistentStateCache.votedThisTerm = true;
             shared->persistentStateCache.votedFor = shared->serverConfiguration.selfInstanceId;
             shared->persistentStateKeeper->Save(shared->persistentStateCache);
-            shared->votesForUs = 1;
+            if (
+                shared->clusterConfiguration.instanceIds.find(shared->serverConfiguration.selfInstanceId)
+                == shared->clusterConfiguration.instanceIds.end()
+            ) {
+                shared->votesForUsCurrentConfig = 0;
+            } else {
+                shared->votesForUsCurrentConfig = 1;
+            }
+            if (shared->jointConfiguration) {
+                if (
+                    shared->nextClusterConfiguration.instanceIds.find(shared->serverConfiguration.selfInstanceId)
+                    == shared->nextClusterConfiguration.instanceIds.end()
+                ) {
+                    shared->votesForUsNextConfig = 0;
+                } else {
+                    shared->votesForUsNextConfig = 1;
+                }
+            }
             for (auto& instanceEntry: shared->instances) {
                 instanceEntry.second.awaitingResponse = false;
             }
@@ -1137,21 +1160,53 @@ namespace Raft {
             }
             if (messageDetails.voteGranted) {
                 if (instance.awaitingResponse) {
-                    ++shared->votesForUs;
-                    shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        1,
-                        "Server %u voted for us in term %u (%zu/%zu)",
-                        senderInstanceNumber,
-                        shared->persistentStateCache.currentTerm,
-                        shared->votesForUs,
-                        shared->clusterConfiguration.instanceIds.size()
+                    if (
+                        shared->clusterConfiguration.instanceIds.find(senderInstanceNumber)
+                        != shared->clusterConfiguration.instanceIds.end()
+                    ) {
+                        ++shared->votesForUsCurrentConfig;
+                    }
+                    if (shared->jointConfiguration) {
+                        if (
+                            shared->nextClusterConfiguration.instanceIds.find(senderInstanceNumber)
+                            != shared->nextClusterConfiguration.instanceIds.end()
+                        ) {
+                            ++shared->votesForUsNextConfig;
+                        }
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            1,
+                            "Server %u voted for us in term %u (%zu/%zu + %zu/%zu)",
+                            senderInstanceNumber,
+                            shared->persistentStateCache.currentTerm,
+                            shared->votesForUsCurrentConfig,
+                            shared->clusterConfiguration.instanceIds.size(),
+                            shared->votesForUsNextConfig,
+                            shared->nextClusterConfiguration.instanceIds.size()
+                        );
+                    } else {
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            1,
+                            "Server %u voted for us in term %u (%zu/%zu)",
+                            senderInstanceNumber,
+                            shared->persistentStateCache.currentTerm,
+                            shared->votesForUsCurrentConfig,
+                            shared->clusterConfiguration.instanceIds.size()
+                        );
+                    }
+                    bool wonTheVote = (
+                        shared->votesForUsCurrentConfig
+                        > shared->clusterConfiguration.instanceIds.size() - shared->votesForUsCurrentConfig
                     );
+                    if (shared->jointConfiguration) {
+                        if (shared->votesForUsNextConfig
+                            <= shared->nextClusterConfiguration.instanceIds.size() - shared->votesForUsNextConfig
+                        ) {
+                            wonTheVote = false;
+                        }
+                    }
                     if (
                         (shared->electionState == IServer::ElectionState::Candidate)
-                        && (
-                            shared->votesForUs
-                            > shared->clusterConfiguration.instanceIds.size() - shared->votesForUs
-                        )
+                        && wonTheVote
                     ) {
                         AssumeLeadership();
                     }
@@ -1311,26 +1366,86 @@ namespace Raft {
                 --instance.nextIndex;
                 AttemptLogReplication(senderInstanceNumber);
             }
-            std::map< size_t, size_t > indexMatchCounts;
+            std::map< size_t, size_t > indexMatchCountsOldServers;
+            std::map< size_t, size_t > indexMatchCountsNewServers;
             for (const auto& instance: shared->instances) {
                 if (instance.first == shared->serverConfiguration.selfInstanceId) {
                     continue;
                 }
-                ++indexMatchCounts[instance.second.matchIndex];
+                if (
+                    shared->clusterConfiguration.instanceIds.find(senderInstanceNumber)
+                    != shared->clusterConfiguration.instanceIds.end()
+                ) {
+                    ++indexMatchCountsOldServers[instance.second.matchIndex];
+                }
+                if (
+                    shared->nextClusterConfiguration.instanceIds.find(senderInstanceNumber)
+                    != shared->nextClusterConfiguration.instanceIds.end()
+                ) {
+                    ++indexMatchCountsNewServers[instance.second.matchIndex];
+                }
             }
             size_t totalMatchCounts = 0;
-            for (
-                auto indexMatchCountEntry = indexMatchCounts.rbegin();
-                indexMatchCountEntry != indexMatchCounts.rend();
-                ++indexMatchCountEntry
+            if (
+                shared->clusterConfiguration.instanceIds.find(shared->serverConfiguration.selfInstanceId)
+                != shared->clusterConfiguration.instanceIds.end()
             ) {
-                totalMatchCounts += indexMatchCountEntry->second;
+                ++totalMatchCounts;
+            }
+            for (
+                auto indexMatchCountsOldServersEntry = indexMatchCountsOldServers.rbegin();
+                indexMatchCountsOldServersEntry != indexMatchCountsOldServers.rend();
+                ++indexMatchCountsOldServersEntry
+            ) {
+                totalMatchCounts += indexMatchCountsOldServersEntry->second;
                 if (
-                    (indexMatchCountEntry->first > shared->commitIndex)
-                    && (totalMatchCounts + 1 > shared->instances.size() - totalMatchCounts - 1)
-                    && (shared->logKeeper->operator[](indexMatchCountEntry->first).term == shared->persistentStateCache.currentTerm)
+                    (indexMatchCountsOldServersEntry->first > shared->commitIndex)
+                    && (
+                        totalMatchCounts
+                        > shared->clusterConfiguration.instanceIds.size() - totalMatchCounts
+                    )
+                    && (
+                        shared->logKeeper->operator[](indexMatchCountsOldServersEntry->first).term
+                        == shared->persistentStateCache.currentTerm
+                    )
                 ) {
-                    AdvanceCommitIndex(indexMatchCountEntry->first);
+                    if (shared->jointConfiguration) {
+                        totalMatchCounts = 0;
+                        if (
+                            shared->nextClusterConfiguration.instanceIds.find(shared->serverConfiguration.selfInstanceId)
+                            != shared->nextClusterConfiguration.instanceIds.end()
+                        ) {
+                            ++totalMatchCounts;
+                        }
+                        for (
+                            auto indexMatchCountsNewServersEntry = indexMatchCountsNewServers.rbegin();
+                            indexMatchCountsNewServersEntry != indexMatchCountsNewServers.rend();
+                            ++indexMatchCountsNewServersEntry
+                        ) {
+                            totalMatchCounts += indexMatchCountsNewServersEntry->second;
+                            if (
+                                (indexMatchCountsNewServersEntry->first > shared->commitIndex)
+                                && (
+                                    totalMatchCounts
+                                    > shared->nextClusterConfiguration.instanceIds.size() - totalMatchCounts
+                                )
+                                && (
+                                    shared->logKeeper->operator[](indexMatchCountsNewServersEntry->first).term
+                                    == shared->persistentStateCache.currentTerm
+                                )
+                            ) {
+                                AdvanceCommitIndex(
+                                    std::min(
+                                        indexMatchCountsOldServersEntry->first,
+                                        indexMatchCountsNewServersEntry->first
+                                    )
+                                );
+                                break;
+                            }
+                        }
+                    } else {
+                        AdvanceCommitIndex(indexMatchCountsOldServersEntry->first);
+                    }
                     break;
                 }
             }
@@ -1548,7 +1663,7 @@ namespace Raft {
         impl_->shared->instances.clear();
         impl_->shared->electionState = IServer::ElectionState::Follower;
         impl_->shared->timeOfLastLeaderMessage = 0.0;
-        impl_->shared->votesForUs = 0;
+        impl_->shared->votesForUsCurrentConfig = 0;
         impl_->ApplyConfiguration(clusterConfiguration);
         impl_->SetLastIndex(logKeeper->GetSize());
         impl_->stopWorker = std::promise< void >();
