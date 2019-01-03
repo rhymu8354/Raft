@@ -80,8 +80,12 @@ namespace Raft {
         });
     }
 
-    LogEntry::LogEntry(const std::string& serialization) {
-        const auto json = Json::Value::FromEncoding(serialization);
+    LogEntry::LogEntry(const std::string& serialization)
+        : LogEntry(Json::Value::FromEncoding(serialization))
+    {
+    }
+
+    LogEntry::LogEntry(const Json::Value& json) {
         term = json["term"];
         const std::string typeAsString = json["type"];
         if (typeAsString == "SingleConfiguration") {
@@ -97,12 +101,19 @@ namespace Raft {
         }
     }
 
-    std::string LogEntry::Serialize() const {
-        auto json = Json::Object({});
-        json["type"] = command->GetType();
-        json["term"] = term;
-        json["command"] = command->Encode();
+    LogEntry::operator std::string() const {
+        Json::Value json = *this;
         return json.ToEncoding();
+    }
+
+    LogEntry::operator Json::Value() const {
+        auto json = Json::Object({});
+        json["term"] = term;
+        if (command != nullptr) {
+            json["type"] = command->GetType();
+            json["command"] = command->Encode();
+        }
+        return json;
     }
 
 }
