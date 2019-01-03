@@ -33,9 +33,7 @@ namespace Raft {
             appendEntries.prevLogTerm = json["prevLogTerm"];
             const auto& serializedLogEntries = json["log"];
             for (size_t i = 0; i < serializedLogEntries.GetSize(); ++i) {
-                LogEntry logEntry;
-                logEntry.term = serializedLogEntries[i]["term"];
-                log.push_back(std::move(logEntry));
+                log.push_back(serializedLogEntries[i]);
             }
         } else if (typeAsString == "AppendEntriesResults") {
             type = Message::Type::AppendEntriesResults;
@@ -71,10 +69,7 @@ namespace Raft {
                 json["log"] = Json::Array({});
                 auto& serializedLog = json["log"];
                 for (const auto& logEntry: log) {
-                    auto serializedLogEntry = Json::Object({
-                        {"term", logEntry.term},
-                    });
-                    serializedLog.Add(std::move(serializedLogEntry));
+                    serializedLog.Add(logEntry);
                 }
             } break;
 

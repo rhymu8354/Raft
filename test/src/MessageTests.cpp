@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 #include <Json/Value.hpp>
+#include <Raft/LogEntry.hpp>
 
 TEST(MessageTests, SerializeRequestVote) {
     // Arrange
@@ -148,6 +149,10 @@ TEST(MessageTests, SerializeAppendEntriesWithContent) {
     message.log.push_back(std::move(firstEntry));
     Raft::LogEntry secondEntry;
     secondEntry.term = 8;
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->oldConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    command->configuration.instanceIds = {2, 5, 6, 7, 12};
+    secondEntry.command = std::move(command);
     message.log.push_back(std::move(secondEntry));
 
     // Act
@@ -164,6 +169,15 @@ TEST(MessageTests, SerializeAppendEntriesWithContent) {
                 }),
                 Json::Object({
                     {"term", 8},
+                    {"type", "SingleConfiguration"},
+                    {"command", Json::Object({
+                        {"oldConfiguration", Json::Object({
+                            {"instanceIds", Json::Array({2, 5, 6, 7, 11})},
+                        })},
+                        {"configuration", Json::Object({
+                            {"instanceIds", Json::Array({2, 5, 6, 7, 12})},
+                        })},
+                    })},
                 }),
             })},
         }),
@@ -185,6 +199,15 @@ TEST(MessageTests, DeserializeAppendEntriesWithContent) {
             }),
             Json::Object({
                 {"term", 8},
+                {"type", "SingleConfiguration"},
+                {"command", Json::Object({
+                    {"oldConfiguration", Json::Object({
+                        {"instanceIds", Json::Array({2, 5, 6, 7, 11})},
+                    })},
+                    {"configuration", Json::Object({
+                        {"instanceIds", Json::Array({2, 5, 6, 7, 12})},
+                    })},
+                })},
             }),
         })},
     }).ToEncoding();
@@ -200,7 +223,19 @@ TEST(MessageTests, DeserializeAppendEntriesWithContent) {
     EXPECT_EQ(6, message.appendEntries.prevLogTerm);
     ASSERT_EQ(2, message.log.size());
     EXPECT_EQ(7, message.log[0].term);
+    EXPECT_TRUE(message.log[0].command == nullptr);
     EXPECT_EQ(8, message.log[1].term);
+    ASSERT_FALSE(message.log[1].command == nullptr);
+    ASSERT_EQ("SingleConfiguration", message.log[1].command->GetType());
+    const auto singleConfigurationCommand = std::static_pointer_cast< Raft::SingleConfigurationCommand >(message.log[1].command);
+    EXPECT_EQ(
+        std::set< int >({2, 5, 6, 7, 11}),
+        singleConfigurationCommand->oldConfiguration.instanceIds
+    );
+    EXPECT_EQ(
+        std::set< int >({2, 5, 6, 7, 12}),
+        singleConfigurationCommand->configuration.instanceIds
+    );
 }
 
 TEST(MessageTests, SerializeUnknown) {
