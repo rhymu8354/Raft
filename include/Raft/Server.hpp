@@ -160,6 +160,16 @@ namespace Raft {
         bool IsVotingMember() const;
 
         /**
+         * Return an indication of whether or not this server is currently
+         * using a joint configuration set.
+         *
+         * @return
+         *     An indication of whether or not this server is currently
+         *     using a joint configuration set is returned.
+         */
+        bool HasJointConfiguration() const;
+
+        /**
          * This method puts the server back into the state it was in when
          * first mobilized.
          */
@@ -182,6 +192,7 @@ namespace Raft {
         ) override;
         virtual ElectionState GetElectionState() override;
         virtual void AppendLogEntries(const std::vector< LogEntry >& entries) override;
+        virtual void ChangeConfiguration(const ClusterConfiguration& newConfiguration) override;
 
         // Private properties
     private:

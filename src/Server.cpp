@@ -13,6 +13,7 @@
 #include <map>
 #include <mutex>
 #include <queue>
+#include <Raft/LogEntry.hpp>
 #include <Raft/ILog.hpp>
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
@@ -125,7 +126,21 @@ namespace {
          * This indicates whether or not the cluster is transitioning from the
          * current configuration to the next configuration.
          */
-        bool jointConfiguration = false;
+        std::unique_ptr< Raft::ClusterConfiguration > jointConfiguration;
+
+        /**
+         * This indicates whether or not a cluster configuration change is
+         * about to happen, once all new servers have "caught up" with the rest
+         * of the cluster.
+         */
+        bool configChangePending = false;
+
+        /**
+         * If the server is waiting for all new servers to have "caught up"
+         * with the rest of the cluster, this is the minimum matchIndex
+         * required to consider a server to have "caught up".
+         */
+        size_t catchUpIndex = 0;
 
         /**
          * This holds all configuration items for the server instance.
@@ -378,6 +393,46 @@ namespace Raft {
         // Methods
 
         /**
+         * Return the set of identifiers for the instances currently involved
+         * with the cluster.
+         *
+         * @return
+         *     The set of identifiers for the instances currently involved
+         *     with the cluster is returned.
+         */
+        const std::set< int >& GetInstanceIds() const {
+            if (shared->jointConfiguration == nullptr) {
+                return shared->clusterConfiguration.instanceIds;
+            } else {
+                return shared->jointConfiguration->instanceIds;
+            }
+        }
+
+        /**
+         * Return an indication of whether or not all new servers have "caught
+         * up" with the rest of the cluster.
+         *
+         * @return
+         *     An indication of whether or not all new servers have "caught
+         *     up" with the rest of the cluster is returned.
+         */
+        bool HaveNewServersCaughtUp() const {
+            for (auto instanceId: shared->nextClusterConfiguration.instanceIds) {
+                if (
+                    shared->clusterConfiguration.instanceIds.find(instanceId)
+                    != shared->clusterConfiguration.instanceIds.end()
+                ) {
+                    continue;
+                }
+                const auto& instance = shared->instances[instanceId];
+                if (instance.matchIndex < shared->catchUpIndex) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /**
          * This method is called whenever a message is received from the
          * cluster leader, or when the server starts an election, or starts up
          * initially.  It samples the current time from the time keeper and
@@ -516,7 +571,7 @@ namespace Raft {
             } else {
                 message.requestVote.lastLogTerm = 0;
             }
-            for (auto instanceNumber: shared->clusterConfiguration.instanceIds) {
+            for (auto instanceNumber: GetInstanceIds()) {
                 if (instanceNumber == shared->serverConfiguration.selfInstanceId) {
                     continue;
                 }
@@ -548,6 +603,9 @@ namespace Raft {
          *     to replicate log entries.
          */
         void AttemptLogReplication(int instanceId) {
+            if (shared->clusterConfiguration.instanceIds.find(instanceId) == shared->clusterConfiguration.instanceIds.end()) {
+                return;
+            }
             auto& instance = shared->instances[instanceId];
             Message message;
             message.type = Message::Type::AppendEntries;
@@ -599,7 +657,7 @@ namespace Raft {
                 "Sending heartbeat (term %u)",
                 shared->persistentStateCache.currentTerm
             );
-            for (auto instanceNumber: shared->clusterConfiguration.instanceIds) {
+            for (auto instanceNumber: GetInstanceIds()) {
                 auto& instance = shared->instances[instanceNumber];
                 if (
                     (instanceNumber == shared->serverConfiguration.selfInstanceId)
@@ -644,7 +702,7 @@ namespace Raft {
                 message.appendEntries.prevLogIndex + 1,
                 shared->persistentStateCache.currentTerm
             );
-            for (auto instanceNumber: shared->clusterConfiguration.instanceIds) {
+            for (auto instanceNumber: GetInstanceIds()) {
                 auto& instance = shared->instances[instanceNumber];
                 if (
                     (instanceNumber == shared->serverConfiguration.selfInstanceId)
@@ -780,7 +838,7 @@ namespace Raft {
          */
         void ApplyConfiguration(const ClusterConfiguration& clusterConfiguration) {
             shared->clusterConfiguration = clusterConfiguration;
-            shared->jointConfiguration = false;
+            shared->jointConfiguration.reset();
             OnSetClusterConfiguration();
         }
 
@@ -799,7 +857,10 @@ namespace Raft {
         ) {
             shared->clusterConfiguration = clusterConfiguration;
             shared->nextClusterConfiguration = nextClusterConfiguration;
-            shared->jointConfiguration = true;
+            shared->jointConfiguration.reset(new ClusterConfiguration(clusterConfiguration));
+            for (auto instanceId: nextClusterConfiguration.instanceIds) {
+                (void)shared->jointConfiguration->instanceIds.insert(instanceId);
+            }
             OnSetClusterConfiguration();
         }
 
@@ -878,7 +939,54 @@ namespace Raft {
                     ) {
                         RevertToFollower();
                     }
+                } else if (commandType == "JointConfiguration") {
+                    if (shared->electionState == ElectionState::Leader) {
+                        const auto command = std::make_shared< SingleConfigurationCommand >();
+                        command->oldConfiguration = shared->clusterConfiguration;
+                        command->configuration = shared->nextClusterConfiguration;
+                        LogEntry entry;
+                        entry.term = shared->persistentStateCache.currentTerm;
+                        entry.command = std::move(command);
+                        AppendLogEntries({std::move(entry)});
+                    }
                 }
+            }
+        }
+
+        /**
+         * Add the given entries to the server log.  Send out AppendEntries
+         * messages to the rest of the server cluster in order to replicate the
+         * log entries.
+         *
+         * @param[in] entries
+         *     These are the log entries to be added and replicated on all
+         *     servers in the cluster.
+         */
+        void AppendLogEntries(const std::vector< LogEntry >& entries) {
+            shared->logKeeper->Append(entries);
+            const auto now = timeKeeper->GetCurrentTime();
+            SetLastIndex(shared->lastIndex + entries.size());
+            QueueAppendEntriesToBeSent(now, entries);
+        }
+
+        /**
+         * If all new servers are caught up now, append a JointConfiguration
+         * command to the log in order to start the configuration change
+         * process.
+         */
+        void StartConfigChangeIfNewServersHaveCaughtUp() {
+            if (
+                shared->configChangePending
+                && HaveNewServersCaughtUp()
+            ) {
+                shared->configChangePending = false;
+                const auto command = std::make_shared< JointConfigurationCommand >();
+                command->oldConfiguration = shared->clusterConfiguration;
+                command->newConfiguration = shared->nextClusterConfiguration;
+                LogEntry entry;
+                entry.term = shared->persistentStateCache.currentTerm;
+                entry.command = std::move(command);
+                AppendLogEntries({std::move(entry)});
             }
         }
 
@@ -892,7 +1000,9 @@ namespace Raft {
                     shared->serverConfiguration.selfInstanceId
                 ) == shared->clusterConfiguration.instanceIds.end()
             ) {
-                if (shared->jointConfiguration) {
+                if (shared->jointConfiguration == nullptr) {
+                    shared->isVotingMember = false;
+                } else {
                     if (
                         shared->nextClusterConfiguration.instanceIds.find(
                             shared->serverConfiguration.selfInstanceId
@@ -902,11 +1012,12 @@ namespace Raft {
                     } else {
                         shared->isVotingMember = true;
                     }
-                } else {
-                    shared->isVotingMember = false;
                 }
             } else {
                 shared->isVotingMember = true;
+            }
+            if (shared->electionState == ElectionState::Leader) {
+                StartConfigChangeIfNewServersHaveCaughtUp();
             }
         }
 
@@ -1223,6 +1334,7 @@ namespace Raft {
                     break;
                 }
             }
+            StartConfigChangeIfNewServersHaveCaughtUp();
         }
 
         /**
@@ -1404,6 +1516,11 @@ namespace Raft {
         return impl_->shared->isVotingMember;
     }
 
+    bool Server::HasJointConfiguration() const {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        return (impl_->shared->jointConfiguration != nullptr);
+    }
+
     void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->sendMessageDelegate = sendMessageDelegate;
@@ -1496,10 +1613,20 @@ namespace Raft {
         if (impl_->shared->electionState != ElectionState::Leader) {
             return;
         }
-        impl_->shared->logKeeper->Append(entries);
-        const auto now = impl_->timeKeeper->GetCurrentTime();
-        impl_->SetLastIndex(impl_->shared->lastIndex + entries.size());
-        impl_->QueueAppendEntriesToBeSent(now, entries);
+        impl_->AppendLogEntries(entries);
+    }
+
+    void Server::ChangeConfiguration(const ClusterConfiguration& newConfiguration) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        if (impl_->shared->electionState != ElectionState::Leader) {
+            return;
+        }
+        impl_->shared->configChangePending = true;
+        impl_->shared->catchUpIndex = impl_->shared->commitIndex;
+        impl_->ApplyConfiguration(
+            impl_->shared->clusterConfiguration,
+            newConfiguration
+        );
     }
 
 }

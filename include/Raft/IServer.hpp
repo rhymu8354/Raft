@@ -221,6 +221,19 @@ namespace Raft {
          *     servers in the cluster.
          */
         virtual void AppendLogEntries(const std::vector< LogEntry >& entries) = 0;
+
+        /**
+         * Begin the process of reconfiguring the server cluster.  The server
+         * is expected to start sending log entries to the union of servers in
+         * both the current and new configurations.  Once all "new servers"
+         * have "caught up", the server will go through the joint configuration
+         * process to transition to the new configuration.
+         *
+         * @param[in] newConfiguration
+         *     This represents the cluster shape to which we want to
+         *     transition.
+         */
+        virtual void ChangeConfiguration(const ClusterConfiguration& newConfiguration) = 0;
     };
 
     /**

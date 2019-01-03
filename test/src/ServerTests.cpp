@@ -2958,3 +2958,326 @@ TEST_F(ServerTests, FollowerRevertConfigWhenRollingBackBeforeConfigChange) {
     // Assert
     EXPECT_TRUE(server.IsVotingMember());
 }
+
+TEST_F(ServerTests, StartConfigurationProcessWhenLeader) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {2, 5, 6, 7, 12};
+    BecomeLeader(term);
+
+    // Act
+    server.ChangeConfiguration(newConfiguration);
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_TRUE(server.HasJointConfiguration());
+    std::map< int, bool > appendEntriesReceivedPerInstance;
+    for (auto instanceNumber: clusterConfiguration.instanceIds) {
+        appendEntriesReceivedPerInstance[instanceNumber] = false;
+    }
+    for (auto instanceNumber: newConfiguration.instanceIds) {
+        appendEntriesReceivedPerInstance[instanceNumber] = false;
+    }
+    (void)appendEntriesReceivedPerInstance.erase(serverConfiguration.selfInstanceId);
+    for (const auto& messageSent: messagesSent) {
+        if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+            auto appendEntriesReceivedPerInstanceEntry = appendEntriesReceivedPerInstance.find(messageSent.receiverInstanceNumber);
+            EXPECT_FALSE(appendEntriesReceivedPerInstanceEntry == appendEntriesReceivedPerInstance.end());
+            appendEntriesReceivedPerInstanceEntry->second = true;
+        }
+    }
+    for (const auto& appendEntriesReceivedPerInstanceEntry: appendEntriesReceivedPerInstance) {
+        EXPECT_TRUE(appendEntriesReceivedPerInstanceEntry.second)
+            << "instance: " << appendEntriesReceivedPerInstanceEntry.first;
+    }
+}
+
+TEST_F(ServerTests, StartConfigurationProcessWhenNotLeader) {
+    // Arrange
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {2, 5, 6, 7, 12};
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    server.ChangeConfiguration(newConfiguration);
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_FALSE(server.HasJointConfiguration());
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
+    EXPECT_TRUE(messagesSent.empty());
+}
+
+TEST_F(ServerTests, DoNotApplyJointConfigurationIfNewServersAreNotYetCaughtUp) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {2, 5, 6, 7, 12};
+    const std::set< int > jointConfigurationNotIncludingSelfInstanceIds = {5, 6, 7, 11, 12};
+    BecomeLeader(term);
+    Raft::LogEntry entry;
+    entry.term = term;
+    server.AppendLogEntries({entry});
+    server.WaitForAtLeastOneWorkerLoop();
+    for (auto instanceNumber: clusterConfiguration.instanceIds) {
+        if (instanceNumber == serverConfiguration.selfInstanceId) {
+            continue;
+        }
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntriesResults;
+        message.appendEntriesResults.term = term;
+        message.appendEntriesResults.success = true;
+        message.appendEntriesResults.matchIndex = 1;
+        server.ReceiveMessage(message.Serialize(), instanceNumber);
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+
+    // Act
+    server.ChangeConfiguration(newConfiguration);
+    messagesSent.clear();
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_TRUE(server.HasJointConfiguration());
+    std::map< int, bool > appendEntriesReceivedPerInstance;
+    for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
+        appendEntriesReceivedPerInstance[instanceNumber] = false;
+    }
+    for (const auto& messageSent: messagesSent) {
+        if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+            auto appendEntriesReceivedPerInstanceEntry = appendEntriesReceivedPerInstance.find(messageSent.receiverInstanceNumber);
+            EXPECT_FALSE(appendEntriesReceivedPerInstanceEntry == appendEntriesReceivedPerInstance.end());
+            appendEntriesReceivedPerInstanceEntry->second = true;
+            EXPECT_EQ(1, messageSent.message.appendEntries.prevLogIndex);
+            EXPECT_EQ(term, messageSent.message.appendEntries.prevLogTerm);
+            EXPECT_TRUE(messageSent.message.log.empty());
+        }
+    }
+    for (const auto& appendEntriesReceivedPerInstanceEntry: appendEntriesReceivedPerInstance) {
+        EXPECT_TRUE(appendEntriesReceivedPerInstanceEntry.second)
+            << "instance: " << appendEntriesReceivedPerInstanceEntry.first;
+    }
+}
+
+TEST_F(ServerTests, ApplyJointConfigurationOnceNewServersCaughtUp) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {2, 5, 6, 7, 12};
+    const std::set< int > jointConfigurationNotIncludingSelfInstanceIds = {5, 6, 7, 11, 12};
+    BecomeLeader(term);
+    Raft::LogEntry entry;
+    entry.term = term;
+    server.AppendLogEntries({entry});
+    server.WaitForAtLeastOneWorkerLoop();
+    for (auto instanceNumber: clusterConfiguration.instanceIds) {
+        if (instanceNumber == serverConfiguration.selfInstanceId) {
+            continue;
+        }
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntriesResults;
+        message.appendEntriesResults.term = term;
+        message.appendEntriesResults.success = true;
+        message.appendEntriesResults.matchIndex = 1;
+        server.ReceiveMessage(message.Serialize(), instanceNumber);
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+
+    // Act
+    server.ChangeConfiguration(newConfiguration);
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+    for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntriesResults;
+        message.appendEntriesResults.term = term;
+        message.appendEntriesResults.success = true;
+        message.appendEntriesResults.matchIndex = 1;
+        server.ReceiveMessage(message.Serialize(), instanceNumber);
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+    messagesSent.clear();
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_TRUE(server.HasJointConfiguration());
+    std::map< int, bool > appendEntriesReceivedPerInstance;
+    for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
+        appendEntriesReceivedPerInstance[instanceNumber] = false;
+    }
+    for (const auto& messageSent: messagesSent) {
+        if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+            auto appendEntriesReceivedPerInstanceEntry = appendEntriesReceivedPerInstance.find(messageSent.receiverInstanceNumber);
+            EXPECT_FALSE(appendEntriesReceivedPerInstanceEntry == appendEntriesReceivedPerInstance.end());
+            appendEntriesReceivedPerInstanceEntry->second = true;
+            EXPECT_EQ(1, messageSent.message.appendEntries.prevLogIndex);
+            EXPECT_EQ(term, messageSent.message.appendEntries.prevLogTerm);
+            EXPECT_EQ(1, messageSent.message.log.size());
+        }
+    }
+    for (const auto& appendEntriesReceivedPerInstanceEntry: appendEntriesReceivedPerInstance) {
+        EXPECT_TRUE(appendEntriesReceivedPerInstanceEntry.second)
+            << "instance: " << appendEntriesReceivedPerInstanceEntry.first;
+    }
+}
+
+TEST_F(ServerTests, ApplyNewConfigurationOnceJointConfigurationCommitted) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {2, 5, 6, 7, 12};
+    const std::set< int > newConfigurationNotIncludingSelfInstanceIds = {5, 6, 7, 12};
+    const std::set< int > jointConfigurationNotIncludingSelfInstanceIds = {5, 6, 7, 11, 12};
+    auto command = std::make_shared< Raft::JointConfigurationCommand >();
+    command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    command->newConfiguration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry entry;
+    entry.term = term;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    BecomeLeader(term);
+
+    // Act
+    for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
+        if (instanceNumber == serverConfiguration.selfInstanceId) {
+            continue;
+        }
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntriesResults;
+        message.appendEntriesResults.term = term;
+        message.appendEntriesResults.success = true;
+        message.appendEntriesResults.matchIndex = 1;
+        server.ReceiveMessage(message.Serialize(), instanceNumber);
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+    messagesSent.clear();
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_FALSE(server.HasJointConfiguration());
+    std::map< int, bool > appendEntriesReceivedPerInstance;
+    for (auto instanceNumber: newConfigurationNotIncludingSelfInstanceIds) {
+        appendEntriesReceivedPerInstance[instanceNumber] = false;
+    }
+    for (const auto& messageSent: messagesSent) {
+        if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+            auto appendEntriesReceivedPerInstanceEntry = appendEntriesReceivedPerInstance.find(messageSent.receiverInstanceNumber);
+            ASSERT_FALSE(appendEntriesReceivedPerInstanceEntry == appendEntriesReceivedPerInstance.end());
+            appendEntriesReceivedPerInstanceEntry->second = true;
+            EXPECT_EQ(1, messageSent.message.appendEntries.prevLogIndex);
+            EXPECT_EQ(term, messageSent.message.appendEntries.prevLogTerm);
+            ASSERT_EQ(1, messageSent.message.log.size());
+            ASSERT_FALSE(messageSent.message.log[0].command == nullptr);
+            const auto& command = messageSent.message.log[0].command;
+            EXPECT_EQ("SingleConfiguration", command->GetType());
+            const auto singleConfigurationCommand = std::static_pointer_cast< Raft::SingleConfigurationCommand >(command);
+            EXPECT_EQ(
+                newConfiguration.instanceIds,
+                singleConfigurationCommand->configuration.instanceIds
+            );
+            EXPECT_EQ(
+                clusterConfiguration.instanceIds,
+                singleConfigurationCommand->oldConfiguration.instanceIds
+            );
+        }
+    }
+    for (const auto& appendEntriesReceivedPerInstanceEntry: appendEntriesReceivedPerInstance) {
+        EXPECT_TRUE(appendEntriesReceivedPerInstanceEntry.second)
+            << "instance: " << appendEntriesReceivedPerInstanceEntry.first;
+    }
+}
+
+TEST_F(ServerTests, LeaderStepsDownIfNotInNewConfigurationOnceItIsCommitted) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {5, 6, 7, 12};
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    command->configuration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry entry;
+    entry.term = term;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    BecomeLeader(term);
+
+    // Act
+    for (auto instanceNumber: newConfiguration.instanceIds) {
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntriesResults;
+        message.appendEntriesResults.term = term;
+        message.appendEntriesResults.success = true;
+        message.appendEntriesResults.matchIndex = 1;
+        server.ReceiveMessage(message.Serialize(), instanceNumber);
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+    messagesSent.clear();
+
+    // Assert
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
+    EXPECT_FALSE(server.IsVotingMember());
+}
+
+TEST_F(ServerTests, LeaderMaintainsLeadershipIfInNewConfigurationOnceItIsCommitted) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {2, 5, 6, 7, 12};
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    command->configuration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry entry;
+    entry.term = term;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    BecomeLeader(term);
+
+    // Act
+    for (auto instanceNumber: newConfiguration.instanceIds) {
+        if (instanceNumber == serverConfiguration.selfInstanceId) {
+            continue;
+        }
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntriesResults;
+        message.appendEntriesResults.term = term;
+        message.appendEntriesResults.success = true;
+        message.appendEntriesResults.matchIndex = 1;
+        server.ReceiveMessage(message.Serialize(), instanceNumber);
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+    messagesSent.clear();
+
+    // Assert
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Leader,
+        server.GetElectionState()
+    );
+    EXPECT_TRUE(server.IsVotingMember());
+}
