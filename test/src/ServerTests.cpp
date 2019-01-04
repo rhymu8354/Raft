@@ -269,7 +269,10 @@ struct ServerTests
         server.WaitForAtLeastOneWorkerLoop();
     }
 
-    void BecomeLeader(int term = 1) {
+    void BecomeLeader(
+        int term = 1,
+        bool acknowledgeInitialHeartbeats = true
+    ) {
         mockPersistentState->variables.currentTerm = term - 1;
         MobilizeServer();
         WaitForElectionTimeout();
@@ -283,7 +286,19 @@ struct ServerTests
             }
         }
         server.WaitForAtLeastOneWorkerLoop();
-        messagesSent.clear();
+        if (acknowledgeInitialHeartbeats) {
+            for (auto instance: clusterConfiguration.instanceIds) {
+                if (instance != serverConfiguration.selfInstanceId) {
+                    Raft::Message message;
+                    message.type = Raft::Message::Type::AppendEntriesResults;
+                    message.appendEntriesResults.term = term;
+                    message.appendEntriesResults.success = true;
+                    message.appendEntriesResults.matchIndex = mockLog->entries.size();
+                    server.ReceiveMessage(message.Serialize(), instance);
+                }
+            }
+            messagesSent.clear();
+        }
     }
 
     void BecomeCandidate(int term = 1) {
@@ -652,10 +667,10 @@ TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
                 message.type = Raft::Message::Type::RequestVoteResults;
                 if (instance == 11) {
                     message.requestVoteResults.term = 1;
-                    message.requestVoteResults.voteGranted = false;
+                    message.requestVoteResults.voteGranted = true;
                 } else {
                     message.requestVoteResults.term = 1;
-                    message.requestVoteResults.voteGranted = true;
+                    message.requestVoteResults.voteGranted = false;
                 }
                 server.ReceiveMessage(message.Serialize(), instance);
             }
@@ -732,10 +747,10 @@ TEST_F(ServerTests, ServerRegularRetransmissions) {
                 message.type = Raft::Message::Type::RequestVoteResults;
                 if (instance == 11) {
                     message.requestVoteResults.term = 1;
-                    message.requestVoteResults.voteGranted = false;
+                    message.requestVoteResults.voteGranted = true;
                 } else {
                     message.requestVoteResults.term = 1;
-                    message.requestVoteResults.voteGranted = true;
+                    message.requestVoteResults.voteGranted = false;
                 }
                 server.ReceiveMessage(message.Serialize(), instance);
             }
@@ -764,7 +779,7 @@ TEST_F(ServerTests, ServerRegularRetransmissions) {
     // Assert
     for (const auto& messageSent: messagesSent) {
         EXPECT_EQ(2, messageSent.receiverInstanceNumber);
-        EXPECT_EQ(
+        ASSERT_EQ(
             Raft::Message::Type::RequestVote,
             messageSent.message.type
         );
@@ -3795,4 +3810,29 @@ TEST_F(ServerTests, VotesShouldBeRequestedForNewServersWhenStartingElectionDurin
         }
     }
     EXPECT_TRUE(voteRequestedFromNewServer);
+}
+
+TEST_F(ServerTests, NewLeaderShouldSentHeartBeatsImmediately) {
+    // Arrange
+
+    // Act
+    BecomeLeader(1, false);
+
+    // Assert
+    std::map< int, bool > heartbeatReceivedPerInstance;
+    for (auto instanceNumber: clusterConfiguration.instanceIds) {
+        heartbeatReceivedPerInstance[instanceNumber] = false;
+    }
+    for (const auto& messageSent: messagesSent) {
+        if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+            heartbeatReceivedPerInstance[messageSent.receiverInstanceNumber] = true;
+        }
+    }
+    for (auto instanceNumber: clusterConfiguration.instanceIds) {
+        if (instanceNumber == serverConfiguration.selfInstanceId) {
+            EXPECT_FALSE(heartbeatReceivedPerInstance[instanceNumber]);
+        } else {
+            EXPECT_TRUE(heartbeatReceivedPerInstance[instanceNumber]);
+        }
+    }
 }

@@ -194,6 +194,12 @@ namespace {
         Raft::IServer::ElectionState electionState = Raft::IServer::ElectionState::Follower;
 
         /**
+         * This indicates whether or not the server has sent out at least
+         * one set of heartbeats since it last assumed leadership.
+         */
+        bool sentHeartBeats = false;
+
+        /**
          * This indicates whether or not the leader of the current term is
          * known.
          */
@@ -698,6 +704,7 @@ namespace Raft {
                 QueueMessageToBeSent(message, instanceNumber, now);
             }
             shared->timeOfLastLeaderMessage = now;
+            shared->sentHeartBeats = true;
         }
 
         /**
@@ -847,6 +854,7 @@ namespace Raft {
          */
         void AssumeLeadership() {
             shared->electionState = IServer::ElectionState::Leader;
+            shared->sentHeartBeats = false;
             shared->diagnosticsSender.SendDiagnosticInformationString(
                 3,
                 "Received majority vote -- assuming leadership"
@@ -1559,8 +1567,11 @@ namespace Raft {
             );
             if (shared->electionState == IServer::ElectionState::Leader) {
                 if (
-                    timeSinceLastLeaderMessage
-                    >= shared->serverConfiguration.minimumElectionTimeout / 2
+                    !shared->sentHeartBeats
+                    || (
+                        timeSinceLastLeaderMessage
+                        >= shared->serverConfiguration.minimumElectionTimeout / 2
+                    )
                 ) {
                     QueueHeartBeatsToBeSent(now);
                 }
@@ -1660,6 +1671,10 @@ namespace Raft {
     void Server::SetCommitIndex(size_t commitIndex) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->shared->commitIndex = commitIndex;
+        for (auto& instanceEntry: impl_->shared->instances) {
+            instanceEntry.second.matchIndex = commitIndex;
+            instanceEntry.second.nextIndex = commitIndex + 1;
+        }
     }
 
     size_t Server::GetLastIndex() const {
