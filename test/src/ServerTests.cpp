@@ -143,6 +143,7 @@ namespace {
 
         Raft::IPersistentState::Variables variables;
         std::vector< std::function< void() > > destructionDelegates;
+        size_t saveCount = 0;
 
         // Lifecycle
 
@@ -172,6 +173,7 @@ namespace {
 
         virtual void Save(const Variables& newVariables) override {
             variables = newVariables;
+            ++saveCount;
         }
     };
 
@@ -3571,4 +3573,24 @@ TEST_F(ServerTests, StaleAppendEntriesDeservesAFailureResponse) {
         messagesSent[0].message.appendEntriesResults.term
     );
     EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
+}
+
+TEST_F(ServerTests, ReceivingHeartBeatsDoesNotCausePersistentStateSaves) {
+    // Arrange
+    MobilizeServer();
+    const auto numSavesAtStart = mockPersistentState->saveCount;
+
+    // Act
+    while (mockTimeKeeper->currentTime <= serverConfiguration.maximumElectionTimeout * 2) {
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntries;
+        message.appendEntries.term = 2;
+        message.appendEntries.leaderCommit = 0;
+        server.ReceiveMessage(message.Serialize(), 2);
+        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2;
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+
+    // Assert
+    EXPECT_EQ(numSavesAtStart + 1, mockPersistentState->saveCount);
 }
