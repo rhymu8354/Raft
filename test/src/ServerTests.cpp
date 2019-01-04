@@ -3586,6 +3586,8 @@ TEST_F(ServerTests, ReceivingHeartBeatsDoesNotCausePersistentStateSaves) {
         message.type = Raft::Message::Type::AppendEntries;
         message.appendEntries.term = 2;
         message.appendEntries.leaderCommit = 0;
+        message.appendEntries.prevLogIndex = 0;
+        message.appendEntries.prevLogTerm = 0;
         server.ReceiveMessage(message.Serialize(), 2);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2;
         server.WaitForAtLeastOneWorkerLoop();
