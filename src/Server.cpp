@@ -855,9 +855,10 @@ namespace Raft {
                 shared->serverConfiguration.selfInstanceId,
                 shared->persistentStateCache.currentTerm
             );
-            for (auto& instanceEntry: shared->instances) {
-                instanceEntry.second.nextIndex = shared->lastIndex + 1;
-                instanceEntry.second.matchIndex = 0;
+            for (auto instanceId: GetInstanceIds()) {
+                auto& instance = shared->instances[instanceId];
+                instance.nextIndex = shared->lastIndex + 1;
+                instance.matchIndex = 0;
             }
         }
 
@@ -1409,21 +1410,22 @@ namespace Raft {
             }
             std::map< size_t, size_t > indexMatchCountsOldServers;
             std::map< size_t, size_t > indexMatchCountsNewServers;
-            for (const auto& instance: shared->instances) {
-                if (instance.first == shared->serverConfiguration.selfInstanceId) {
+            for (auto instanceId: GetInstanceIds()) {
+                auto& instance = shared->instances[instanceId];
+                if (instanceId == shared->serverConfiguration.selfInstanceId) {
                     continue;
                 }
                 if (
                     shared->clusterConfiguration.instanceIds.find(senderInstanceNumber)
                     != shared->clusterConfiguration.instanceIds.end()
                 ) {
-                    ++indexMatchCountsOldServers[instance.second.matchIndex];
+                    ++indexMatchCountsOldServers[instance.matchIndex];
                 }
                 if (
                     shared->nextClusterConfiguration.instanceIds.find(senderInstanceNumber)
                     != shared->nextClusterConfiguration.instanceIds.end()
                 ) {
-                    ++indexMatchCountsNewServers[instance.second.matchIndex];
+                    ++indexMatchCountsNewServers[instance.matchIndex];
                 }
             }
             size_t totalMatchCounts = 0;
