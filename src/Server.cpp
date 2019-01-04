@@ -542,7 +542,7 @@ namespace Raft {
          * Reset state variables involved in the retransmission process.
          */
         void ResetRetransmissionState() {
-            for (auto& instanceId: GetInstanceIds()) {
+            for (auto instanceId: GetInstanceIds()) {
                 shared->instances[instanceId].awaitingResponse = false;
             }
         }
@@ -753,7 +753,7 @@ namespace Raft {
          *     This is the current time according to the time keeper.
          */
         void QueueRetransmissionsToBeSent(double now) {
-            for (auto& instanceId: GetInstanceIds()) {
+            for (auto instanceId: GetInstanceIds()) {
                 const auto& instance = shared->instances[instanceId];
                 if (
                     instance.awaitingResponse
