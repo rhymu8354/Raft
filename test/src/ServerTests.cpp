@@ -3855,3 +3855,34 @@ TEST_F(ServerTests, DoNotRetryAppendEntriesForMisbehavingFollowerWhoDoesNotEvenA
     // Assert
     EXPECT_TRUE(messagesSent.empty());
 }
+
+TEST_F(ServerTests, RemobilizeShouldClearJointConfigurationState) {
+    // Arrange
+    constexpr int term = 6;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::JointConfigurationCommand >();
+    command->oldConfiguration.instanceIds = {2, 5, 6, 7};
+    command->newConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::LogEntry entry;
+    entry.term = 5;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+    server.Demobilize();
+    mockLog = std::make_shared< MockLog >();
+
+    // Act
+    mockPersistentState->variables.currentTerm = term - 1;
+    MobilizeServer();
+    WaitForElectionTimeout();
+
+    // Assert
+    for (const auto messageInfo: messagesSent) {
+        ASSERT_FALSE(
+            (messageInfo.message.type == Raft::Message::Type::RequestVote)
+            && (messageInfo.receiverInstanceNumber == 11)
+        );
+    }
+}
