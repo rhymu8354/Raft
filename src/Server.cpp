@@ -1426,8 +1426,10 @@ namespace Raft {
             } else {
                 // TODO: potential optimization: set nextIndex = matchIndex
                 // from the results.
-                --instance.nextIndex;
-                AttemptLogReplication(senderInstanceNumber);
+                if (instance.nextIndex > 1) {
+                    --instance.nextIndex;
+                    AttemptLogReplication(senderInstanceNumber);
+                }
             }
             std::map< size_t, size_t > indexMatchCountsOldServers;
             std::map< size_t, size_t > indexMatchCountsNewServers;

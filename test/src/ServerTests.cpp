@@ -3836,3 +3836,22 @@ TEST_F(ServerTests, NewLeaderShouldSentHeartBeatsImmediately) {
         }
     }
 }
+
+TEST_F(ServerTests, DoNotRetryAppendEntriesForMisbehavingFollowerWhoDoesNotEvenAcceptEmptyLog) {
+    // Arrange
+    constexpr int term = 8;
+    BecomeLeader(term, false);
+
+    // Act
+    messagesSent.clear();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = term;
+    message.appendEntriesResults.success = false;
+    message.appendEntriesResults.matchIndex = 0;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_TRUE(messagesSent.empty());
+}
