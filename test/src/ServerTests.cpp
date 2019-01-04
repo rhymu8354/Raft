@@ -227,24 +227,6 @@ struct ServerTests
         server.WaitForAtLeastOneWorkerLoop();
     }
 
-    void BecomeLeader(int term = 1) {
-        mockPersistentState->variables.currentTerm = term - 1;
-        MobilizeServer();
-        mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-        server.WaitForAtLeastOneWorkerLoop();
-        for (auto instance: clusterConfiguration.instanceIds) {
-            if (instance != serverConfiguration.selfInstanceId) {
-                Raft::Message message;
-                message.type = Raft::Message::Type::RequestVoteResults;
-                message.requestVoteResults.term = term;
-                message.requestVoteResults.voteGranted = true;
-                server.ReceiveMessage(message.Serialize(), instance);
-            }
-        }
-        server.WaitForAtLeastOneWorkerLoop();
-        messagesSent.clear();
-    }
-
     void ReceiveAppendEntriesFromMockLeader(
         int leaderId,
         int term,
@@ -278,11 +260,32 @@ struct ServerTests
         );
     }
 
+    void WaitForElectionTimeout() {
+        mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout;
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+
+    void BecomeLeader(int term = 1) {
+        mockPersistentState->variables.currentTerm = term - 1;
+        MobilizeServer();
+        WaitForElectionTimeout();
+        for (auto instance: clusterConfiguration.instanceIds) {
+            if (instance != serverConfiguration.selfInstanceId) {
+                Raft::Message message;
+                message.type = Raft::Message::Type::RequestVoteResults;
+                message.requestVoteResults.term = term;
+                message.requestVoteResults.voteGranted = true;
+                server.ReceiveMessage(message.Serialize(), instance);
+            }
+        }
+        server.WaitForAtLeastOneWorkerLoop();
+        messagesSent.clear();
+    }
+
     void BecomeCandidate(int term = 1) {
         mockPersistentState->variables.currentTerm = term - 1;
         MobilizeServer();
-        mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-        server.WaitForAtLeastOneWorkerLoop();
+        WaitForElectionTimeout();
         messagesSent.clear();
     }
 
@@ -411,8 +414,7 @@ TEST_F(ServerTests, ElectionAlwaysStartedWithinMaximumTimeoutInterval) {
     MobilizeServer();
 
     // Act
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Assert
     EXPECT_EQ(
@@ -479,8 +481,7 @@ TEST_F(ServerTests, RequestVoteNotSentToAllServersExceptSelf) {
     MobilizeServer();
 
     // Act
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Assert
     EXPECT_EQ(4, messagesSent.size());
@@ -503,8 +504,7 @@ TEST_F(ServerTests, RequestVoteIncludesLastIndex) {
     server.SetLastIndex(42);
 
     // Act
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Assert
     for (const auto messageInfo: messagesSent) {
@@ -526,8 +526,7 @@ TEST_F(ServerTests, RequestVoteIncludesLastTermWithLog) {
     MobilizeServer();
 
     // Act
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Assert
     for (const auto messageInfo: messagesSent) {
@@ -543,8 +542,7 @@ TEST_F(ServerTests, RequestVoteIncludesLastTermWithoutLog) {
     MobilizeServer();
 
     // Act
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Assert
     for (const auto messageInfo: messagesSent) {
@@ -561,8 +559,7 @@ TEST_F(ServerTests, ServerVotesForItselfInElectionItStarts) {
     MobilizeServer();
 
     // Act
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Assert
     EXPECT_EQ(4, messagesSent.size());
@@ -576,8 +573,7 @@ TEST_F(ServerTests, ServerIncrementsTermInElectionItStarts) {
     MobilizeServer();
 
     // Act
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Assert
     EXPECT_EQ(4, messagesSent.size());
@@ -589,8 +585,7 @@ TEST_F(ServerTests, ServerIncrementsTermInElectionItStarts) {
 TEST_F(ServerTests, ServerDoesReceiveUnanimousVoteInElection) {
     // Arrange
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Act
     for (auto instance: clusterConfiguration.instanceIds) {
@@ -614,8 +609,7 @@ TEST_F(ServerTests, ServerDoesReceiveUnanimousVoteInElection) {
 TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
     // Arrange
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Act
     for (auto instance: clusterConfiguration.instanceIds) {
@@ -644,8 +638,7 @@ TEST_F(ServerTests, ServerDoesReceiveNonUnanimousMajorityVoteInElection) {
 TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
     // Arrange
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
     for (auto instance: clusterConfiguration.instanceIds) {
         switch (instance) {
             case 6:
@@ -692,8 +685,7 @@ TEST_F(ServerTests, ServerRetransmitsRequestVoteForSlowVotersInElection) {
 TEST_F(ServerTests, ServerDoesNotRetransmitTooQuickly) {
     // Arrange
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
     for (auto instance: clusterConfiguration.instanceIds) {
         switch (instance) {
             case 6:
@@ -726,8 +718,7 @@ TEST_F(ServerTests, ServerDoesNotRetransmitTooQuickly) {
 TEST_F(ServerTests, ServerRegularRetransmissions) {
     // Arrange
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
     for (auto instance: clusterConfiguration.instanceIds) {
         switch (instance) {
             case 6:
@@ -787,8 +778,7 @@ TEST_F(ServerTests, ServerRegularRetransmissions) {
 TEST_F(ServerTests, ServerDoesNotReceiveAnyVotesInElection) {
     // Arrange
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Act
     for (auto instance: clusterConfiguration.instanceIds) {
@@ -812,8 +802,7 @@ TEST_F(ServerTests, ServerDoesNotReceiveAnyVotesInElection) {
 TEST_F(ServerTests, ServerAlmostWinsElection) {
     // Arrange
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Act
     for (auto instance: clusterConfiguration.instanceIds) {
@@ -846,8 +835,7 @@ TEST_F(ServerTests, ServerAlmostWinsElection) {
 TEST_F(ServerTests, TimeoutBeforeMajorityVoteOrNewLeaderHeartbeat) {
     // Arrange
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
     for (auto instance: clusterConfiguration.instanceIds) {
         if (instance != serverConfiguration.selfInstanceId) {
             Raft::Message message;
@@ -861,8 +849,7 @@ TEST_F(ServerTests, TimeoutBeforeMajorityVoteOrNewLeaderHeartbeat) {
     messagesSent.clear();
 
     // Act
-    mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Assert
     for (const auto messageInfo: messagesSent) {
@@ -1062,8 +1049,7 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenFollower) {
 TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenCandidate) {
     // Arrange
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
     messagesSent.clear();
 
     // Act
@@ -1123,8 +1109,7 @@ TEST_F(ServerTests, DoNotStartVoteWhenAlreadyLeader) {
     BecomeLeader();
 
     // Arrange
-    mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout + 0.001;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Assert
     for (const auto& messageSent: messagesSent) {
@@ -1138,7 +1123,7 @@ TEST_F(ServerTests, DoNotStartVoteWhenAlreadyLeader) {
 TEST_F(ServerTests, AfterRevertToFollowerDoNotStartNewElectionBeforeMinimumTimeout) {
     // Arrange
     BecomeLeader();
-    mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout * 5;
+    WaitForElectionTimeout();
     messagesSent.clear();
     Raft::Message message;
     message.type = Raft::Message::Type::RequestVote;
@@ -1178,8 +1163,7 @@ TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived
 TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermHeartbeatReceived) {
     // Arrange
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
     messagesSent.clear();
 
     // Act
@@ -1210,8 +1194,7 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermHeartbeatRecei
 TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameTermHeartbeatReceived) {
     // Arrange
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
     messagesSent.clear();
 
     // Act
@@ -1283,8 +1266,7 @@ TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
 TEST_F(ServerTests, RepeatVotesShouldNotCount) {
     // Arrange
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
     for (auto instance: clusterConfiguration.instanceIds) {
         if (instance != serverConfiguration.selfInstanceId) {
             Raft::Message message;
@@ -1694,8 +1676,7 @@ TEST_F(ServerTests, NoLeadershipGainWhenNotYetLeader) {
     mockPersistentState->variables.currentTerm = 0;
     serverConfiguration.selfInstanceId = 5;
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
     auto instanceNumbersEntry = clusterConfiguration.instanceIds.begin();
     size_t votesGranted = 0;
     do {
@@ -1734,8 +1715,7 @@ TEST_F(ServerTests, NoLeadershipGainWhenAlreadyLeader) {
     mockPersistentState->variables.currentTerm = 0;
     serverConfiguration.selfInstanceId = 5;
     MobilizeServer();
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
     for (auto instance: clusterConfiguration.instanceIds) {
         if (instance == serverConfiguration.selfInstanceId) {
             continue;
@@ -2411,8 +2391,7 @@ TEST_F(ServerTests, ReinitializeVolatileLeaderStateAfterElection) {
     message.appendEntries.prevLogIndex = 1;
     message.appendEntries.prevLogTerm = 7;
     server.ReceiveMessage(message.Serialize(), 2);
-    mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
     for (auto instance: clusterConfiguration.instanceIds) {
         if (instance != serverConfiguration.selfInstanceId) {
             Raft::Message message;
@@ -2919,8 +2898,7 @@ TEST_F(ServerTests, NonVotingMemberShouldNotStartNewElection) {
     MobilizeServer();
 
     // Act
-    mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout;
-    server.WaitForAtLeastOneWorkerLoop();
+    WaitForElectionTimeout();
 
     // Assert
     EXPECT_EQ(
