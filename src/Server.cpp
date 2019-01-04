@@ -1054,6 +1054,19 @@ namespace Raft {
             } else {
                 shared->isVotingMember = true;
             }
+            if (shared->jointConfiguration == nullptr) {
+                auto instanceEntry = shared->instances.begin();
+                while (instanceEntry != shared->instances.end()) {
+                    if (
+                        shared->clusterConfiguration.instanceIds.find(instanceEntry->first)
+                        == shared->clusterConfiguration.instanceIds.end()
+                    ) {
+                        instanceEntry = shared->instances.erase(instanceEntry);
+                    } else {
+                        ++instanceEntry;
+                    }
+                }
+            }
             if (shared->electionState == ElectionState::Leader) {
                 StartConfigChangeIfNewServersHaveCaughtUp();
             }
