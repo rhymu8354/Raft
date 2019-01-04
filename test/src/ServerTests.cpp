@@ -3647,3 +3647,25 @@ TEST_F(ServerTests, DoNotTellLogKeeperToCommitIfCommitIndexUnchanged) {
     // Assert
     EXPECT_EQ(commitCountStart, mockLog->commitCount);
 }
+
+TEST_F(ServerTests, DoNotCommitToLogAnyEntriesWeDoNotHave) {
+    // Arrange
+    constexpr int leaderId = 2;
+    constexpr int term = 5;
+    mockPersistentState->variables.currentTerm = term;
+
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = term;
+    message.appendEntries.leaderCommit = 1;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
+
+    // Act
+    server.ReceiveMessage(message.Serialize(), leaderId);
+
+    // Assert
+    EXPECT_EQ(0, mockLog->commitIndex);
+}

@@ -944,8 +944,12 @@ namespace Raft {
          */
         void AdvanceCommitIndex(size_t newCommitIndex) {
             const auto lastCommitIndex = shared->commitIndex;
-            if (newCommitIndex != shared->commitIndex) {
-                shared->commitIndex = newCommitIndex;
+            const auto newCommitIndexWeHave = std::min(
+                newCommitIndex,
+                shared->logKeeper->GetSize()
+            );
+            if (newCommitIndexWeHave != shared->commitIndex) {
+                shared->commitIndex = newCommitIndexWeHave;
                 shared->logKeeper->Commit(shared->commitIndex);
             }
             for (size_t i = lastCommitIndex + 1; i <= shared->commitIndex; ++i) {
