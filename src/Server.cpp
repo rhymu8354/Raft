@@ -1271,64 +1271,66 @@ namespace Raft {
                 messageDetails.term,
                 shared->persistentStateCache.currentTerm
             );
-            if (shared->persistentStateCache.currentTerm > messageDetails.term) {
-                return;
-            }
-            if (
-                (shared->electionState != ElectionState::Leader)
-                || (shared->persistentStateCache.currentTerm < messageDetails.term)
-            ) {
-                UpdateCurrentTerm(messageDetails.term);
-                if (!shared->thisTermLeaderAnnounced) {
-                    shared->thisTermLeaderAnnounced = true;
-                    QueueLeadershipChangeAnnouncement(
-                        senderInstanceNumber,
-                        shared->persistentStateCache.currentTerm
-                    );
-                }
-            }
-            RevertToFollower();
-            AdvanceCommitIndex(messageDetails.leaderCommit);
             Message response;
             response.type = Message::Type::AppendEntriesResults;
             response.appendEntriesResults.term = shared->persistentStateCache.currentTerm;
-            if (
-                (messageDetails.prevLogIndex > shared->lastIndex)
-                || (
-                    shared->logKeeper->operator[](messageDetails.prevLogIndex).term
-                    != messageDetails.prevLogTerm
-                )
-            ) {
+            if (shared->persistentStateCache.currentTerm > messageDetails.term) {
                 response.appendEntriesResults.success = false;
                 response.appendEntriesResults.matchIndex = 0;
             } else {
-                response.appendEntriesResults.success = true;
-                size_t nextIndex = messageDetails.prevLogIndex + 1;
-                std::vector< LogEntry > entriesToAdd;
-                bool conflictFound = false;
-                for (size_t i = 0; i < entries.size(); ++i) {
-                    auto& newEntry = entries[i];
-                    const auto logIndex = messageDetails.prevLogIndex + i + 1;
-                    if (
-                        conflictFound
-                        || (logIndex > shared->lastIndex)
-                    ) {
-                        entriesToAdd.push_back(std::move(newEntry));
-                    } else {
-                        const auto& oldEntry = shared->logKeeper->operator[](logIndex);
-                        if (oldEntry.term != newEntry.term) {
-                            conflictFound = true;
-                            SetLastIndex(logIndex - 1);
-                            shared->logKeeper->RollBack(logIndex - 1);
-                            entriesToAdd.push_back(std::move(newEntry));
-                        }
+                if (
+                    (shared->electionState != ElectionState::Leader)
+                    || (shared->persistentStateCache.currentTerm < messageDetails.term)
+                ) {
+                    UpdateCurrentTerm(messageDetails.term);
+                    if (!shared->thisTermLeaderAnnounced) {
+                        shared->thisTermLeaderAnnounced = true;
+                        QueueLeadershipChangeAnnouncement(
+                            senderInstanceNumber,
+                            shared->persistentStateCache.currentTerm
+                        );
                     }
                 }
-                if (!entriesToAdd.empty()) {
-                    shared->logKeeper->Append(entriesToAdd);
+                RevertToFollower();
+                AdvanceCommitIndex(messageDetails.leaderCommit);
+                if (
+                    (messageDetails.prevLogIndex > shared->lastIndex)
+                    || (
+                        shared->logKeeper->operator[](messageDetails.prevLogIndex).term
+                        != messageDetails.prevLogTerm
+                    )
+                ) {
+                    response.appendEntriesResults.success = false;
+                    response.appendEntriesResults.matchIndex = 0;
+                } else {
+                    response.appendEntriesResults.success = true;
+                    size_t nextIndex = messageDetails.prevLogIndex + 1;
+                    std::vector< LogEntry > entriesToAdd;
+                    bool conflictFound = false;
+                    for (size_t i = 0; i < entries.size(); ++i) {
+                        auto& newEntry = entries[i];
+                        const auto logIndex = messageDetails.prevLogIndex + i + 1;
+                        if (
+                            conflictFound
+                            || (logIndex > shared->lastIndex)
+                        ) {
+                            entriesToAdd.push_back(std::move(newEntry));
+                        } else {
+                            const auto& oldEntry = shared->logKeeper->operator[](logIndex);
+                            if (oldEntry.term != newEntry.term) {
+                                conflictFound = true;
+                                SetLastIndex(logIndex - 1);
+                                shared->logKeeper->RollBack(logIndex - 1);
+                                entriesToAdd.push_back(std::move(newEntry));
+                            }
+                        }
+                    }
+                    if (!entriesToAdd.empty()) {
+                        shared->logKeeper->Append(entriesToAdd);
+                    }
+                    SetLastIndex(shared->logKeeper->GetSize());
+                    response.appendEntriesResults.matchIndex = shared->lastIndex;
                 }
-                SetLastIndex(shared->logKeeper->GetSize());
-                response.appendEntriesResults.matchIndex = shared->lastIndex;
             }
             const auto now = timeKeeper->GetCurrentTime();
             QueueMessageToBeSent(response, senderInstanceNumber, now);

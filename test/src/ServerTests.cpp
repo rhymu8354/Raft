@@ -3535,3 +3535,40 @@ TEST_F(ServerTests, CandidateNeedsSeparateMajoritiesToWinDuringJointConcensus) {
         server.GetElectionState()
     );
 }
+
+TEST_F(ServerTests, StaleAppendEntriesDeservesAFailureResponse) {
+    // Arrange
+    constexpr int leaderId = 2;
+    constexpr int term = 2;
+    mockPersistentState->variables.currentTerm = term;
+    Raft::LogEntry entry;
+    entry.term = term - 1;
+    mockLog->entries = {entry};
+    MobilizeServer();
+
+    // Act
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = term - 1;
+    message.appendEntries.leaderCommit = 1;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
+    server.ReceiveMessage(message.Serialize(), leaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(
+        leaderId,
+        messagesSent[0].receiverInstanceNumber
+    );
+    EXPECT_EQ(
+        Raft::Message::Type::AppendEntriesResults,
+        messagesSent[0].message.type
+    );
+    EXPECT_EQ(
+        term,
+        messagesSent[0].message.appendEntriesResults.term
+    );
+    EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
+}
