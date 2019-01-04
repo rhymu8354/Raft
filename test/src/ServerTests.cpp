@@ -76,6 +76,7 @@ namespace {
         std::vector< Raft::LogEntry > entries;
         bool invalidEntryIndexed = false;
         size_t commitIndex = 0;
+        size_t commitCount = 0;
         std::vector< std::function< void() > > destructionDelegates;
 
         // Lifecycle
@@ -130,6 +131,7 @@ namespace {
 
         virtual void Commit(size_t index) override {
             commitIndex = index;
+            ++commitCount;
         }
     };
 
@@ -3618,4 +3620,30 @@ TEST_F(ServerTests, IgnoreAppendEntriesSameTermIfLeader) {
         server.GetElectionState()
     );
     EXPECT_TRUE(messagesSent.empty());
+}
+
+TEST_F(ServerTests, DoNotTellLogKeeperToCommitIfCommitIndexUnchanged) {
+    // Arrange
+    constexpr int leaderId = 2;
+    constexpr int term = 5;
+    mockPersistentState->variables.currentTerm = term;
+    Raft::LogEntry entry;
+    entry.term = term;
+    mockLog->entries = {entry};
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = term;
+    message.appendEntries.leaderCommit = 1;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
+    server.ReceiveMessage(message.Serialize(), leaderId);
+    const auto commitCountStart = mockLog->commitCount;
+
+    // Act
+    server.ReceiveMessage(message.Serialize(), leaderId);
+
+    // Assert
+    EXPECT_EQ(commitCountStart, mockLog->commitCount);
 }
