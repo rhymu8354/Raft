@@ -1277,6 +1277,20 @@ namespace Raft {
             if (shared->persistentStateCache.currentTerm > messageDetails.term) {
                 response.appendEntriesResults.success = false;
                 response.appendEntriesResults.matchIndex = 0;
+            } else if (
+                (shared->electionState == ElectionState::Leader)
+                && (shared->persistentStateCache.currentTerm == messageDetails.term)
+            ) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    SystemAbstractions::DiagnosticsSender::Levels::ERROR,
+                    "Received AppendEntries(%zu entries building on %zu from term %d) from server %d in SAME term %d",
+                    entries.size(),
+                    messageDetails.prevLogIndex,
+                    messageDetails.prevLogTerm,
+                    senderInstanceNumber,
+                    messageDetails.term
+                );
+                return;
             } else {
                 if (
                     (shared->electionState != ElectionState::Leader)

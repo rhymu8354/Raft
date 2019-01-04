@@ -3596,3 +3596,26 @@ TEST_F(ServerTests, ReceivingHeartBeatsDoesNotCausePersistentStateSaves) {
     // Assert
     EXPECT_EQ(numSavesAtStart + 1, mockPersistentState->saveCount);
 }
+
+TEST_F(ServerTests, IgnoreAppendEntriesSameTermIfLeader) {
+    // Arrange
+    constexpr int term = 5;
+    BecomeLeader(term);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = term;
+    message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
+    messagesSent.clear();
+
+    // Act
+    server.ReceiveMessage(message.Serialize(), 2);
+
+    // Assert
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Leader,
+        server.GetElectionState()
+    );
+    EXPECT_TRUE(messagesSent.empty());
+}
