@@ -746,14 +746,15 @@ namespace Raft {
          *     This is the current time according to the time keeper.
          */
         void QueueRetransmissionsToBeSent(double now) {
-            for (auto& instanceEntry: shared->instances) {
+            for (auto& instanceId: GetInstanceIds()) {
+                const auto& instance = shared->instances[instanceId];
                 if (
-                    instanceEntry.second.awaitingResponse
-                    && (now - instanceEntry.second.timeLastRequestSent >= shared->serverConfiguration.rpcTimeout)
+                    instance.awaitingResponse
+                    && (now - instance.timeLastRequestSent >= shared->serverConfiguration.rpcTimeout)
                 ) {
                     QueueMessageToBeSent(
-                        instanceEntry.second.lastRequest,
-                        instanceEntry.first,
+                        instance.lastRequest,
+                        instanceId,
                         now
                     );
                 }

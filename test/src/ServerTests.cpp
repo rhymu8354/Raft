@@ -3728,3 +3728,32 @@ TEST_F(ServerTests, StaleServerShouldRevertToFollowerWhenAppendEntryResultsHighe
     );
     EXPECT_EQ(term + 1, mockPersistentState->variables.currentTerm);
 }
+
+TEST_F(ServerTests, DoNotRetransmitRequestsToServersNoLongerInTheCluster) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {2, 6, 7, 12};
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    command->configuration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry entry;
+    entry.term = term;
+    entry.command = std::move(command);
+    BecomeLeader(term);
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    server.AppendLogEntries({entry});
+    messagesSent.clear();
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    for (const auto messageInfo: messagesSent) {
+        EXPECT_NE(5, messageInfo.receiverInstanceNumber);
+    }
+}
