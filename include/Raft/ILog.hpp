@@ -62,6 +62,10 @@ namespace Raft {
          * entry have been replicated to a majority of servers in the cluster,
          * and so can be applied to the server state.
          *
+         * It's possible the given index, and/or indices beyond this, may
+         * already be committed.  In this case, the log is expected to handle
+         * this by doing nothing.
+         *
          * @param[in] index
          *     This is the index of the last entry in the log that a majority
          *     of servers in the cluster have successfully stored.
