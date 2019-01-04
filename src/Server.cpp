@@ -1738,6 +1738,7 @@ namespace Raft {
         impl_->shared->timeOfLastLeaderMessage = 0.0;
         impl_->shared->votesForUsCurrentConfig = 0;
         impl_->ApplyConfiguration(clusterConfiguration);
+        impl_->shared->lastIndex = 0;
         impl_->SetLastIndex(logKeeper->GetSize());
         impl_->stopWorker = std::promise< void >();
         impl_->worker = std::thread(&Impl::Worker, impl_.get());

@@ -3886,3 +3886,28 @@ TEST_F(ServerTests, RemobilizeShouldClearJointConfigurationState) {
         );
     }
 }
+
+TEST_F(ServerTests, RemobilizeShouldResetLastIndexCache) {
+    // Arrange
+    constexpr int term = 6;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::JointConfigurationCommand >();
+    command->oldConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    command->newConfiguration.instanceIds = {2, 5, 6, 7, 11, 12};
+    Raft::LogEntry entry;
+    entry.term = 5;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+    server.Demobilize();
+    mockLog = std::make_shared< MockLog >();
+
+    // Act
+    mockPersistentState->variables.currentTerm = term - 1;
+    MobilizeServer();
+
+    // Assert
+    EXPECT_FALSE(mockLog->invalidEntryIndexed);
+}
