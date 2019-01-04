@@ -1149,6 +1149,18 @@ namespace Raft {
             const Message::RequestVoteResultsDetails& messageDetails,
             int senderInstanceNumber
         ) {
+            if (messageDetails.term > shared->persistentStateCache.currentTerm) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1,
+                    "Vote result from server %d in term %u when in term %u; reverted to follower",
+                    senderInstanceNumber,
+                    messageDetails.term,
+                    shared->persistentStateCache.currentTerm
+                );
+                UpdateCurrentTerm(messageDetails.term);
+                RevertToFollower();
+                return;
+            }
             auto& instance = shared->instances[senderInstanceNumber];
             if (messageDetails.term < shared->persistentStateCache.currentTerm) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
@@ -1226,10 +1238,6 @@ namespace Raft {
                     senderInstanceNumber,
                     shared->persistentStateCache.currentTerm
                 );
-                if (messageDetails.term > shared->persistentStateCache.currentTerm) {
-                    UpdateCurrentTerm(messageDetails.term);
-                    RevertToFollower();
-                }
             }
             instance.awaitingResponse = false;
         }

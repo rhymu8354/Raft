@@ -1361,6 +1361,44 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameTermHeartbeatReceived
     );
 }
 
+TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermVoteGrantReceived) {
+    // Arrange
+    BecomeCandidate(1);
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVoteResults;
+    message.requestVoteResults.term = 2;
+    message.requestVoteResults.voteGranted = true;
+
+    // Act
+    server.ReceiveMessage(message.Serialize(), 2);
+
+    // Assert
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
+    EXPECT_EQ(2, mockPersistentState->variables.currentTerm);
+}
+
+TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermVoteRejectReceived) {
+    // Arrange
+    BecomeCandidate(1);
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVoteResults;
+    message.requestVoteResults.term = 2;
+    message.requestVoteResults.voteGranted = false;
+
+    // Act
+    server.ReceiveMessage(message.Serialize(), 2);
+
+    // Assert
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
+    EXPECT_EQ(2, mockPersistentState->variables.currentTerm);
+}
+
 TEST_F(ServerTests, LeaderShouldSendRegularHeartbeats) {
     // Arrange
     BecomeLeader();
