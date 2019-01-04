@@ -170,6 +170,12 @@ namespace {
         std::queue< LeadershipAnnouncementToBeSent > leadershipAnnouncementsToBeSent;
 
         /**
+         * This holds cluster configuration applied announcements to be sent by
+         * the worker thread.
+         */
+        std::queue< Raft::ClusterConfiguration > configAppliedAnnouncementsToBeSent;
+
+        /**
          * If this is not nullptr, then the worker thread should set the result
          * once it executes a full loop.
          */
@@ -329,6 +335,30 @@ namespace {
         }
     }
 
+    /**
+     * This function sends the given leadership announcements, using the given
+     * delegate.
+     *
+     * @param[in] leadershipChangeDelegate
+     *     This is the delegate to use to send leadership announcements.
+     *
+     * @param[in,out] leadershipAnnouncementsToBeSent
+     *     This holds the leadership announcements to be sent, and is consumed
+     *     by the function.
+     */
+    void SendConfigAppliedAnnouncements(
+        Raft::IServer::ApplyConfigurationDelegate applyConfigurationDelegate,
+        std::queue< Raft::ClusterConfiguration >&& configAppliedAnnouncementsToBeSent
+    ) {
+        while (!configAppliedAnnouncementsToBeSent.empty()) {
+            const auto& configAppliedAnnouncementToBeSent = configAppliedAnnouncementsToBeSent.front();
+            applyConfigurationDelegate(
+                configAppliedAnnouncementToBeSent
+            );
+            configAppliedAnnouncementsToBeSent.pop();
+        }
+    }
+
 }
 
 namespace Raft {
@@ -383,6 +413,12 @@ namespace Raft {
          * occurs in the server cluster.
          */
         LeadershipChangeDelegate leadershipChangeDelegate;
+
+        /**
+         * This is the delegate to be called later whenever a single
+         * cluster configuration is applied by the server.
+         */
+        ApplyConfigurationDelegate applyConfigurationDelegate;
 
         /**
          * This thread performs any background tasks required of the
@@ -541,6 +577,20 @@ namespace Raft {
             leadershipAnnouncementToBeSent.leaderId = leaderId;
             leadershipAnnouncementToBeSent.term = term;
             shared->leadershipAnnouncementsToBeSent.push(std::move(leadershipAnnouncementToBeSent));
+            workerAskedToStopOrWakeUp.notify_one();
+        }
+
+        /**
+         * Queue a configuration applied announcement message to be sent
+         * later.
+         *
+         * @param[in] newConfiguration
+         *     This is the new configuration that was applied.
+         */
+        void QueueConfigAppliedAnnouncement(
+            const ClusterConfiguration& newConfiguration
+        ) {
+            shared->configAppliedAnnouncementsToBeSent.push(newConfiguration);
             workerAskedToStopOrWakeUp.notify_one();
         }
 
@@ -823,6 +873,30 @@ namespace Raft {
         }
 
         /**
+         * Send any queued cluster configuration applied announcements.
+         *
+         * @param[in] lock
+         *     This is the object holding the mutex protecting the shared
+         *     properties of the server.
+         */
+        void SendQueuedConfigAppliedAnnouncements(
+            std::unique_lock< decltype(shared->mutex) >& lock
+        ) {
+            decltype(shared->configAppliedAnnouncementsToBeSent) configAppliedAnnouncementsToBeSent;
+            configAppliedAnnouncementsToBeSent.swap(shared->configAppliedAnnouncementsToBeSent);
+            if (applyConfigurationDelegate == nullptr) {
+                return;
+            }
+            auto applyConfigurationDelegateCopy = applyConfigurationDelegate;
+            lock.unlock();
+            SendConfigAppliedAnnouncements(
+                applyConfigurationDelegateCopy,
+                std::move(configAppliedAnnouncementsToBeSent)
+            );
+            lock.lock();
+        }
+
+        /**
          * This method is called to update the current cluster election term.
          *
          * @param[in] newTerm
@@ -880,6 +954,7 @@ namespace Raft {
             shared->clusterConfiguration = clusterConfiguration;
             shared->jointConfiguration.reset();
             OnSetClusterConfiguration();
+            QueueConfigAppliedAnnouncement(clusterConfiguration);
         }
 
         /**
@@ -1591,6 +1666,7 @@ namespace Raft {
             QueueRetransmissionsToBeSent(now);
             SendQueuedMessages(lock);
             SendQueuedLeadershipAnnouncements(lock);
+            SendQueuedConfigAppliedAnnouncements(lock);
         }
 
         /**
@@ -1717,6 +1793,11 @@ namespace Raft {
     void Server::SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->leadershipChangeDelegate = leadershipChangeDelegate;
+    }
+
+    void Server::SetApplyConfigurationDelegate(ApplyConfigurationDelegate applyConfigurationDelegate) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->applyConfigurationDelegate = applyConfigurationDelegate;
     }
 
     void Server::Mobilize(

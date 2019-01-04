@@ -3911,3 +3911,36 @@ TEST_F(ServerTests, RemobilizeShouldResetLastIndexCache) {
     // Assert
     EXPECT_FALSE(mockLog->invalidEntryIndexed);
 }
+
+TEST_F(ServerTests, CallDelegateOnApplyConfiguration) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {2, 6, 7, 12};
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    command->configuration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry entry;
+    entry.term = term;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    std::unique_ptr< Raft::ClusterConfiguration > configApplied;
+    const auto onApplyConfiguration = [&configApplied](
+        const Raft::ClusterConfiguration& newConfiguration
+    ) {
+        configApplied.reset(new Raft::ClusterConfiguration(newConfiguration));
+    };
+    server.SetApplyConfigurationDelegate(onApplyConfiguration);
+
+    // Act
+    MobilizeServer();
+
+    // Assert
+    ASSERT_FALSE(configApplied == nullptr);
+    EXPECT_EQ(
+        std::set< int >({2, 6, 7, 12}),
+        configApplied->instanceIds
+    );
+}

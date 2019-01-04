@@ -130,6 +130,20 @@ namespace Raft {
             )
         >;
 
+        /**
+         * Declare the type of delegate used to announce that a single cluster
+         * configuration has been applied by the server.
+         *
+         * @param[in] newConfig
+         *     This is the new single cluster configuration applied by
+         *     the server.
+         */
+        using ApplyConfigurationDelegate = std::function<
+            void(
+                const ClusterConfiguration& newConfig
+            )
+        >;
+
         // Methods
     public:
         /**
@@ -152,6 +166,16 @@ namespace Raft {
          *     change occurs in the server cluster.
          */
         virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) = 0;
+
+        /**
+         * Set up a delegate to be called later whenever a single cluster
+         * configuration is applied by the server.
+         *
+         * @param[in] applyConfigurationDelegate
+         *     This is the delegate to be called later whenever a single
+         *     cluster configuration is applied by the server.
+         */
+        virtual void SetApplyConfigurationDelegate(ApplyConfigurationDelegate applyConfigurationDelegate) = 0;
 
         /**
          * This method starts the server's worker thread.
