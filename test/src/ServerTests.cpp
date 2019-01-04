@@ -3757,3 +3757,42 @@ TEST_F(ServerTests, DoNotRetransmitRequestsToServersNoLongerInTheCluster) {
         EXPECT_NE(5, messageInfo.receiverInstanceNumber);
     }
 }
+
+TEST_F(ServerTests, VotesShouldBeRequestedForNewServersWhenStartingElectionDuringJointConfiguration) {
+    // Arrange
+    constexpr int term = 6;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::JointConfigurationCommand >();
+    command->oldConfiguration.instanceIds = {2, 5, 6, 7};
+    command->newConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::LogEntry entry;
+    entry.term = 5;
+    entry.command = std::move(command);
+    MobilizeServer();
+    server.WaitForAtLeastOneWorkerLoop();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = term;
+    message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
+    message.log.push_back(std::move(entry));
+    server.ReceiveMessage(message.Serialize(), 5);
+
+    // Act
+    WaitForElectionTimeout();
+
+    // Assert
+    bool voteRequestedFromNewServer = false;
+    for (const auto messageInfo: messagesSent) {
+        if (
+            (messageInfo.message.type == Raft::Message::Type::RequestVote)
+            && (messageInfo.receiverInstanceNumber == 11)
+        ) {
+            voteRequestedFromNewServer = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(voteRequestedFromNewServer);
+}
