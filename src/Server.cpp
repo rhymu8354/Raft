@@ -539,6 +539,15 @@ namespace Raft {
         }
 
         /**
+         * Reset state variables involved in the retransmission process.
+         */
+        void ResetRetransmissionState() {
+            for (auto& instanceId: GetInstanceIds()) {
+                shared->instances[instanceId].awaitingResponse = false;
+            }
+        }
+
+        /**
          * This method sets the server up as a candidate in the current term
          * and records that it voted for itself and is awaiting votes from all
          * the other servers.
@@ -566,9 +575,7 @@ namespace Raft {
                     shared->votesForUsNextConfig = 1;
                 }
             }
-            for (auto& instanceId: GetInstanceIds()) {
-                shared->instances[instanceId].awaitingResponse = false;
-            }
+            ResetRetransmissionState();
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 2,
                 "Timeout -- starting new election (term %u)",
@@ -829,9 +836,7 @@ namespace Raft {
          * "follower", as in not seeking election, and not the leader.
          */
         void RevertToFollower() {
-            for (auto& instanceEntry: shared->instances) {
-                instanceEntry.second.awaitingResponse = false;
-            }
+            ResetRetransmissionState();
             shared->electionState = IServer::ElectionState::Follower;
             ResetElectionTimer();
         }
