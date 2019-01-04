@@ -1291,6 +1291,8 @@ TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = 2;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1312,6 +1314,8 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermHeartbeatRecei
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = 2;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), 2);
     for (auto instance: clusterConfiguration.instanceIds) {
         if (instance != serverConfiguration.selfInstanceId) {
@@ -1344,6 +1348,8 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameTermHeartbeatReceived
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = 1;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), 2);
     for (auto instance: clusterConfiguration.instanceIds) {
         if (instance != serverConfiguration.selfInstanceId) {
@@ -1487,6 +1493,8 @@ TEST_F(ServerTests, UpdateTermWhenReceivingHeartBeat) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = 2;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1524,6 +1532,8 @@ TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerSameTerm) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = newTerm;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1561,6 +1571,8 @@ TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerSameTerm) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = newTerm;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
     leadershipChangeAnnounced = false;
@@ -1570,6 +1582,8 @@ TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerSameTerm) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = newTerm;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1607,6 +1621,8 @@ TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerNewerTerm) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = newTerm;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1644,6 +1660,8 @@ TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerNewerTerm) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = newTerm;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
     leadershipChangeAnnounced = false;
@@ -1653,6 +1671,8 @@ TEST_F(ServerTests, ReceivingSecondHeartBeatAsFollowerNewerTerm) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = newTerm;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), leaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1690,6 +1710,8 @@ TEST_F(ServerTests, ReceivingTwoHeartBeatAsFollowerSequentialTerms) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = firstTerm;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), firstLeaderId);
     server.WaitForAtLeastOneWorkerLoop();
     leadershipChangeAnnounced = false;
@@ -1699,6 +1721,8 @@ TEST_F(ServerTests, ReceivingTwoHeartBeatAsFollowerSequentialTerms) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = secondTerm;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), secondLeaderId);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1718,6 +1742,8 @@ TEST_F(ServerTests, ReceivingHeartBeatFromSameTermShouldResetElectionTimeout) {
         message.type = Raft::Message::Type::AppendEntries;
         message.appendEntries.term = 2;
         message.appendEntries.leaderCommit = 0;
+        message.appendEntries.prevLogIndex = 0;
+        message.appendEntries.prevLogTerm = 0;
         server.ReceiveMessage(message.Serialize(), 2);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2;
         server.WaitForAtLeastOneWorkerLoop();
@@ -1737,6 +1763,8 @@ TEST_F(ServerTests, IgnoreHeartBeatFromOldTerm) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = 2;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), 2);
 
     // Act
@@ -1744,6 +1772,8 @@ TEST_F(ServerTests, IgnoreHeartBeatFromOldTerm) {
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = 1;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     server.ReceiveMessage(message.Serialize(), 2);
 
     // Assert
@@ -1762,6 +1792,8 @@ TEST_F(ServerTests, ReceivingHeartBeatFromOldTermShouldNotResetElectionTimeout) 
         message.type = Raft::Message::Type::AppendEntries;
         message.appendEntries.term = 13;
         message.appendEntries.leaderCommit = 0;
+        message.appendEntries.prevLogIndex = 0;
+        message.appendEntries.prevLogTerm = 0;
         server.ReceiveMessage(message.Serialize(), 2);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2;
         server.WaitForAtLeastOneWorkerLoop();
@@ -2158,6 +2190,8 @@ TEST_F(ServerTests, FollowerAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLog
     message.type = Raft::Message::Type::AppendEntries;
     message.appendEntries.term = 9;
     message.appendEntries.leaderCommit = 0;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     Raft::LogEntry firstEntry;
     firstEntry.term = 4;
     message.log.push_back(std::move(firstEntry));
@@ -2165,6 +2199,8 @@ TEST_F(ServerTests, FollowerAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLog
     server.WaitForAtLeastOneWorkerLoop();
     EXPECT_EQ(0, server.GetCommitIndex());
     message.appendEntries.leaderCommit = 1;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
     message.log.clear();
     Raft::LogEntry secondEntry;
     secondEntry.term = 5;
