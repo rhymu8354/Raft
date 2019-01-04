@@ -1380,6 +1380,10 @@ namespace Raft {
                 ElectionStateToString(shared->electionState).c_str(),
                 shared->persistentStateCache.currentTerm
             );
+            if (messageDetails.term > shared->persistentStateCache.currentTerm) {
+                UpdateCurrentTerm(messageDetails.term);
+                RevertToFollower();
+            }
             if (shared->electionState != ElectionState::Leader) {
                 return;
             }

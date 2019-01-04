@@ -3705,3 +3705,26 @@ TEST_F(ServerTests, DoNotCommitToLogAnyEntriesWeDoNotHave) {
     // Assert
     EXPECT_EQ(0, mockLog->commitIndex);
 }
+
+TEST_F(ServerTests, StaleServerShouldRevertToFollowerWhenAppendEntryResultsHigherTermReceived) {
+    // Arrange
+    constexpr int term = 7;
+    BecomeLeader(term);
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = term + 1;
+    message.appendEntriesResults.success = false;
+    message.appendEntriesResults.matchIndex = 0;
+    server.ReceiveMessage(message.Serialize(), 2);
+
+    // Assert
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
+    EXPECT_EQ(term + 1, mockPersistentState->variables.currentTerm);
+}
