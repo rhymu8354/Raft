@@ -566,8 +566,8 @@ namespace Raft {
                     shared->votesForUsNextConfig = 1;
                 }
             }
-            for (auto& instanceEntry: shared->instances) {
-                instanceEntry.second.awaitingResponse = false;
+            for (auto& instanceId: GetInstanceIds()) {
+                shared->instances[instanceId].awaitingResponse = false;
             }
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 2,
