@@ -1010,33 +1010,9 @@ TEST_F(ServerTests, ReceiveVoteRequestWhenSameTermAlreadyVotedForSame) {
     EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
 }
 
-TEST_F(ServerTests, ReceiveVoteRequestLesserTerm) {
+TEST_F(ServerTests, GrantVoteRequestLesserTerm) {
     // Arrange
-    mockPersistentState->variables.currentTerm = 1;
-    MobilizeServer();
-
-    // Act
-    Raft::Message message;
-    message.type = Raft::Message::Type::RequestVote;
-    message.requestVote.term = 0;
-    message.requestVote.candidateId = 2;
-    message.requestVote.lastLogIndex = 0;
-    message.requestVote.lastLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), 2);
-    server.WaitForAtLeastOneWorkerLoop();
-
-    // Assert
-    ASSERT_EQ(1, messagesSent.size());
-    EXPECT_EQ(
-        Raft::Message::Type::RequestVoteResults,
-        messagesSent[0].message.type
-    );
-    EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
-    EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
-}
-
-TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenFollower) {
-    // Arrange
+    mockPersistentState->variables.currentTerm = 2;
     MobilizeServer();
     Raft::Message message;
     message.type = Raft::Message::Type::RequestVote;
@@ -1044,6 +1020,8 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenFollower) {
     message.requestVote.candidateId = 2;
     message.requestVote.lastLogIndex = 0;
     message.requestVote.lastLogTerm = 0;
+
+    // Act
     server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
 
@@ -1053,23 +1031,102 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenFollower) {
         Raft::Message::Type::RequestVoteResults,
         messagesSent[0].message.type
     );
-    EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
-    EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
+    EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
 }
 
-TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenCandidate) {
+TEST_F(ServerTests, GrantVoteRequestGreaterTermWhenFollower) {
     // Arrange
+    mockPersistentState->variables.currentTerm = 1;
     MobilizeServer();
-    WaitForElectionTimeout();
-    messagesSent.clear();
-
-    // Act
     Raft::Message message;
     message.type = Raft::Message::Type::RequestVote;
     message.requestVote.term = 2;
     message.requestVote.candidateId = 2;
     message.requestVote.lastLogIndex = 0;
     message.requestVote.lastLogTerm = 0;
+
+    // Act
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
+    );
+    EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
+}
+
+TEST_F(ServerTests, RejectVoteRequestGreaterTermWhenNonVotingMember) {
+    // Arrange
+    mockPersistentState->variables.currentTerm = 1;
+    Raft::LogEntry committedEntry;
+    committedEntry.term = 1;
+    mockLog->entries.push_back(std::move(committedEntry));
+    clusterConfiguration.instanceIds = {5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    MobilizeServer();
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 2;
+    message.requestVote.candidateId = 2;
+    message.requestVote.lastLogIndex = 0;
+    message.requestVote.lastLogTerm = 0;
+
+    // Act
+    server.ReceiveMessage(message.Serialize(), 5);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    EXPECT_TRUE(messagesSent.empty());
+    EXPECT_EQ(2, mockPersistentState->variables.currentTerm);
+}
+
+TEST_F(ServerTests, RejectVoteRequestGreaterTermWhenFollower) {
+    // Arrange
+    mockPersistentState->variables.currentTerm = 1;
+    Raft::LogEntry committedEntry;
+    committedEntry.term = 1;
+    mockLog->entries.push_back(std::move(committedEntry));
+    MobilizeServer();
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 2;
+    message.requestVote.candidateId = 2;
+    message.requestVote.lastLogIndex = 0;
+    message.requestVote.lastLogTerm = 0;
+
+    // Act
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
+    );
+    EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
+}
+
+TEST_F(ServerTests, GrantVoteRequestGreaterTermWhenCandidate) {
+    // Arrange
+    mockPersistentState->variables.currentTerm = 0;
+    MobilizeServer();
+    WaitForElectionTimeout();
+    messagesSent.clear();
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 2;
+    message.requestVote.candidateId = 2;
+    message.requestVote.lastLogIndex = 0;
+    message.requestVote.lastLogTerm = 0;
+
+    // Act
     server.ReceiveMessage(message.Serialize(), 2);
     server.WaitForAtLeastOneWorkerLoop();
     mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout - 0.001;
@@ -1089,9 +1146,43 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenCandidate) {
     );
 }
 
-TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenLeader) {
+TEST_F(ServerTests, RejectVoteRequestGreaterTermWhenCandidate) {
     // Arrange
-    BecomeLeader();
+    Raft::LogEntry committedEntry;
+    committedEntry.term = 1;
+    mockLog->entries.push_back(std::move(committedEntry));
+    BecomeCandidate(2);
+    messagesSent.clear();
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 3;
+    message.requestVote.candidateId = 2;
+    message.requestVote.lastLogIndex = 0;
+    message.requestVote.lastLogTerm = 0;
+
+    // Act
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout - 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
+    );
+    EXPECT_EQ(3, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
+}
+
+TEST_F(ServerTests, GrantVoteRequestGreaterTermWhenLeader) {
+    // Arrange
+    BecomeLeader(1);
 
     // Act
     Raft::Message message;
@@ -1111,6 +1202,37 @@ TEST_F(ServerTests, ReceiveVoteRequestGreaterTermWhenLeader) {
     );
     EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
     EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
+    EXPECT_EQ(
+        Raft::IServer::ElectionState::Follower,
+        server.GetElectionState()
+    );
+}
+
+TEST_F(ServerTests, RejectVoteRequestGreaterTermWhenLeader) {
+    // Arrange
+    Raft::LogEntry committedEntry;
+    committedEntry.term = 1;
+    mockLog->entries.push_back(std::move(committedEntry));
+    BecomeLeader(1);
+
+    // Act
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVote;
+    message.requestVote.term = 2;
+    message.requestVote.candidateId = 2;
+    message.requestVote.lastLogIndex = 0;
+    message.requestVote.lastLogTerm = 0;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(
+        Raft::Message::Type::RequestVoteResults,
+        messagesSent[0].message.type
+    );
+    EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
+    EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
     EXPECT_EQ(
         Raft::IServer::ElectionState::Follower,
         server.GetElectionState()

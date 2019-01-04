@@ -814,10 +814,12 @@ namespace Raft {
          *     This is the new term of the cluster.
          */
         void UpdateCurrentTerm(int newTerm) {
-            if (shared->persistentStateCache.currentTerm < newTerm) {
-                shared->thisTermLeaderAnnounced = false;
+            if (shared->persistentStateCache.currentTerm == newTerm) {
+                return;
             }
+            shared->thisTermLeaderAnnounced = false;
             shared->persistentStateCache.currentTerm = newTerm;
+            shared->persistentStateCache.votedThisTerm = false;
             shared->persistentStateKeeper->Save(shared->persistentStateCache);
         }
 
@@ -1059,16 +1061,18 @@ namespace Raft {
             const Message::RequestVoteDetails& messageDetails,
             int senderInstanceNumber
         ) {
+            const auto termBeforeMessageProcessed = shared->persistentStateCache.currentTerm;
+            if (messageDetails.term > shared->persistentStateCache.currentTerm) {
+                UpdateCurrentTerm(messageDetails.term);
+                RevertToFollower();
+            }
             if (!shared->isVotingMember) {
                 return;
             }
             const auto now = timeKeeper->GetCurrentTime();
             Message response;
             response.type = Message::Type::RequestVoteResults;
-            response.requestVoteResults.term = std::max(
-                shared->persistentStateCache.currentTerm,
-                messageDetails.term
-            );
+            response.requestVoteResults.term = shared->persistentStateCache.currentTerm;
             const auto lastIndex = shared->lastIndex;
             const auto lastTerm = (
                 (shared->lastIndex == 0)
@@ -1085,17 +1089,16 @@ namespace Raft {
                 );
                 response.requestVoteResults.voteGranted = false;
             } else if (
-                (shared->persistentStateCache.currentTerm == messageDetails.term)
-                && shared->persistentStateCache.votedThisTerm
+                shared->persistentStateCache.votedThisTerm
                 && (shared->persistentStateCache.votedFor != senderInstanceNumber)
             ) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
-                    "Rejecting vote for server %u (already voted for %u for term %u -- we are in term %u)",
+                    "Rejecting vote for server %u (already voted for %u for term %u -- we were in term %u)",
                     senderInstanceNumber,
                     shared->persistentStateCache.votedFor,
                     messageDetails.term,
-                    shared->persistentStateCache.currentTerm
+                    termBeforeMessageProcessed
                 );
                 response.requestVoteResults.voteGranted = false;
             } else if (
@@ -1121,14 +1124,12 @@ namespace Raft {
                     "Voting for server %u for term %u (we were in term %u)",
                     senderInstanceNumber,
                     messageDetails.term,
-                    shared->persistentStateCache.currentTerm
+                    termBeforeMessageProcessed
                 );
                 response.requestVoteResults.voteGranted = true;
                 shared->persistentStateCache.votedThisTerm = true;
                 shared->persistentStateCache.votedFor = senderInstanceNumber;
                 shared->persistentStateKeeper->Save(shared->persistentStateCache);
-                UpdateCurrentTerm(messageDetails.term);
-                RevertToFollower();
             }
             QueueMessageToBeSent(response, senderInstanceNumber, now);
         }
