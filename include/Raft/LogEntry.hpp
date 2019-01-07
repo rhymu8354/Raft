@@ -11,6 +11,7 @@
 
 #include "ClusterConfiguration.hpp"
 
+#include <functional>
 #include <Json/Value.hpp>
 #include <memory>
 #include <string>
@@ -65,6 +66,21 @@ namespace Raft {
      * to hold actual concrete server state.
      */
     struct LogEntry {
+        // Types
+
+        /**
+         * Define the type of function responsible for creating a command
+         * of a specific type based on its serialized form.
+         *
+         * @param[in] commandAsJson
+         *     This is the serialized form of the command to create.
+         */
+        using CommandFactory = std::function<
+            std::shared_ptr< Command >(
+                const Json::Value& commandAsJson
+            )
+        >;
+
         // Properties
 
         /**
@@ -143,6 +159,22 @@ namespace Raft {
          *     not equal is returned.
          */
         bool operator!=(const LogEntry& other) const;
+
+        /**
+         * Register the given command type in order to enable the creation
+         * of commands of the type when deserializing log entries.
+         *
+         * @param[in] type
+         *     This is the string identifier for the command type.
+         *
+         * @param[in] factory
+         *     This is the function to call to create a command of this type
+         *     from its serialized form.
+         */
+        static void RegisterCommandType(
+            const std::string& type,
+            CommandFactory factory
+        );
     };
 
 }

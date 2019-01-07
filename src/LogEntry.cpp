@@ -8,7 +8,17 @@
  */
 
 #include <Json/Value.hpp>
+#include <map>
 #include <Raft/LogEntry.hpp>
+
+namespace {
+
+    /**
+     * This holds all registered command factories, keyed by command type.
+     */
+    std::map< std::string, Raft::LogEntry::CommandFactory > COMMAND_FACTORIES;
+
+}
 
 namespace Raft {
 
@@ -98,6 +108,11 @@ namespace Raft {
                 json["command"]
             );
             command = std::move(jointConfigurationCommand);
+        } else {
+            const auto factory = COMMAND_FACTORIES.find(typeAsString);
+            if (factory != COMMAND_FACTORIES.end()) {
+                command = factory->second(json["command"]);
+            }
         }
     }
 
@@ -122,6 +137,13 @@ namespace Raft {
 
     bool LogEntry::operator!=(const LogEntry& other) const {
         return (Json::Value)*this != (Json::Value)other;
+    }
+
+    void LogEntry::RegisterCommandType(
+        const std::string& type,
+        CommandFactory factory
+    ) {
+        COMMAND_FACTORIES[type] = factory;
     }
 
 }

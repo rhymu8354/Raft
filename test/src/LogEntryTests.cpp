@@ -276,3 +276,53 @@ TEST(LogEntryTests, CompareEqual) {
         }
     }
 }
+
+TEST(LogEntryTests, CustomCommand) {
+    // Arrange
+    struct PogChamp : public Raft::Command {
+        int payload = 0;
+        virtual std::string GetType() const override { return "PogChamp"; }
+        virtual Json::Value Encode() const override {
+            return Json::Object({
+                {"payload", payload},
+            });
+        }
+    };
+    const auto pogChampFactory = [](
+        const Json::Value& commandAsJson
+    ) {
+        const auto pogChamp = std::make_shared< PogChamp >();
+        pogChamp->payload = commandAsJson["payload"];
+        return pogChamp;
+    };
+
+    // Act
+    Raft::LogEntry::RegisterCommandType(
+        "PogChamp",
+        pogChampFactory
+    );
+    const auto pogChamp = std::make_shared< PogChamp >();
+    pogChamp->payload = 42;
+    Raft::LogEntry pogChampEntry;
+    pogChampEntry.term = 8;
+    pogChampEntry.command = pogChamp;
+    const Json::Value serializedPogChamp = pogChampEntry;
+    EXPECT_EQ(
+        Json::Object({
+            {"term", 8},
+            {"type", "PogChamp"},
+            {"command", Json::Object({
+                {"payload", 42},
+            })},
+        }),
+        serializedPogChamp
+    );
+    pogChampEntry = Raft::LogEntry(serializedPogChamp);
+
+    // Assert
+    EXPECT_EQ(8, pogChampEntry.term);
+    ASSERT_FALSE(pogChampEntry.command == nullptr);
+    EXPECT_EQ("PogChamp", pogChampEntry.command->GetType());
+    const auto command = std::static_pointer_cast< PogChamp >(pogChampEntry.command);
+    EXPECT_EQ(42, command->payload);
+}
