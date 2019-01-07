@@ -116,4 +116,12 @@ namespace Raft {
         return json;
     }
 
+    bool LogEntry::operator==(const LogEntry& other) const {
+        return (Json::Value)*this == (Json::Value)other;
+    }
+
+    bool LogEntry::operator!=(const LogEntry& other) const {
+        return (Json::Value)*this != (Json::Value)other;
+    }
+
 }

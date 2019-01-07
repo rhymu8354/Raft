@@ -216,3 +216,63 @@ TEST(LogEntryTests, FromJsonWithoutCommand) {
     EXPECT_EQ(9, entry.term);
     EXPECT_TRUE(entry.command == nullptr);
 }
+
+TEST(LogEntryTests, CompareEqual) {
+    // Arrange
+    std::vector< Raft::LogEntry > examples{
+        Json::Object({
+            {"type", "SingleConfiguration"},
+            {"term", 9},
+            {"command", Json::Object({
+                {"oldConfiguration", Json::Object({
+                    {"instanceIds", Json::Array({5, 42, 85, 8354, 13531})},
+                })},
+                {"configuration", Json::Object({
+                    {"instanceIds", Json::Array({42, 85, 8354, 13531})},
+                })},
+            })},
+        }),
+        Json::Object({
+            {"type", "SingleConfiguration"},
+            {"term", 8},
+            {"command", Json::Object({
+                {"oldConfiguration", Json::Object({
+                    {"instanceIds", Json::Array({5, 42, 85, 8354, 13531})},
+                })},
+                {"configuration", Json::Object({
+                    {"instanceIds", Json::Array({42, 85, 8354, 13531})},
+                })},
+            })},
+        }),
+        Json::Object({
+            {"type", "SingleConfiguration"},
+            {"term", 9},
+            {"command", Json::Object({
+                {"oldConfiguration", Json::Object({
+                    {"instanceIds", Json::Array({5, 42, 85, 8354, 13531})},
+                })},
+                {"configuration", Json::Object({
+                    {"instanceIds", Json::Array({5, 85, 8354, 13531})},
+                })},
+            })},
+        }),
+        Json::Object({
+            {"term", 8},
+        }),
+        Json::Object({
+            {"term", 9},
+        }),
+    };
+
+    // Act
+    const size_t numExamples = examples.size();
+    for (size_t i = 0; i < numExamples; ++i) {
+        for (size_t j = 0; j < numExamples; ++j) {
+            if (i == j) {
+                EXPECT_EQ(examples[i], examples[j]);
+            } else {
+                EXPECT_NE(examples[i], examples[j]);
+            }
+        }
+    }
+}

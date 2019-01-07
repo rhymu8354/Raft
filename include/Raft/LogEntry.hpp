@@ -117,6 +117,32 @@ namespace Raft {
          *     with the exact same contents as this log entry is returned.
          */
         operator Json::Value() const;
+
+        /**
+         * Compare this log entry with the given other log entry.
+         *
+         * @param[in] other
+         *     This is the other log entry with which to compare this
+         *     log entry.
+         *
+         * @return
+         *     An indication of whether or not the two log entries are equal
+         *     is returned.
+         */
+        bool operator==(const LogEntry& other) const;
+
+        /**
+         * Compare this log entry with the given other log entry.
+         *
+         * @param[in] other
+         *     This is the other log entry with which to compare this
+         *     log entry.
+         *
+         * @return
+         *     An indication of whether or not the two log entries are
+         *     not equal is returned.
+         */
+        bool operator!=(const LogEntry& other) const;
     };
 
 }
