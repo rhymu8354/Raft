@@ -144,6 +144,20 @@ namespace Raft {
             )
         >;
 
+        /**
+         * Declare the type of delegate used to announce that a single cluster
+         * configuration has been committed by the cluster.
+         *
+         * @param[in] newConfig
+         *     This is the new single cluster configuration committed by
+         *     the cluster.
+         */
+        using CommitConfigurationDelegate = std::function<
+            void(
+                const ClusterConfiguration& newConfig
+            )
+        >;
+
         // Methods
     public:
         /**
@@ -176,6 +190,16 @@ namespace Raft {
          *     cluster configuration is applied by the server.
          */
         virtual void SetApplyConfigurationDelegate(ApplyConfigurationDelegate applyConfigurationDelegate) = 0;
+
+        /**
+         * Set up a delegate to be called later whenever a single cluster
+         * configuration is committed to the cluster.
+         *
+         * @param[in] commitConfigurationDelegate
+         *     This is the delegate to be called later whenever a single
+         *     cluster configuration is committed to the cluster.
+         */
+        virtual void SetCommitConfigurationDelegate(CommitConfigurationDelegate commitConfigurationDelegate) = 0;
 
         /**
          * This method starts the server's worker thread.

@@ -176,6 +176,12 @@ namespace {
         std::queue< Raft::ClusterConfiguration > configAppliedAnnouncementsToBeSent;
 
         /**
+         * This holds cluster configuration committed announcements to be sent
+         * by the worker thread.
+         */
+        std::queue< Raft::ClusterConfiguration > configCommittedAnnouncementsToBeSent;
+
+        /**
          * If this is not nullptr, then the worker thread should set the result
          * once it executes a full loop.
          */
@@ -336,15 +342,16 @@ namespace {
     }
 
     /**
-     * This function sends the given leadership announcements, using the given
-     * delegate.
+     * This function sends the given configuration applied announcements, using
+     * the given delegate.
      *
-     * @param[in] leadershipChangeDelegate
-     *     This is the delegate to use to send leadership announcements.
+     * @param[in] applyConfigurationDelegate
+     *     This is the delegate to use to send configuration applied
+     *     announcements.
      *
-     * @param[in,out] leadershipAnnouncementsToBeSent
-     *     This holds the leadership announcements to be sent, and is consumed
-     *     by the function.
+     * @param[in,out] configAppliedAnnouncementsToBeSent
+     *     This holds the configuration applied announcements to be sent, and
+     *     is consumed by the function.
      */
     void SendConfigAppliedAnnouncements(
         Raft::IServer::ApplyConfigurationDelegate applyConfigurationDelegate,
@@ -356,6 +363,31 @@ namespace {
                 configAppliedAnnouncementToBeSent
             );
             configAppliedAnnouncementsToBeSent.pop();
+        }
+    }
+
+    /**
+     * This function sends the given configuration committed announcements,
+     * using the given delegate.
+     *
+     * @param[in] commitConfigurationDelegate
+     *     This is the delegate to use to send configuration committed
+     *     announcements.
+     *
+     * @param[in,out] configCommittedAnnouncementsToBeSent
+     *     This holds the configuration committed announcements to be sent,
+     *     and is consumed by the function.
+     */
+    void SendConfigCommittedAnnouncements(
+        Raft::IServer::ApplyConfigurationDelegate commitConfigurationDelegate,
+        std::queue< Raft::ClusterConfiguration >&& configCommittedAnnouncementsToBeSent
+    ) {
+        while (!configCommittedAnnouncementsToBeSent.empty()) {
+            const auto& configCommittedAnnouncementToBeSent = configCommittedAnnouncementsToBeSent.front();
+            commitConfigurationDelegate(
+                configCommittedAnnouncementToBeSent
+            );
+            configCommittedAnnouncementsToBeSent.pop();
         }
     }
 
@@ -419,6 +451,12 @@ namespace Raft {
          * cluster configuration is applied by the server.
          */
         ApplyConfigurationDelegate applyConfigurationDelegate;
+
+        /**
+         * This is the delegate to be called later whenever a single
+         * cluster configuration is applied by the server.
+         */
+        CommitConfigurationDelegate commitConfigurationDelegate;
 
         /**
          * This thread performs any background tasks required of the
@@ -591,6 +629,20 @@ namespace Raft {
             const ClusterConfiguration& newConfiguration
         ) {
             shared->configAppliedAnnouncementsToBeSent.push(newConfiguration);
+            workerAskedToStopOrWakeUp.notify_one();
+        }
+
+        /**
+         * Queue a configuration committed announcement message to be sent
+         * later.
+         *
+         * @param[in] newConfiguration
+         *     This is the new configuration that was committed.
+         */
+        void QueueConfigCommittedAnnouncement(
+            const ClusterConfiguration& newConfiguration
+        ) {
+            shared->configCommittedAnnouncementsToBeSent.push(newConfiguration);
             workerAskedToStopOrWakeUp.notify_one();
         }
 
@@ -897,6 +949,30 @@ namespace Raft {
         }
 
         /**
+         * Send any queued cluster configuration committed announcements.
+         *
+         * @param[in] lock
+         *     This is the object holding the mutex protecting the shared
+         *     properties of the server.
+         */
+        void SendQueuedConfigCommittedAnnouncements(
+            std::unique_lock< decltype(shared->mutex) >& lock
+        ) {
+            decltype(shared->configCommittedAnnouncementsToBeSent) configCommittedAnnouncementsToBeSent;
+            configCommittedAnnouncementsToBeSent.swap(shared->configCommittedAnnouncementsToBeSent);
+            if (commitConfigurationDelegate == nullptr) {
+                return;
+            }
+            auto commitConfigurationDelegateCopy = commitConfigurationDelegate;
+            lock.unlock();
+            SendConfigCommittedAnnouncements(
+                commitConfigurationDelegateCopy,
+                std::move(configCommittedAnnouncementsToBeSent)
+            );
+            lock.lock();
+        }
+
+        /**
          * This method is called to update the current cluster election term.
          *
          * @param[in] newTerm
@@ -1060,6 +1136,7 @@ namespace Raft {
                     ) {
                         RevertToFollower();
                     }
+                    QueueConfigCommittedAnnouncement(shared->clusterConfiguration);
                 } else if (commandType == "JointConfiguration") {
                     if (shared->electionState == ElectionState::Leader) {
                         const auto command = std::make_shared< SingleConfigurationCommand >();
@@ -1668,6 +1745,7 @@ namespace Raft {
             SendQueuedMessages(lock);
             SendQueuedLeadershipAnnouncements(lock);
             SendQueuedConfigAppliedAnnouncements(lock);
+            SendQueuedConfigCommittedAnnouncements(lock);
         }
 
         /**
@@ -1799,6 +1877,11 @@ namespace Raft {
     void Server::SetApplyConfigurationDelegate(ApplyConfigurationDelegate applyConfigurationDelegate) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->applyConfigurationDelegate = applyConfigurationDelegate;
+    }
+
+    void Server::SetCommitConfigurationDelegate(CommitConfigurationDelegate commitConfigurationDelegate) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->commitConfigurationDelegate = commitConfigurationDelegate;
     }
 
     void Server::Mobilize(

@@ -3944,3 +3944,46 @@ TEST_F(ServerTests, CallDelegateOnApplyConfiguration) {
         configApplied->instanceIds
     );
 }
+
+TEST_F(ServerTests, CallDelegateOnCommitConfiguration) {
+    // Arrange
+    constexpr int term = 5;
+    constexpr int leaderId = 5;
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {2, 6, 7, 12};
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    command->configuration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry entry;
+    entry.term = term;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    std::unique_ptr< Raft::ClusterConfiguration > configCommitted;
+    const auto onCommitConfiguration = [&configCommitted](
+        const Raft::ClusterConfiguration& newConfiguration
+    ) {
+        configCommitted.reset(new Raft::ClusterConfiguration(newConfiguration));
+    };
+    server.SetCommitConfigurationDelegate(onCommitConfiguration);
+    MobilizeServer();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntries;
+    message.appendEntries.term = term;
+    message.appendEntries.leaderCommit = 1;
+    message.appendEntries.prevLogIndex = 0;
+    message.appendEntries.prevLogTerm = 0;
+
+    // Act
+    EXPECT_TRUE(configCommitted == nullptr);
+    server.ReceiveMessage(message.Serialize(), leaderId);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_FALSE(configCommitted == nullptr);
+    EXPECT_EQ(
+        std::set< int >({2, 6, 7, 12}),
+        configCommitted->instanceIds
+    );
+}
