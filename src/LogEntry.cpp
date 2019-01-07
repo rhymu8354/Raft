@@ -13,10 +13,32 @@
 
 namespace {
 
-    /**
-     * This holds all registered command factories, keyed by command type.
-     */
-    std::map< std::string, Raft::LogEntry::CommandFactory > COMMAND_FACTORIES;
+    struct CommandFactories {
+        // Properties
+
+        /**
+         * This holds all registered command factories, keyed by command type.
+         */
+        std::map< std::string, Raft::LogEntry::CommandFactory > factoriesByType;
+
+        // Methods
+
+        /**
+         * This is the default constructor.
+         */
+        CommandFactories() {
+            factoriesByType["SingleConfiguration"] = [](
+                const Json::Value& commandAsJson
+            ) {
+                return std::make_shared< Raft::SingleConfigurationCommand >(commandAsJson);
+            };
+            factoriesByType["JointConfiguration"] = [](
+                const Json::Value& commandAsJson
+            ) {
+                return std::make_shared< Raft::JointConfigurationCommand >(commandAsJson);
+            };
+        }
+    } COMMAND_FACTORIES;
 
 }
 
@@ -98,21 +120,9 @@ namespace Raft {
     LogEntry::LogEntry(const Json::Value& json) {
         term = json["term"];
         const std::string typeAsString = json["type"];
-        if (typeAsString == "SingleConfiguration") {
-            const auto singleConfigurationCommand = std::make_shared< SingleConfigurationCommand >(
-                json["command"]
-            );
-            command = std::move(singleConfigurationCommand);
-        } else if (typeAsString == "JointConfiguration") {
-            const auto jointConfigurationCommand = std::make_shared< JointConfigurationCommand >(
-                json["command"]
-            );
-            command = std::move(jointConfigurationCommand);
-        } else {
-            const auto factory = COMMAND_FACTORIES.find(typeAsString);
-            if (factory != COMMAND_FACTORIES.end()) {
-                command = factory->second(json["command"]);
-            }
+        const auto factory = COMMAND_FACTORIES.factoriesByType.find(typeAsString);
+        if (factory != COMMAND_FACTORIES.factoriesByType.end()) {
+            command = factory->second(json["command"]);
         }
     }
 
@@ -143,7 +153,7 @@ namespace Raft {
         const std::string& type,
         CommandFactory factory
     ) {
-        COMMAND_FACTORIES[type] = factory;
+        COMMAND_FACTORIES.factoriesByType[type] = factory;
     }
 
 }
