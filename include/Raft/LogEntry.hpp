@@ -4,12 +4,13 @@
 /**
  * @file LogEntry.hpp
  *
- * This module declares the Raft::LogEntry implementation.
+ * This module declares the Raft::LogEntry structure.
  *
  * © 2018 by Richard Walters
  */
 
 #include "ClusterConfiguration.hpp"
+#include "Command.hpp"
 
 #include <functional>
 #include <Json/Value.hpp>
@@ -17,11 +18,6 @@
 #include <string>
 
 namespace Raft {
-
-    struct Command {
-        virtual std::string GetType() const = 0;
-        virtual Json::Value Encode() const = 0;
-    };
 
     struct SingleConfigurationCommand
         : public Command
