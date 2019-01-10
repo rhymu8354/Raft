@@ -70,6 +70,9 @@ namespace Raft {
          *
          * @param[in] commandAsJson
          *     This is the serialized form of the command to create.
+         *
+         * @return
+         *     The newly created command is returned.
          */
         using CommandFactory = std::function<
             std::shared_ptr< Command >(
