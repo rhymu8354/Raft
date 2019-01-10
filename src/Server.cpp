@@ -109,7 +109,7 @@ namespace {
         /**
          * This is used to synchronize access to the properties below.
          */
-        std::mutex mutex;
+        std::recursive_mutex mutex;
 
         /**
          * This holds all configuration items for the server cluster.
@@ -474,7 +474,7 @@ namespace Raft {
          * This is notified whenever the thread is asked to stop or to
          * wake up.
          */
-        std::condition_variable workerAskedToStopOrWakeUp;
+        std::condition_variable_any workerAskedToStopOrWakeUp;
 
         // Methods
 
