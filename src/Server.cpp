@@ -18,6 +18,7 @@
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
 #include <random>
+#include <sstream>
 #include <SystemAbstractions/CryptoRandom.hpp>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <thread>
@@ -290,6 +291,31 @@ namespace {
             case Raft::Server::ElectionState::Leader: return "Leader";
             default: return "???";
         }
+    }
+
+    /**
+     * This is the template for a function which builds and returns a
+     * human-readable string representation of a set of elements.
+     *
+     * @param[in] s
+     *     This is the set of elements to format as a string.
+     *
+     * @return
+     *     A human-readable representation of the given set is returned.
+     */
+    template< typename T > std::string FormatSet(const std::set< T >& s) {
+        std::ostringstream builder;
+        builder << '{';
+        bool first = true;
+        for (const auto& element: s) {
+            if (!first) {
+                builder << ", ";
+            }
+            first = false;
+            builder << element;
+        }
+        builder << '}';
+        return builder.str();
     }
 
     /**
@@ -758,13 +784,44 @@ namespace Raft {
             for (size_t i = instance.nextIndex; i <= shared->lastIndex; ++i) {
                 message.log.push_back(shared->logKeeper->operator[](i));
             }
-            shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                0,
-                "Sending log entries (%zu entries starting at %zu, term %u)",
-                message.log.size(),
-                instance.nextIndex,
-                shared->persistentStateCache.currentTerm
-            );
+            if (shared->lastIndex < instance.nextIndex) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    0,
+                    "Replicating log to server %d (0 entries starting at %zu, term %u)",
+                    instanceId,
+                    instance.nextIndex,
+                    shared->persistentStateCache.currentTerm
+                );
+            } else {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    2,
+                    "Replicating log to server %d (%zu entries starting at %zu, term %d)",
+                    instanceId,
+                    (size_t)(shared->lastIndex - instance.nextIndex + 1),
+                    instance.nextIndex,
+                    shared->persistentStateCache.currentTerm
+                );
+                for (size_t i = instance.nextIndex; i <= shared->lastIndex; ++i) {
+                    if (shared->logKeeper->operator[](i).command == nullptr) {
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            2,
+                            "Entry #%zu of %zu: term=%d, no-op",
+                            (size_t)(i - instance.nextIndex + 1),
+                            (size_t)(shared->lastIndex - instance.nextIndex + 1),
+                            shared->logKeeper->operator[](i).term
+                        );
+                    } else {
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            2,
+                            "Entry #%zu of %zu: term=%d, command: '%s'",
+                            (size_t)(i - instance.nextIndex + 1),
+                            (size_t)(shared->lastIndex - instance.nextIndex + 1),
+                            shared->logKeeper->operator[](i).term,
+                            shared->logKeeper->operator[](i).command->GetType().c_str()
+                        );
+                    }
+                }
+            }
             QueueMessageToBeSent(
                 message,
                 instanceId,
@@ -834,13 +891,43 @@ namespace Raft {
                 message.appendEntries.prevLogTerm = shared->logKeeper->operator[](message.appendEntries.prevLogIndex).term;
             }
             message.log = entries;
-            shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                0,
-                "Sending log entries (%zu entries starting at %zu, term %u)",
-                entries.size(),
-                message.appendEntries.prevLogIndex + 1,
-                shared->persistentStateCache.currentTerm
-            );
+            if (entries.empty()) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    0,
+                    "Sending log entries (%zu entries starting at %zu, term %u)",
+                    entries.size(),
+                    message.appendEntries.prevLogIndex + 1,
+                    shared->persistentStateCache.currentTerm
+                );
+            } else {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    2,
+                    "Sending log entries (%zu entries starting at %zu, term %d)",
+                    entries.size(),
+                    message.appendEntries.prevLogIndex + 1,
+                    shared->persistentStateCache.currentTerm
+                );
+                for (size_t i = 0; i < entries.size(); ++i) {
+                    if (entries[i].command == nullptr) {
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            2,
+                            "Entry #%zu of %zu: term=%d, no-op",
+                            (size_t)(i + 1),
+                            entries.size(),
+                            entries[i].term
+                        );
+                    } else {
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            2,
+                            "Entry #%zu of %zu: term=%d, command: '%s'",
+                            (size_t)(i + 1),
+                            entries.size(),
+                            entries[i].term,
+                            entries[i].command->GetType().c_str()
+                        );
+                    }
+                }
+            }
             for (auto instanceNumber: GetInstanceIds()) {
                 auto& instance = shared->instances[instanceNumber];
                 if (
@@ -1073,9 +1160,21 @@ namespace Raft {
                     const auto commandType = entry.command->GetType();
                     if (commandType == "SingleConfiguration") {
                         const auto command = std::static_pointer_cast< Raft::SingleConfigurationCommand >(entry.command);
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            3,
+                            "Rolling back single configuration -- from %s to %s",
+                            FormatSet(command->configuration.instanceIds).c_str(),
+                            FormatSet(command->oldConfiguration.instanceIds).c_str()
+                        );
                         ApplyConfiguration(command->oldConfiguration);
                     } else if (commandType == "JointConfiguration") {
                         const auto command = std::static_pointer_cast< Raft::JointConfigurationCommand >(entry.command);
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            3,
+                            "Rolling back joint configuration -- from %s to %s",
+                            FormatSet(command->newConfiguration.instanceIds).c_str(),
+                            FormatSet(command->oldConfiguration.instanceIds).c_str()
+                        );
                         ApplyConfiguration(command->oldConfiguration);
                     }
                 }
@@ -1115,6 +1214,14 @@ namespace Raft {
                 shared->logKeeper->GetSize()
             );
             if (newCommitIndexWeHave != shared->commitIndex) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    2,
+                    "Advancing commit index %zu -> %zu (leader has %zu, we have %zu)",
+                    shared->commitIndex,
+                    newCommitIndexWeHave,
+                    newCommitIndex,
+                    shared->logKeeper->GetSize()
+                );
                 shared->commitIndex = newCommitIndexWeHave;
                 shared->logKeeper->Commit(shared->commitIndex);
             }
@@ -1126,19 +1233,29 @@ namespace Raft {
                 const auto commandType = entry.command->GetType();
                 if (commandType == "SingleConfiguration") {
                     const auto command = std::static_pointer_cast< Raft::SingleConfigurationCommand >(entry.command);
-                    if (
-                        (shared->electionState == ElectionState::Leader)
-                        && (
+                    if (shared->electionState == ElectionState::Leader) {
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            3,
+                            "Single configuration committed: %s",
+                            FormatSet(command->configuration.instanceIds).c_str()
+                        );
+                        if (
                             shared->clusterConfiguration.instanceIds.find(
                                 shared->serverConfiguration.selfInstanceId
                             ) == shared->clusterConfiguration.instanceIds.end()
-                        )
-                    ) {
-                        RevertToFollower();
+                        ) {
+                            RevertToFollower();
+                        }
                     }
                     QueueConfigCommittedAnnouncement(shared->clusterConfiguration);
                 } else if (commandType == "JointConfiguration") {
                     if (shared->electionState == ElectionState::Leader) {
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            3,
+                            "Joint configuration committed; applying new configuration -- from %s to %s",
+                            FormatSet(shared->clusterConfiguration.instanceIds).c_str(),
+                            FormatSet(shared->nextClusterConfiguration.instanceIds).c_str()
+                        );
                         const auto command = std::make_shared< SingleConfigurationCommand >();
                         command->oldConfiguration = shared->clusterConfiguration;
                         command->configuration = shared->nextClusterConfiguration;
@@ -1177,6 +1294,12 @@ namespace Raft {
                 shared->configChangePending
                 && HaveNewServersCaughtUp()
             ) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    3,
+                    "Applying joint configuration -- from %s to %s",
+                    FormatSet(shared->clusterConfiguration.instanceIds).c_str(),
+                    FormatSet(shared->nextClusterConfiguration.instanceIds).c_str()
+                );
                 shared->configChangePending = false;
                 const auto command = std::make_shared< JointConfigurationCommand >();
                 command->oldConfiguration = shared->clusterConfiguration;
@@ -1447,16 +1570,48 @@ namespace Raft {
             std::vector< LogEntry >&& entries,
             int senderInstanceNumber
         ) {
-            shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                1,
-                "Received AppendEntries(%zu entries building on %zu from term %d) from server %d in term %d (we are in term %d)",
-                entries.size(),
-                messageDetails.prevLogIndex,
-                messageDetails.prevLogTerm,
-                senderInstanceNumber,
-                messageDetails.term,
-                shared->persistentStateCache.currentTerm
-            );
+            if (entries.empty()) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    0,
+                    "Received AppendEntries (heartbeat, last index %zu, term %d) from server %d in term %d (we are in term %d)",
+                    messageDetails.prevLogIndex,
+                    messageDetails.prevLogTerm,
+                    senderInstanceNumber,
+                    messageDetails.term,
+                    shared->persistentStateCache.currentTerm
+                );
+            } else {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    2,
+                    "Received AppendEntries (%zu entries building on %zu from term %d) from server %d in term %d (we are in term %d)",
+                    entries.size(),
+                    messageDetails.prevLogIndex,
+                    messageDetails.prevLogTerm,
+                    senderInstanceNumber,
+                    messageDetails.term,
+                    shared->persistentStateCache.currentTerm
+                );
+                for (size_t i = 0; i < entries.size(); ++i) {
+                    if (entries[i].command == nullptr) {
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            2,
+                            "Entry #%zu of %zu: term=%d, no-op",
+                            (size_t)(i + 1),
+                            entries.size(),
+                            entries[i].term
+                        );
+                    } else {
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            2,
+                            "Entry #%zu of %zu: term=%d, command: '%s'",
+                            (size_t)(i + 1),
+                            entries.size(),
+                            entries[i].term,
+                            entries[i].command->GetType().c_str()
+                        );
+                    }
+                }
+            }
             Message response;
             response.type = Message::Type::AppendEntriesResults;
             response.appendEntriesResults.term = shared->persistentStateCache.currentTerm;
@@ -1469,7 +1624,7 @@ namespace Raft {
             ) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     SystemAbstractions::DiagnosticsSender::Levels::ERROR,
-                    "Received AppendEntries(%zu entries building on %zu from term %d) from server %d in SAME term %d",
+                    "Received AppendEntries (%zu entries building on %zu from term %d) from server %d in SAME term %d",
                     entries.size(),
                     messageDetails.prevLogIndex,
                     messageDetails.prevLogTerm,
@@ -1972,6 +2127,12 @@ namespace Raft {
 
     void Server::ChangeConfiguration(const ClusterConfiguration& newConfiguration) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+            3,
+            "ChangeConfiguration -- from %s to %s",
+            FormatSet(impl_->shared->clusterConfiguration.instanceIds).c_str(),
+            FormatSet(newConfiguration.instanceIds).c_str()
+        );
         if (impl_->shared->electionState != ElectionState::Leader) {
             return;
         }
