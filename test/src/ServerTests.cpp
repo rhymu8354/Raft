@@ -2322,6 +2322,34 @@ TEST_F(ServerTests, LeaderAppendOlderEntriesAfterDiscoveringFollowerIsBehind) {
     EXPECT_EQ(secondEntry.term, messagesSent[0].message.log[0].term);
 }
 
+TEST_F(ServerTests, LeaderAppendOnlyLogEntryAfterDiscoveringFollowerHasNoLogAtAllNopeNoSirIAmNewPleaseForgiveMe) {
+    // Arrange
+    Raft::LogEntry entry;
+    entry.term = 3;
+    mockLog->entries.push_back(std::move(entry));
+    BecomeLeader(8);
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    messagesSent.clear();
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = 8;
+    message.appendEntriesResults.success = false;
+    message.appendEntriesResults.matchIndex = 0;
+    server.ReceiveMessage(message.Serialize(), 2);
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    ASSERT_EQ(1, messagesSent.size());
+    EXPECT_EQ(Raft::Message::Type::AppendEntries, messagesSent[0].message.type);
+    EXPECT_EQ(0, messagesSent[0].message.appendEntries.prevLogIndex);
+    EXPECT_EQ(0, messagesSent[0].message.appendEntries.prevLogTerm);
+    ASSERT_EQ(1, messagesSent[0].message.log.size());
+    EXPECT_EQ(entry.term, messagesSent[0].message.log[0].term);
+}
+
 TEST_F(ServerTests, AppendEntriesNotSentIfLastNotYetAcknowledged) {
     // Arrange
     Raft::LogEntry testEntry;
