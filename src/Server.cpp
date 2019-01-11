@@ -545,6 +545,14 @@ namespace Raft {
         }
 
         /**
+         * Set up the initial state for what we track about another server.
+         */
+        void InitializeInstanceInfo(InstanceInfo& instance) {
+            instance.nextIndex = shared->lastIndex + 1;
+            instance.matchIndex = 0;
+        }
+
+        /**
          * This method is called whenever a message is received from the
          * cluster leader, or when the server starts an election, or starts up
          * initially.  It samples the current time from the time keeper and
@@ -767,7 +775,16 @@ namespace Raft {
          *     to replicate log entries.
          */
         void AttemptLogReplication(int instanceId) {
-            if (shared->clusterConfiguration.instanceIds.find(instanceId) == shared->clusterConfiguration.instanceIds.end()) {
+            if (
+                (
+                    shared->clusterConfiguration.instanceIds.find(instanceId)
+                    == shared->clusterConfiguration.instanceIds.end()
+                )
+                && (
+                    shared->nextClusterConfiguration.instanceIds.find(instanceId)
+                    == shared->nextClusterConfiguration.instanceIds.end()
+                )
+            ) {
                 return;
             }
             auto& instance = shared->instances[instanceId];
@@ -1102,8 +1119,7 @@ namespace Raft {
             );
             for (auto instanceId: GetInstanceIds()) {
                 auto& instance = shared->instances[instanceId];
-                instance.nextIndex = shared->lastIndex + 1;
-                instance.matchIndex = 0;
+                InitializeInstanceInfo(instance);
             }
         }
 
@@ -1138,6 +1154,13 @@ namespace Raft {
             shared->jointConfiguration.reset(new ClusterConfiguration(clusterConfiguration));
             for (auto instanceId: nextClusterConfiguration.instanceIds) {
                 (void)shared->jointConfiguration->instanceIds.insert(instanceId);
+                if (
+                    (shared->electionState == ElectionState::Leader)
+                    && (shared->instances.find(instanceId) == shared->instances.end())
+                ) {
+                    auto& instance = shared->instances[instanceId];
+                    InitializeInstanceInfo(instance);
+                }
             }
             OnSetClusterConfiguration();
         }
@@ -1706,12 +1729,14 @@ namespace Raft {
             const Message::AppendEntriesResultsDetails& messageDetails,
             int senderInstanceNumber
         ) {
+            auto& instance = shared->instances[senderInstanceNumber];
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
-                "Received AppendEntriesResults(%s, term %d, match %d) from server %d (we are %s in term %d)",
+                "Received AppendEntriesResults(%s, term %d, match %zu, next %zu) from server %d (we are %s in term %d)",
                 (messageDetails.success ? "success" : "failure"),
                 messageDetails.term,
                 messageDetails.matchIndex,
+                instance.nextIndex,
                 senderInstanceNumber,
                 ElectionStateToString(shared->electionState).c_str(),
                 shared->persistentStateCache.currentTerm
@@ -1723,7 +1748,6 @@ namespace Raft {
             if (shared->electionState != ElectionState::Leader) {
                 return;
             }
-            auto& instance = shared->instances[senderInstanceNumber];
             instance.awaitingResponse = false;
             if (messageDetails.success) {
                 instance.matchIndex = messageDetails.matchIndex;
@@ -1736,8 +1760,8 @@ namespace Raft {
                 // from the results.
                 if (instance.nextIndex > 1) {
                     --instance.nextIndex;
-                    AttemptLogReplication(senderInstanceNumber);
                 }
+                AttemptLogReplication(senderInstanceNumber);
             }
             std::map< size_t, size_t > indexMatchCountsOldServers;
             std::map< size_t, size_t > indexMatchCountsNewServers;

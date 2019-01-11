@@ -3071,6 +3071,60 @@ TEST_F(ServerTests, StepDownFromLeadershipOnceSingleConfigCommittedAndNotInClust
     // Assert
 }
 
+TEST_F(ServerTests, SendCorrectHeartBeatToNewServersOnceJointConfigApplied) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    constexpr int term = 6;
+    BecomeLeader(term);
+    auto command = std::make_shared< Raft::JointConfigurationCommand >();
+    command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    command->newConfiguration.instanceIds = {2, 5, 6, 7, 11, 12};
+    Raft::LogEntry entry;
+    entry.term = term;
+    entry.command = std::move(command);
+    messagesSent.clear();
+
+    // Act
+    server.AppendLogEntries({entry});
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    bool newServerReceivedHeartBeat = false;
+    for (const auto& messageSent: messagesSent) {
+        if (
+            (messageSent.message.type == Raft::Message::Type::AppendEntries)
+            && (messageSent.receiverInstanceNumber == 12)
+        ) {
+            messagesSent.clear();
+            newServerReceivedHeartBeat = true;
+            Raft::Message message;
+            message.type = Raft::Message::Type::AppendEntriesResults;
+            message.appendEntriesResults.term = term;
+            message.appendEntriesResults.success = false;
+            message.appendEntriesResults.matchIndex = 0;
+            server.ReceiveMessage(message.Serialize(), 12);
+            server.WaitForAtLeastOneWorkerLoop();
+            break;
+        }
+    }
+    ASSERT_TRUE(newServerReceivedHeartBeat);
+    bool newServerReceivedLog = false;
+    for (const auto& messageSent: messagesSent) {
+        if (
+            (messageSent.message.type == Raft::Message::Type::AppendEntries)
+            && (messageSent.receiverInstanceNumber == 12)
+        ) {
+            newServerReceivedLog = true;
+            EXPECT_EQ(0, messageSent.message.appendEntries.prevLogIndex);
+            ASSERT_EQ(1, messageSent.message.log.size());
+            EXPECT_EQ(entry, messageSent.message.log[0]);
+        }
+    }
+    EXPECT_TRUE(newServerReceivedLog);
+}
+
 TEST_F(ServerTests, VotingMemberFromBothConfigsJointConfig) {
     // Arrange
     clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
@@ -3863,25 +3917,6 @@ TEST_F(ServerTests, NewLeaderShouldSentHeartBeatsImmediately) {
             EXPECT_TRUE(heartbeatReceivedPerInstance[instanceNumber]);
         }
     }
-}
-
-TEST_F(ServerTests, DoNotRetryAppendEntriesForMisbehavingFollowerWhoDoesNotEvenAcceptEmptyLog) {
-    // Arrange
-    constexpr int term = 8;
-    BecomeLeader(term, false);
-
-    // Act
-    messagesSent.clear();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = term;
-    message.appendEntriesResults.success = false;
-    message.appendEntriesResults.matchIndex = 0;
-    server.ReceiveMessage(message.Serialize(), 2);
-    server.WaitForAtLeastOneWorkerLoop();
-
-    // Assert
-    EXPECT_TRUE(messagesSent.empty());
 }
 
 TEST_F(ServerTests, RemobilizeShouldClearJointConfigurationState) {
