@@ -3519,6 +3519,38 @@ TEST_F(ServerTests, ApplyNewConfigurationOnceJointConfigurationCommitted) {
     }
 }
 
+TEST_F(ServerTests, JointConfigurationShouldBeCommittedIfMajorityAchievedByCommonServerRespondingLast) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {2, 5, 7};
+    const std::set< int > newConfigurationNotIncludingSelfInstanceIds = {5, 7};
+    const std::set< int > jointConfigurationNotIncludingSelfInstanceIds = {5, 6, 7};
+    auto command = std::make_shared< Raft::JointConfigurationCommand >();
+    command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    command->newConfiguration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry entry;
+    entry.term = term;
+    entry.command = std::move(command);
+    mockLog->entries = {entry};
+    BecomeLeader(term, false);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = term;
+    message.appendEntriesResults.success = true;
+    message.appendEntriesResults.matchIndex = 1;
+    server.ReceiveMessage(message.Serialize(), 7);
+    server.ReceiveMessage(message.Serialize(), 6);
+
+    // Act
+    server.ReceiveMessage(message.Serialize(), 5);
+
+    // Assert
+    EXPECT_EQ(1, server.GetCommitIndex());
+}
+
 TEST_F(ServerTests, LeaderStepsDownIfNotInNewConfigurationOnceItIsCommitted) {
     // Arrange
     constexpr int term = 5;

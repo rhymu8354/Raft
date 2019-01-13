@@ -1771,13 +1771,13 @@ namespace Raft {
                     continue;
                 }
                 if (
-                    shared->clusterConfiguration.instanceIds.find(senderInstanceNumber)
+                    shared->clusterConfiguration.instanceIds.find(instanceId)
                     != shared->clusterConfiguration.instanceIds.end()
                 ) {
                     ++indexMatchCountsOldServers[instance.matchIndex];
                 }
                 if (
-                    shared->nextClusterConfiguration.instanceIds.find(senderInstanceNumber)
+                    shared->nextClusterConfiguration.instanceIds.find(instanceId)
                     != shared->nextClusterConfiguration.instanceIds.end()
                 ) {
                     ++indexMatchCountsNewServers[instance.matchIndex];
