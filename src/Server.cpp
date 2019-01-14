@@ -1107,6 +1107,7 @@ namespace Raft {
          * or started once the server becomes the leader of the cluster.
          */
         void AssumeLeadership() {
+            ResetRetransmissionState();
             shared->electionState = IServer::ElectionState::Leader;
             shared->sentHeartBeats = false;
             shared->diagnosticsSender.SendDiagnosticInformationString(
