@@ -4082,3 +4082,46 @@ TEST_F(ServerTests, CallDelegateOnCommitConfiguration) {
         configCommitted->instanceIds
     );
 }
+
+TEST_F(ServerTests, VoteAfterElectionShouldNotPreventAppendEntriesRetransmission) {
+    // Arrange
+    serverConfiguration.selfInstanceId = 2;
+    MobilizeServer();
+    WaitForElectionTimeout();
+    Raft::Message message;
+    message.type = Raft::Message::Type::RequestVoteResults;
+    message.requestVoteResults.term = 1;
+    message.requestVoteResults.voteGranted = true;
+
+    // Act
+    for (auto instance: clusterConfiguration.instanceIds) {
+        if (
+            (instance != serverConfiguration.selfInstanceId)
+            && (instance != 11)
+        ) {
+            server.ReceiveMessage(message.Serialize(), instance);
+        }
+    }
+    mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Act
+    message.type = Raft::Message::Type::RequestVoteResults;
+    message.requestVoteResults.term = 1;
+    message.requestVoteResults.voteGranted = false;
+    server.ReceiveMessage(message.Serialize(), 11);
+    server.WaitForAtLeastOneWorkerLoop();
+    messagesSent.clear();
+    mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout + 0.001;
+    server.WaitForAtLeastOneWorkerLoop();
+
+    // Assert
+    bool retransmissionSentToServer11 = false;
+    for (const auto messageInfo: messagesSent) {
+        if (messageInfo.receiverInstanceNumber == 11) {
+            retransmissionSentToServer11 = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(retransmissionSentToServer11);
+}
