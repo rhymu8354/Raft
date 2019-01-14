@@ -641,7 +641,7 @@ namespace Raft {
         ) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 3,
-                "Server %d is now the leader in term %u",
+                "Server %d is now the leader in term %d",
                 leaderId,
                 term
             );
@@ -720,7 +720,7 @@ namespace Raft {
             ResetRetransmissionState();
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 2,
-                "Timeout -- starting new election (term %u)",
+                "Timeout -- starting new election (term %d)",
                 shared->persistentStateCache.currentTerm
             );
         }
@@ -804,7 +804,7 @@ namespace Raft {
             if (shared->lastIndex < instance.nextIndex) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     0,
-                    "Replicating log to server %d (0 entries starting at %zu, term %u)",
+                    "Replicating log to server %d (0 entries starting at %zu, term %d)",
                     instanceId,
                     instance.nextIndex,
                     shared->persistentStateCache.currentTerm
@@ -866,7 +866,7 @@ namespace Raft {
             }
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
-                "Sending heartbeat (term %u)",
+                "Sending heartbeat (term %d)",
                 shared->persistentStateCache.currentTerm
             );
             for (auto instanceNumber: GetInstanceIds()) {
@@ -911,7 +911,7 @@ namespace Raft {
             if (entries.empty()) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     0,
-                    "Sending log entries (%zu entries starting at %zu, term %u)",
+                    "Sending log entries (%zu entries starting at %zu, term %d)",
                     entries.size(),
                     message.appendEntries.prevLogIndex + 1,
                     shared->persistentStateCache.currentTerm
@@ -1414,7 +1414,7 @@ namespace Raft {
             if (shared->persistentStateCache.currentTerm > messageDetails.term) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
-                    "Rejecting vote for server %d (old term %u < %u)",
+                    "Rejecting vote for server %d (old term %d < %d)",
                     senderInstanceNumber,
                     messageDetails.term,
                     shared->persistentStateCache.currentTerm
@@ -1426,7 +1426,7 @@ namespace Raft {
             ) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
-                    "Rejecting vote for server %d (already voted for %u for term %u -- we were in term %u)",
+                    "Rejecting vote for server %d (already voted for %u for term %d -- we were in term %d)",
                     senderInstanceNumber,
                     shared->persistentStateCache.votedFor,
                     messageDetails.term,
@@ -1453,7 +1453,7 @@ namespace Raft {
             } else {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
-                    "Voting for server %d for term %u (we were in term %u)",
+                    "Voting for server %d for term %d (we were in term %d)",
                     senderInstanceNumber,
                     messageDetails.term,
                     termBeforeMessageProcessed
@@ -1484,7 +1484,7 @@ namespace Raft {
             if (messageDetails.term > shared->persistentStateCache.currentTerm) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
-                    "Vote result from server %d in term %u when in term %u; reverted to follower",
+                    "Vote result from server %d in term %d when in term %d; reverted to follower",
                     senderInstanceNumber,
                     messageDetails.term,
                     shared->persistentStateCache.currentTerm
@@ -1497,7 +1497,7 @@ namespace Raft {
             if (messageDetails.term < shared->persistentStateCache.currentTerm) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
-                    "Stale vote from server %d in term %u ignored",
+                    "Stale vote from server %d in term %d ignored",
                     senderInstanceNumber,
                     messageDetails.term
                 );
@@ -1520,7 +1520,7 @@ namespace Raft {
                         }
                         shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                             1,
-                            "Server %d voted for us in term %u (%zu/%zu + %zu/%zu)",
+                            "Server %d voted for us in term %d (%zu/%zu + %zu/%zu)",
                             senderInstanceNumber,
                             shared->persistentStateCache.currentTerm,
                             shared->votesForUsCurrentConfig,
@@ -1531,7 +1531,7 @@ namespace Raft {
                     } else {
                         shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                             1,
-                            "Server %d voted for us in term %u (%zu/%zu)",
+                            "Server %d voted for us in term %d (%zu/%zu)",
                             senderInstanceNumber,
                             shared->persistentStateCache.currentTerm,
                             shared->votesForUsCurrentConfig,
@@ -1558,7 +1558,7 @@ namespace Raft {
                 } else {
                     shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                         1,
-                        "Repeat vote from server %d in term %u ignored",
+                        "Repeat vote from server %d in term %d ignored",
                         senderInstanceNumber,
                         messageDetails.term
                     );
@@ -1566,7 +1566,7 @@ namespace Raft {
             } else {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
-                    "Server %d refused to voted for us in term %u",
+                    "Server %d refused to voted for us in term %d",
                     senderInstanceNumber,
                     shared->persistentStateCache.currentTerm
                 );
