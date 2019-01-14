@@ -170,6 +170,18 @@ namespace Raft {
         bool HasJointConfiguration() const;
 
         /**
+         * Return the unique identifier of the server leading the cluster.
+         *
+         * @return
+         *     The unique identifier of the server leading the cluster
+         *     is returned.
+         *
+         * @retval 0
+         *     This is returned if the cluster leader is unknown.
+         */
+        int GetClusterLeaderId() const;
+
+        /**
          * This method puts the server back into the state it was in when
          * first mobilized.
          */
