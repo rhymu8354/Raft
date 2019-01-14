@@ -219,6 +219,11 @@ namespace {
         bool thisTermLeaderAnnounced = false;
 
         /**
+         * This is the unique identifier of the cluster leader, if known.
+         */
+        int leaderId = 0;
+
+        /**
          * During an election, this is the number of votes we have received
          * for ourselves amongst the servers in the current configuration.
          */
@@ -1109,6 +1114,8 @@ namespace Raft {
         void AssumeLeadership() {
             ResetRetransmissionState();
             shared->electionState = IServer::ElectionState::Leader;
+            shared->thisTermLeaderAnnounced = true;
+            shared->leaderId = shared->serverConfiguration.selfInstanceId;
             shared->sentHeartBeats = false;
             shared->diagnosticsSender.SendDiagnosticInformationString(
                 3,
@@ -1673,6 +1680,7 @@ namespace Raft {
                     UpdateCurrentTerm(messageDetails.term);
                     if (!shared->thisTermLeaderAnnounced) {
                         shared->thisTermLeaderAnnounced = true;
+                        shared->leaderId = senderInstanceNumber;
                         QueueLeadershipChangeAnnouncement(
                             senderInstanceNumber,
                             shared->persistentStateCache.currentTerm
@@ -2051,6 +2059,15 @@ namespace Raft {
     bool Server::HasJointConfiguration() const {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         return (impl_->shared->jointConfiguration != nullptr);
+    }
+
+    int Server::GetClusterLeaderId() const {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        if (impl_->shared->thisTermLeaderAnnounced) {
+            return impl_->shared->leaderId;
+        } else {
+            return 0;
+        }
     }
 
     void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
