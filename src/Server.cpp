@@ -1481,6 +1481,15 @@ namespace Raft {
             const Message::RequestVoteResultsDetails& messageDetails,
             int senderInstanceNumber
         ) {
+            if (shared->electionState != ElectionState::Candidate) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1,
+                    "Stale vote from server %d in term %d ignored",
+                    senderInstanceNumber,
+                    messageDetails.term
+                );
+                return;
+            }
             if (messageDetails.term > shared->persistentStateCache.currentTerm) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
