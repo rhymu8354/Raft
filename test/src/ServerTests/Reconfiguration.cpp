@@ -1,5 +1,5 @@
 /**
- * @file ReconfigurationTests.cpp
+ * @file Reconfiguration.cpp
  *
  * This module contains the unit tests of the Raft::Server class that have to
  * do with the reconfiguration process/aspects of the Raft Consensus algorithm.

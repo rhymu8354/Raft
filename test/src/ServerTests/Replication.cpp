@@ -1,5 +1,5 @@
 /**
- * @file ReplicationTests.cpp
+ * @file Replication.cpp
  *
  * This module contains the unit tests of the Raft::Server class that have
  * to do with replicating server state across the entire cluster.

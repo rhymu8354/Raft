@@ -1,5 +1,5 @@
 /**
- * @file Election.cpp
+ * @file Elections.cpp
  *
  * This module contains the unit tests of the Raft::Server class that have
  * to do with the election process/aspects of the Raft Consensus algorithm.
