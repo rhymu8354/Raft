@@ -3047,6 +3047,48 @@ TEST_F(ServerTests, ApplyNewConfigurationOnceJointConfigurationCommitted) {
     }
 }
 
+TEST_F(ServerTests, DoNotApplySingleConfigurationWhenJointConfigurationCommittedIfSingleConfigurationAlreadyApplied) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {2, 5, 6, 7, 12};
+    const std::set< int > newConfigurationNotIncludingSelfInstanceIds = {5, 6, 7, 12};
+    const std::set< int > jointConfigurationNotIncludingSelfInstanceIds = {5, 6, 7, 11, 12};
+    auto jointConfigCommand = std::make_shared< Raft::JointConfigurationCommand >();
+    jointConfigCommand->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    jointConfigCommand->newConfiguration.instanceIds = newConfiguration.instanceIds;
+    auto singleConfigCommand = std::make_shared< Raft::SingleConfigurationCommand >();
+    singleConfigCommand->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    singleConfigCommand->configuration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry jointConfigEntry, singleConfigEntry;
+    jointConfigEntry.term = term;
+    jointConfigEntry.command = std::move(jointConfigCommand);
+    singleConfigEntry.term = term;
+    singleConfigEntry.command = std::move(singleConfigCommand);
+    mockLog->entries = {std::move(jointConfigEntry), std::move(singleConfigEntry)};
+    BecomeLeader(term, false);
+
+    // Act
+    for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
+        if (instanceNumber == serverConfiguration.selfInstanceId) {
+            continue;
+        }
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntriesResults;
+        message.appendEntriesResults.term = term;
+        message.appendEntriesResults.success = true;
+        message.appendEntriesResults.matchIndex = 1;
+        server.ReceiveMessage(message.Serialize(), instanceNumber);
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+    messagesSent.clear();
+
+    // Assert
+    EXPECT_EQ(2, mockLog->entries.size());
+}
+
 TEST_F(ServerTests, JointConfigurationShouldBeCommittedIfMajorityAchievedByCommonServerRespondingLast) {
     // Arrange
     constexpr int term = 5;

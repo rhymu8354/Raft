@@ -1232,6 +1232,33 @@ namespace Raft {
         }
 
         /**
+         * Determine whether or not there is a command of the given type
+         * anywhere in the log from the given index to the end.
+         *
+         * @param[in] type
+         *     This is the type of command for which to search.
+         *
+         * @param[in] index
+         *     This is the starting index for which to search for the command.
+         *
+         * @return
+         *     An indication of whether or not a command of the given type
+         *     is anywhere in the log from the given index to the end
+         *     is returned.
+         */
+        bool IsCommandApplied(
+            const std::string& type,
+            size_t index
+        ) {
+            while (index <= shared->lastIndex) {
+                if (shared->logKeeper->operator[](index++).command->GetType() == type) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
          * Update the commit index of the log, processing all log entries
          * between the previous commit index and the new commit index.
          *
@@ -1280,7 +1307,13 @@ namespace Raft {
                     }
                     QueueConfigCommittedAnnouncement(shared->clusterConfiguration);
                 } else if (commandType == "JointConfiguration") {
-                    if (shared->electionState == ElectionState::Leader) {
+                    if (
+                        (shared->electionState == ElectionState::Leader)
+                        && !IsCommandApplied(
+                            "SingleConfiguration",
+                            i + 1
+                        )
+                    ) {
                         shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                             3,
                             "Joint configuration committed; applying new configuration -- from %s to %s",
