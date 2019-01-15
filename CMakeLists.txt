@@ -14,13 +14,23 @@ set(Headers
     include/Raft/LogEntry.hpp
     include/Raft/Server.hpp
     include/Raft/TimeKeeper.hpp
+    src/ConfigCommittedAnnouncement.hpp
+    src/InstanceInfo.hpp
+    src/LeadershipAnnouncement.hpp
     src/Message.hpp
+    src/MessageToBeSent.hpp
+    src/ServerImpl.hpp
+    src/ServerSharedProperties.hpp
+    src/Utilities.hpp
 )
 
 set(Sources
     src/LogEntry.cpp
     src/Message.cpp
     src/Server.cpp
+    src/ServerImpl.cpp
+    src/ServerSharedProperties.cpp
+    src/Utilities.cpp
 )
 
 add_library(${This} STATIC ${Sources} ${Headers})
