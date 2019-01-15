@@ -645,7 +645,7 @@ namespace Raft {
             int term
         ) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                3,
+                2,
                 "Server %d is now the leader in term %d",
                 leaderId,
                 term
@@ -724,7 +724,7 @@ namespace Raft {
             }
             ResetRetransmissionState();
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                2,
+                3,
                 "Timeout -- starting new election (term %d)",
                 shared->persistentStateCache.currentTerm
             );
