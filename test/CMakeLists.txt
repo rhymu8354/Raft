@@ -6,9 +6,13 @@ cmake_minimum_required(VERSION 3.8)
 set(This RaftTests)
 
 set(Sources
+    src/ServerTests/Common.cpp
+    src/ServerTests/Common.hpp
+    src/ServerTests/Election.cpp
+    src/ServerTests/Reconfiguration.cpp
+    src/ServerTests/Replication.cpp
     src/LogEntryTests.cpp
     src/MessageTests.cpp
-    src/ServerTests.cpp
 )
 
 add_executable(${This} ${Sources})
