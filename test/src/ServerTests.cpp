@@ -2483,6 +2483,28 @@ TEST_F(ServerTests, ApplyConfigVotingMemberSingleConfigOnStartup) {
     EXPECT_TRUE(server.IsVotingMember());
 }
 
+TEST_F(ServerTests, DoNotCrashWhenCommittingSingleConfigFollowedByNoOp) {
+    // Arrange
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    serverConfiguration.selfInstanceId = 2;
+    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
+    command->configuration.instanceIds = {2, 5, 6, 7};
+    Raft::LogEntry firstEntry;
+    firstEntry.term = 6;
+    firstEntry.command = std::move(command);
+    Raft::LogEntry secondEntry;
+    secondEntry.term = 6;
+    mockLog->entries = {
+        std::move(firstEntry),
+        std::move(secondEntry)
+    };
+
+    // Act
+    BecomeLeader(6);
+
+    // Assert
+}
+
 TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigOnStartup) {
     // Arrange
     clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};

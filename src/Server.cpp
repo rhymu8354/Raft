@@ -1252,7 +1252,11 @@ namespace Raft {
             size_t index
         ) {
             while (index <= shared->lastIndex) {
-                if (shared->logKeeper->operator[](index++).command->GetType() == type) {
+                const auto command = shared->logKeeper->operator[](index++).command;
+                if (
+                    (command != nullptr)
+                    && (command->GetType() == type)
+                ) {
                     return true;
                 }
             }
