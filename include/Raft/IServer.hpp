@@ -18,6 +18,7 @@
 #include <memory>
 #include <ostream>
 #include <set>
+#include <stddef.h>
 #include <string>
 #include <vector>
 
@@ -151,10 +152,15 @@ namespace Raft {
          * @param[in] newConfig
          *     This is the new single cluster configuration committed by
          *     the cluster.
+         *
+         * @param[in] logIndex
+         *     This is the index of the log at the point where the cluster
+         *     configuration was committed.
          */
         using CommitConfigurationDelegate = std::function<
             void(
-                const ClusterConfiguration& newConfig
+                const ClusterConfiguration& newConfig,
+                size_t logIndex
             )
         >;
 

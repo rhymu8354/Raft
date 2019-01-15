@@ -95,6 +95,24 @@ namespace {
     };
 
     /**
+     * This holds information used to store a configuration committed
+     * announcement to be sent later.
+     */
+    struct ConfigCommittedAnnouncementToBeSent {
+        /**
+         * This is the new single cluster configuration committed by
+         * the cluster.
+         */
+        Raft::ClusterConfiguration newConfig;
+
+        /**
+         * This is the index of the log at the point where the cluster
+         * configuration was committed.
+         */
+        size_t logIndex = 0;
+    };
+
+    /**
      * This contains the private properties of a Server class instance
      * that may live longer than the Server class instance itself.
      */
@@ -180,7 +198,7 @@ namespace {
          * This holds cluster configuration committed announcements to be sent
          * by the worker thread.
          */
-        std::queue< Raft::ClusterConfiguration > configCommittedAnnouncementsToBeSent;
+        std::queue< ConfigCommittedAnnouncementToBeSent > configCommittedAnnouncementsToBeSent;
 
         /**
          * If this is not nullptr, then the worker thread should set the result
@@ -410,13 +428,14 @@ namespace {
      *     and is consumed by the function.
      */
     void SendConfigCommittedAnnouncements(
-        Raft::IServer::ApplyConfigurationDelegate commitConfigurationDelegate,
-        std::queue< Raft::ClusterConfiguration >&& configCommittedAnnouncementsToBeSent
+        Raft::IServer::CommitConfigurationDelegate commitConfigurationDelegate,
+        std::queue< ConfigCommittedAnnouncementToBeSent >&& configCommittedAnnouncementsToBeSent
     ) {
         while (!configCommittedAnnouncementsToBeSent.empty()) {
             const auto& configCommittedAnnouncementToBeSent = configCommittedAnnouncementsToBeSent.front();
             commitConfigurationDelegate(
-                configCommittedAnnouncementToBeSent
+                configCommittedAnnouncementToBeSent.newConfig,
+                configCommittedAnnouncementToBeSent.logIndex
             );
             configCommittedAnnouncementsToBeSent.pop();
         }
@@ -677,11 +696,19 @@ namespace Raft {
          *
          * @param[in] newConfiguration
          *     This is the new configuration that was committed.
+         *
+         * @param[in] logIndex
+         *     This is the index of the log at the point where the cluster
+         *     configuration was committed.
          */
         void QueueConfigCommittedAnnouncement(
-            const ClusterConfiguration& newConfiguration
+            const ClusterConfiguration& newConfiguration,
+            size_t logIndex
         ) {
-            shared->configCommittedAnnouncementsToBeSent.push(newConfiguration);
+            ConfigCommittedAnnouncementToBeSent announcement;
+            announcement.newConfig = newConfiguration;
+            announcement.logIndex = logIndex;
+            shared->configCommittedAnnouncementsToBeSent.push(std::move(announcement));
             workerAskedToStopOrWakeUp.notify_one();
         }
 
@@ -1315,7 +1342,10 @@ namespace Raft {
                         ) {
                             RevertToFollower();
                         }
-                        QueueConfigCommittedAnnouncement(shared->clusterConfiguration);
+                        QueueConfigCommittedAnnouncement(
+                            shared->clusterConfiguration,
+                            i
+                        );
                     }
                 } else if (commandType == "JointConfiguration") {
                     if (

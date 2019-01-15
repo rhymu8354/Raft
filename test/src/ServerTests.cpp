@@ -3654,10 +3654,16 @@ TEST_F(ServerTests, CallDelegateOnCommitConfiguration) {
         std::move(singleConfigEntry)
     };
     std::unique_ptr< Raft::ClusterConfiguration > configCommitted;
-    const auto onCommitConfiguration = [&configCommitted](
-        const Raft::ClusterConfiguration& newConfiguration
+    size_t commitLogIndex = 0;
+    const auto onCommitConfiguration = [
+        &configCommitted,
+        &commitLogIndex
+    ](
+        const Raft::ClusterConfiguration& newConfiguration,
+        size_t logIndex
     ) {
         configCommitted.reset(new Raft::ClusterConfiguration(newConfiguration));
+        commitLogIndex = logIndex;
     };
     server.SetCommitConfigurationDelegate(onCommitConfiguration);
     BecomeLeader(term, false);
@@ -3678,6 +3684,7 @@ TEST_F(ServerTests, CallDelegateOnCommitConfiguration) {
 
     // Assert
     ASSERT_FALSE(configCommitted == nullptr);
+    EXPECT_EQ(2, commitLogIndex);
     EXPECT_EQ(
         std::set< int >({2, 6, 7, 12}),
         configCommitted->instanceIds
@@ -3711,7 +3718,8 @@ TEST_F(ServerTests, DoNotCallCommitConfigurationDelegateWhenReplayingOldSingleCo
     };
     bool configCommitted = false;
     const auto onCommitConfiguration = [&configCommitted](
-        const Raft::ClusterConfiguration& newConfiguration
+        const Raft::ClusterConfiguration& newConfiguration,
+        size_t logIndex
     ) {
         configCommitted = true;
     };
