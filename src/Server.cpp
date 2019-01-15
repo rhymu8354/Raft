@@ -2211,15 +2211,15 @@ namespace Raft {
 
     void Server::ChangeConfiguration(const ClusterConfiguration& newConfiguration) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        if (impl_->shared->electionState != ElectionState::Leader) {
+            return;
+        }
         impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
             3,
             "ChangeConfiguration -- from %s to %s",
             FormatSet(impl_->shared->clusterConfiguration.instanceIds).c_str(),
             FormatSet(newConfiguration.instanceIds).c_str()
         );
-        if (impl_->shared->electionState != ElectionState::Leader) {
-            return;
-        }
         impl_->shared->configChangePending = true;
         impl_->shared->catchUpIndex = impl_->shared->commitIndex;
         impl_->ApplyConfiguration(
