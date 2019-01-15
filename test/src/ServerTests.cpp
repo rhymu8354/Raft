@@ -208,6 +208,11 @@ struct ServerTests
     std::shared_ptr< MockLog > mockLog = std::make_shared< MockLog >();
     std::shared_ptr< MockPersistentState > mockPersistentState = std::make_shared< MockPersistentState >();
     std::vector< MessageInfo > messagesSent;
+    bool leadershipChangeAnnounced = false;
+    struct {
+        int leaderId = 0;
+        int term = 0;
+    } leadershipChangeDetails;
 
     // Methods
 
@@ -442,6 +447,16 @@ struct ServerTests
                 int receiverInstanceNumber
             ){
                 ServerSentMessage(message, receiverInstanceNumber);
+            }
+        );
+        server.SetLeadershipChangeDelegate(
+            [this](
+                int leaderId,
+                int term
+            ){
+                leadershipChangeAnnounced = true;
+                leadershipChangeDetails.leaderId = leaderId;
+                leadershipChangeDetails.term = term;
             }
         );
     }
@@ -1462,24 +1477,6 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermRequestVoteRes
 
 TEST_F(ServerTests, LeadershipGainAnnouncement) {
     // Arrange
-    bool leadershipChangeAnnounced = false;
-    struct {
-        int leaderId = 0;
-        int term = 0;
-    } leadershipChangeDetails;
-    server.SetLeadershipChangeDelegate(
-        [
-            &leadershipChangeAnnounced,
-            &leadershipChangeDetails
-        ](
-            int leaderId,
-            int term
-        ){
-            leadershipChangeAnnounced = true;
-            leadershipChangeDetails.leaderId = leaderId;
-            leadershipChangeDetails.term = term;
-        }
-    );
 
     // Act
     mockPersistentState->variables.currentTerm = 0;
@@ -1494,17 +1491,6 @@ TEST_F(ServerTests, LeadershipGainAnnouncement) {
 
 TEST_F(ServerTests, NoLeadershipGainWhenNotYetLeader) {
     // Arrange
-    bool leadershipChangeAnnounced = false;
-    server.SetLeadershipChangeDelegate(
-        [
-            &leadershipChangeAnnounced
-        ](
-            int leaderId,
-            int term
-        ){
-            leadershipChangeAnnounced = true;
-        }
-    );
 
     // Act
     mockPersistentState->variables.currentTerm = 0;
@@ -1528,17 +1514,6 @@ TEST_F(ServerTests, NoLeadershipGainWhenNotYetLeader) {
 
 TEST_F(ServerTests, NoLeadershipGainWhenAlreadyLeader) {
     // Arrange
-    bool leadershipChangeAnnounced = false;
-    server.SetLeadershipChangeDelegate(
-        [
-            &leadershipChangeAnnounced
-        ](
-            int leaderId,
-            int term
-        ){
-            leadershipChangeAnnounced = true;
-        }
-    );
 
     // Act
     mockPersistentState->variables.currentTerm = 0;
@@ -1568,24 +1543,6 @@ TEST_F(ServerTests, NoLeadershipGainWhenAlreadyLeader) {
 
 TEST_F(ServerTests, AnnounceLeaderWhenAFollower) {
     // Arrange
-    bool leadershipChangeAnnounced = false;
-    struct {
-        int leaderId = 0;
-        int term = 0;
-    } leadershipChangeDetails;
-    server.SetLeadershipChangeDelegate(
-        [
-            &leadershipChangeAnnounced,
-            &leadershipChangeDetails
-        ](
-            int leaderId,
-            int term
-        ){
-            leadershipChangeAnnounced = true;
-            leadershipChangeDetails.leaderId = leaderId;
-            leadershipChangeDetails.term = term;
-        }
-    );
     constexpr int leaderId = 2;
     constexpr int newTerm = 1;
     MobilizeServer();
