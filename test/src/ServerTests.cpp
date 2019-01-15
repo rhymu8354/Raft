@@ -3516,7 +3516,7 @@ TEST_F(ServerTests, VotesShouldBeRequestedForNewServersWhenStartingElectionDurin
     EXPECT_TRUE(voteRequestedFromNewServer);
 }
 
-TEST_F(ServerTests, NewLeaderShouldSentHeartBeatsImmediately) {
+TEST_F(ServerTests, NewLeaderShouldSendHeartBeatsImmediately) {
     // Arrange
 
     // Act
