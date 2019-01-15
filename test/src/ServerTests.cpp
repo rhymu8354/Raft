@@ -299,7 +299,6 @@ struct ServerTests
         int term,
         size_t leaderCommit
     ) {
-        MobilizeServer();
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntries;
         message.appendEntries.term = term;
@@ -324,6 +323,62 @@ struct ServerTests
             leaderId,
             term,
             mockLog->entries.size()
+        );
+    }
+
+    void ReceiveAppendEntriesFromMockLeader(
+        int leaderId,
+        int term,
+        size_t leaderCommit,
+        size_t prevLogIndex,
+        const std::vector< Raft::LogEntry >& entries,
+        bool clearMessagesSent = true
+    ) {
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntries;
+        message.appendEntries.term = term;
+        message.appendEntries.leaderCommit = leaderCommit;
+        message.appendEntries.prevLogIndex = prevLogIndex;
+        if (prevLogIndex == 0) {
+            message.appendEntries.prevLogTerm = 0;
+        } else {
+            message.appendEntries.prevLogTerm = mockLog->entries[prevLogIndex - 1].term;
+        }
+        message.log = entries;
+        server.ReceiveMessage(message.Serialize(), leaderId);
+        server.WaitForAtLeastOneWorkerLoop();
+        if (clearMessagesSent) {
+            messagesSent.clear();
+        }
+    }
+
+    void ReceiveAppendEntriesFromMockLeader(
+        int leaderId,
+        int term,
+        size_t leaderCommit,
+        const std::vector< Raft::LogEntry >& entries,
+        bool clearMessagesSent = true
+    ) {
+        ReceiveAppendEntriesFromMockLeader(
+            leaderId,
+            term,
+            leaderCommit,
+            mockLog->entries.size(),
+            entries,
+            clearMessagesSent
+        );
+    }
+
+    void ReceiveAppendEntriesFromMockLeader(
+        int leaderId,
+        int term,
+        const std::vector< Raft::LogEntry >& entries
+    ) {
+        ReceiveAppendEntriesFromMockLeader(
+            leaderId,
+            term,
+            0,
+            entries
         );
     }
 
@@ -1141,14 +1196,7 @@ TEST_F(ServerTests, LeaderShouldRevertToFollowerWhenGreaterTermHeartbeatReceived
     BecomeLeader();
 
     // Act
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 2;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), 2);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesFromMockLeader(2, 2);
 
     // Assert
     EXPECT_EQ(
@@ -1164,13 +1212,7 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenGreaterTermHeartbeatRecei
     messagesSent.clear();
 
     // Act
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 2;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), 2);
+    ReceiveAppendEntriesFromMockLeader(2, 2);
     CastVotes(1);
     AdvanceTimeToJustBeforeElectionTimeout();
 
@@ -1188,13 +1230,7 @@ TEST_F(ServerTests, CandidateShouldRevertToFollowerWhenSameTermHeartbeatReceived
     messagesSent.clear();
 
     // Act
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 1;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), 2);
+    ReceiveAppendEntriesFromMockLeader(2, 1);
     CastVotes(1);
     AdvanceTimeToJustBeforeElectionTimeout();
 
@@ -1285,14 +1321,7 @@ TEST_F(ServerTests, UpdateTermWhenReceivingHeartBeat) {
     MobilizeServer();
 
     // Act
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 2;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), 2);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesFromMockLeader(2, 2);
 
     // Assert
     EXPECT_EQ(2, mockPersistentState->variables.currentTerm);
@@ -1306,14 +1335,7 @@ TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerSameTerm) {
     MobilizeServer();
 
     // Act
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = newTerm;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), leaderId);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesFromMockLeader(leaderId, newTerm);
 
     // Assert
     EXPECT_EQ(leaderId, server.GetClusterLeaderId());
@@ -1328,14 +1350,7 @@ TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerNewerTerm) {
     MobilizeServer();
 
     // Act
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = newTerm;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), leaderId);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesFromMockLeader(leaderId, newTerm);
 
     // Assert
     EXPECT_EQ(leaderId, server.GetClusterLeaderId());
@@ -1350,24 +1365,10 @@ TEST_F(ServerTests, ReceivingTwoHeartBeatAsFollowerSequentialTerms) {
     constexpr int secondTerm = 2;
     mockPersistentState->variables.currentTerm = 0;
     MobilizeServer();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = firstTerm;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), firstLeaderId);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesFromMockLeader(firstLeaderId, firstTerm);
 
     // Act
-    message = Raft::Message();
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = secondTerm;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), secondLeaderId);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesFromMockLeader(secondLeaderId, secondTerm);
 
     // Assert
     EXPECT_EQ(secondLeaderId, server.GetClusterLeaderId());
@@ -1380,13 +1381,7 @@ TEST_F(ServerTests, ReceivingHeartBeatFromSameTermShouldResetElectionTimeout) {
 
     // Act
     while (mockTimeKeeper->currentTime <= serverConfiguration.maximumElectionTimeout * 2) {
-        Raft::Message message;
-        message.type = Raft::Message::Type::AppendEntries;
-        message.appendEntries.term = 2;
-        message.appendEntries.leaderCommit = 0;
-        message.appendEntries.prevLogIndex = 0;
-        message.appendEntries.prevLogTerm = 0;
-        server.ReceiveMessage(message.Serialize(), 2);
+        ReceiveAppendEntriesFromMockLeader(2, 2);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2;
         server.WaitForAtLeastOneWorkerLoop();
         EXPECT_EQ(
@@ -1401,22 +1396,10 @@ TEST_F(ServerTests, ReceivingHeartBeatFromSameTermShouldResetElectionTimeout) {
 TEST_F(ServerTests, IgnoreHeartBeatFromOldTerm) {
     // Arrange
     MobilizeServer();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 2;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), 2);
+    ReceiveAppendEntriesFromMockLeader(2, 2);
 
     // Act
-    message = Raft::Message();
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 1;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), 2);
+    ReceiveAppendEntriesFromMockLeader(2, 1);
 
     // Assert
     EXPECT_EQ(2, mockPersistentState->variables.currentTerm);
@@ -1431,12 +1414,7 @@ TEST_F(ServerTests, ReceivingHeartBeatFromOldTermShouldNotResetElectionTimeout) 
     bool electionStarted = false;
     while (mockTimeKeeper->currentTime <= serverConfiguration.maximumElectionTimeout * 2) {
         Raft::Message message;
-        message.type = Raft::Message::Type::AppendEntries;
-        message.appendEntries.term = 13;
-        message.appendEntries.leaderCommit = 0;
-        message.appendEntries.prevLogIndex = 0;
-        message.appendEntries.prevLogTerm = 0;
-        server.ReceiveMessage(message.Serialize(), 2);
+        ReceiveAppendEntriesFromMockLeader(2, 13);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2;
         server.WaitForAtLeastOneWorkerLoop();
         if (!messagesSent.empty()) {
@@ -1610,6 +1588,7 @@ TEST_F(ServerTests, AnnounceLeaderWhenAFollower) {
     );
     constexpr int leaderId = 2;
     constexpr int newTerm = 1;
+    MobilizeServer();
 
     // Act
     mockPersistentState->variables.currentTerm = 0;
@@ -1690,6 +1669,7 @@ TEST_F(ServerTests, FollowerAppendLogEntry) {
     constexpr int newTerm = 9;
     mockPersistentState->variables.currentTerm = 0;
     serverConfiguration.selfInstanceId = 5;
+    MobilizeServer();
     ReceiveAppendEntriesFromMockLeader(leaderId, newTerm);
     std::vector< Raft::LogEntry > entries;
     Raft::LogEntry firstEntry;
@@ -1701,15 +1681,7 @@ TEST_F(ServerTests, FollowerAppendLogEntry) {
 
     // Act
     EXPECT_EQ(0, server.GetLastIndex());
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 9;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    message.log = entries;
-    server.ReceiveMessage(message.Serialize(), leaderId);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesFromMockLeader(leaderId, 9, entries);
 
     // Assert
     EXPECT_EQ(2, server.GetLastIndex());
@@ -1800,30 +1772,17 @@ TEST_F(ServerTests, FollowerAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLog
     constexpr int newTerm = 9;
     mockPersistentState->variables.currentTerm = 0;
     serverConfiguration.selfInstanceId = 5;
+    MobilizeServer();
     ReceiveAppendEntriesFromMockLeader(leaderId, newTerm);
 
     // Act
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 9;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
     Raft::LogEntry firstEntry;
     firstEntry.term = 4;
-    message.log.push_back(std::move(firstEntry));
-    server.ReceiveMessage(message.Serialize(), leaderId);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesFromMockLeader(leaderId, newTerm, {std::move(firstEntry)});
     EXPECT_EQ(0, server.GetCommitIndex());
-    message.appendEntries.leaderCommit = 1;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    message.log.clear();
     Raft::LogEntry secondEntry;
     secondEntry.term = 5;
-    message.log.push_back(std::move(secondEntry));
-    server.ReceiveMessage(message.Serialize(), leaderId);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesFromMockLeader(leaderId, newTerm, 1, {std::move(secondEntry)});
 
     // Assert
     EXPECT_EQ(1, server.GetCommitIndex());
@@ -1836,6 +1795,7 @@ TEST_F(ServerTests, AppendEntriesWhenNotLeader) {
     constexpr int newTerm = 1;
     mockPersistentState->variables.currentTerm = 0;
     serverConfiguration.selfInstanceId = 5;
+    MobilizeServer();
     ReceiveAppendEntriesFromMockLeader(leaderId, newTerm);
     std::vector< Raft::LogEntry > entries;
     Raft::LogEntry firstEntry;
@@ -2237,13 +2197,7 @@ TEST_F(ServerTests, ReinitializeVolatileLeaderStateAfterElection) {
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    message = Raft::Message();
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 8;
-    message.appendEntries.leaderCommit = 1;
-    message.appendEntries.prevLogIndex = 1;
-    message.appendEntries.prevLogTerm = 7;
-    server.ReceiveMessage(message.Serialize(), 2);
+    ReceiveAppendEntriesFromMockLeader(2, 8, 1);
     WaitForElectionTimeout();
     CastVotes(9);
     messagesSent.clear();
@@ -2264,19 +2218,12 @@ TEST_F(ServerTests, FollowerReceiveAppendEntriesSuccess) {
     newConflictingEntry.term = 7;
     nextEntry.term = 8;
     mockLog->entries = {oldConflictingEntry};
+    MobilizeServer();
     ReceiveAppendEntriesFromMockLeader(2, 8);
 
     // Act
     messagesSent.clear();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 8;
-    message.appendEntries.leaderCommit = 1;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    message.log = {newConflictingEntry, nextEntry};
-    server.ReceiveMessage(message.Serialize(), 2);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesFromMockLeader(2, 8, 1, 0, {newConflictingEntry, nextEntry}, false);
 
     // Assert
     ASSERT_EQ(2, mockLog->entries.size());
@@ -2292,11 +2239,11 @@ TEST_F(ServerTests, FollowerReceiveAppendEntriesSuccess) {
 
 TEST_F(ServerTests, FollowerReceiveAppendEntriesFailureOldTerm) {
     // Arrange
-    Raft::LogEntry oldConflictingEntry, newConflictingEntry, nextEntry;
+    Raft::LogEntry oldConflictingEntry, nextEntry;
     oldConflictingEntry.term = 6;
-    newConflictingEntry.term = 7;
     nextEntry.term = 8;
     mockLog->entries = {oldConflictingEntry};
+    MobilizeServer();
     ReceiveAppendEntriesFromMockLeader(2, 8);
 
     // Act
@@ -2324,11 +2271,10 @@ TEST_F(ServerTests, FollowerReceiveAppendEntriesFailureOldTerm) {
 
 TEST_F(ServerTests, FollowerReceiveAppendEntriesFailurePreviousNotFound) {
     // Arrange
-    Raft::LogEntry oldConflictingEntry, newConflictingEntry, nextEntry;
-    oldConflictingEntry.term = 6;
-    newConflictingEntry.term = 7;
+    Raft::LogEntry nextEntry;
     nextEntry.term = 8;
     mockLog->entries = {};
+    MobilizeServer();
     ReceiveAppendEntriesFromMockLeader(2, 8);
 
     // Act
@@ -2452,13 +2398,7 @@ TEST_F(ServerTests, PersistentStateUpdateForNewTermWhenReceiveAppendEntriesFromN
     MobilizeServer();
 
     // Act
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 5;
-    message.appendEntries.leaderCommit = 95;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), 2);
+    ReceiveAppendEntriesFromMockLeader(2, 5, 95);
 
     // Assert
     EXPECT_EQ(5, mockPersistentState->variables.currentTerm);
@@ -2547,6 +2487,7 @@ TEST_F(ServerTests, ApplyConfigNonVotingMemberSingleConfigWhenAppendedAsFollower
     entry.term = 6;
     entry.command = std::move(command);
     mockLog->entries = {entry};
+    MobilizeServer();
 
     // Act
     ReceiveAppendEntriesFromMockLeader(5, 6);
@@ -2804,18 +2745,11 @@ TEST_F(ServerTests, FollowerRevertConfigWhenRollingBackBeforeConfigChange) {
     entry1.command = std::move(singleConfigCommand);
     entry2.term = 7;
     mockLog->entries = {entry1};
+    MobilizeServer();
     ReceiveAppendEntriesFromMockLeader(5, 6, 1);
 
     // Act
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 7;
-    message.appendEntries.leaderCommit = 1;
-    message.log = {entry2};
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), 6);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesFromMockLeader(6, 7, 1, 0, {entry2});
 
     // Assert
     EXPECT_TRUE(server.IsVotingMember());
@@ -3306,14 +3240,7 @@ TEST_F(ServerTests, StaleAppendEntriesDeservesAFailureResponse) {
     MobilizeServer();
 
     // Act
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = term - 1;
-    message.appendEntries.leaderCommit = 1;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), leaderId);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesFromMockLeader(leaderId, term - 1, 1, 0, {}, false);
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
@@ -3339,13 +3266,7 @@ TEST_F(ServerTests, ReceivingHeartBeatsDoesNotCausePersistentStateSaves) {
 
     // Act
     while (mockTimeKeeper->currentTime <= serverConfiguration.maximumElectionTimeout * 2) {
-        Raft::Message message;
-        message.type = Raft::Message::Type::AppendEntries;
-        message.appendEntries.term = 2;
-        message.appendEntries.leaderCommit = 0;
-        message.appendEntries.prevLogIndex = 0;
-        message.appendEntries.prevLogTerm = 0;
-        server.ReceiveMessage(message.Serialize(), 2);
+        ReceiveAppendEntriesFromMockLeader(2, 2);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2;
         server.WaitForAtLeastOneWorkerLoop();
     }
@@ -3358,16 +3279,9 @@ TEST_F(ServerTests, IgnoreAppendEntriesSameTermIfLeader) {
     // Arrange
     constexpr int term = 5;
     BecomeLeader(term);
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = term;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    messagesSent.clear();
 
     // Act
-    server.ReceiveMessage(message.Serialize(), 2);
+    ReceiveAppendEntriesFromMockLeader(2, term);
 
     // Assert
     EXPECT_EQ(
@@ -3386,18 +3300,11 @@ TEST_F(ServerTests, DoNotTellLogKeeperToCommitIfCommitIndexUnchanged) {
     entry.term = term;
     mockLog->entries = {entry};
     MobilizeServer();
-    server.WaitForAtLeastOneWorkerLoop();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = term;
-    message.appendEntries.leaderCommit = 1;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    server.ReceiveMessage(message.Serialize(), leaderId);
+    ReceiveAppendEntriesFromMockLeader(leaderId, term, 1, 0, {});
     const auto commitCountStart = mockLog->commitCount;
 
     // Act
-    server.ReceiveMessage(message.Serialize(), leaderId);
+    ReceiveAppendEntriesFromMockLeader(leaderId, term, 1, 0, {});
 
     // Assert
     EXPECT_EQ(commitCountStart, mockLog->commitCount);
@@ -3408,18 +3315,10 @@ TEST_F(ServerTests, DoNotCommitToLogAnyEntriesWeDoNotHave) {
     constexpr int leaderId = 2;
     constexpr int term = 5;
     mockPersistentState->variables.currentTerm = term;
-
     MobilizeServer();
-    server.WaitForAtLeastOneWorkerLoop();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = term;
-    message.appendEntries.leaderCommit = 1;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
 
     // Act
-    server.ReceiveMessage(message.Serialize(), leaderId);
+    ReceiveAppendEntriesFromMockLeader(leaderId, term, 1, 0, {});
 
     // Assert
     EXPECT_EQ(0, mockLog->commitIndex);
@@ -3489,15 +3388,7 @@ TEST_F(ServerTests, VotesShouldBeRequestedForNewServersWhenStartingElectionDurin
     entry.term = 5;
     entry.command = std::move(command);
     MobilizeServer();
-    server.WaitForAtLeastOneWorkerLoop();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = term;
-    message.appendEntries.leaderCommit = 0;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
-    message.log.push_back(std::move(entry));
-    server.ReceiveMessage(message.Serialize(), 5);
+    ReceiveAppendEntriesFromMockLeader(5, term, {std::move(entry)});
 
     // Act
     WaitForElectionTimeout();
