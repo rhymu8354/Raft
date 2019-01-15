@@ -387,6 +387,21 @@ struct ServerTests
         );
     }
 
+    void ReceiveAppendEntriesResults(
+        int instance,
+        int term,
+        size_t matchIndex,
+        bool success = true
+    ) {
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntriesResults;
+        message.appendEntriesResults.term = term;
+        message.appendEntriesResults.success = success;
+        message.appendEntriesResults.matchIndex = matchIndex;
+        server.ReceiveMessage(message.Serialize(), instance);
+        server.WaitForAtLeastOneWorkerLoop();
+    }
+
     void WaitForElectionTimeout() {
         mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout;
         server.WaitForAtLeastOneWorkerLoop();
@@ -403,12 +418,7 @@ struct ServerTests
         if (acknowledgeInitialHeartbeats) {
             for (auto instance: clusterConfiguration.instanceIds) {
                 if (instance != serverConfiguration.selfInstanceId) {
-                    Raft::Message message;
-                    message.type = Raft::Message::Type::AppendEntriesResults;
-                    message.appendEntriesResults.term = term;
-                    message.appendEntriesResults.success = true;
-                    message.appendEntriesResults.matchIndex = mockLog->entries.size();
-                    server.ReceiveMessage(message.Serialize(), instance);
+                    ReceiveAppendEntriesResults(instance, term, mockLog->entries.size());
                 }
             }
             messagesSent.clear();
@@ -1570,21 +1580,6 @@ TEST_F(ServerTests, LeaderAppendLogEntry) {
     Raft::LogEntry secondEntry;
     secondEntry.term = 3;
     entries.push_back(std::move(secondEntry));
-    const auto expectedSerializedMessage = Json::Object({
-        {"type", "AppendEntries"},
-        {"term", 3},
-        {"leaderCommit", 1},
-        {"prevLogIndex", 1},
-        {"prevLogTerm", 1},
-        {"log", Json::Array({
-            Json::Object({
-                {"term", 2},
-            }),
-            Json::Object({
-                {"term", 3},
-            }),
-        })},
-    });
 
     // Act
     EXPECT_EQ(1, server.GetLastIndex());
@@ -1604,11 +1599,14 @@ TEST_F(ServerTests, LeaderAppendLogEntry) {
     for (const auto& messageSent: messagesSent) {
         if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
             appendEntriesReceivedPerInstance[messageSent.receiverInstanceNumber] = true;
-            const auto serializedMessage = messageSent.message.Serialize();
             EXPECT_EQ(
-                expectedSerializedMessage,
-                Json::Value::FromEncoding(serializedMessage)
+                entries,
+                messageSent.message.log
             );
+            EXPECT_EQ(3, messageSent.message.appendEntries.term);
+            EXPECT_EQ(1, messageSent.message.appendEntries.leaderCommit);
+            EXPECT_EQ(1, messageSent.message.appendEntries.prevLogIndex);
+            EXPECT_EQ(1, messageSent.message.appendEntries.prevLogTerm);
         }
     }
     for (auto instanceNumber: clusterConfiguration.instanceIds) {
@@ -1680,13 +1678,7 @@ TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEn
     // Act
     for (auto instance: clusterConfiguration.instanceIds) {
         if (instance != serverConfiguration.selfInstanceId) {
-            Raft::Message message;
-            message.type = Raft::Message::Type::AppendEntriesResults;
-            message.appendEntriesResults.term = 7;
-            message.appendEntriesResults.success = true;
-            message.appendEntriesResults.matchIndex = 1;
-            server.ReceiveMessage(message.Serialize(), instance);
-            server.WaitForAtLeastOneWorkerLoop();
+            ReceiveAppendEntriesResults(instance, 7, 1);
             EXPECT_EQ(0, server.GetCommitIndex());
         }
     }
@@ -1696,20 +1688,13 @@ TEST_F(ServerTests, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEn
     size_t responseCount = 0;
     for (auto instance: clusterConfiguration.instanceIds) {
         if (instance != serverConfiguration.selfInstanceId) {
-            Raft::Message message;
-            message.type = Raft::Message::Type::AppendEntriesResults;
-            message.appendEntriesResults.term = 7;
             if (instance == 2) {
-                message.appendEntriesResults.success = false;
-                message.appendEntriesResults.matchIndex = 1;
+                ReceiveAppendEntriesResults(instance, 7, 1, false);
             } else {
                 ++successfulResponseCount;
-                message.appendEntriesResults.success = true;
-                message.appendEntriesResults.matchIndex = 2;
+                ReceiveAppendEntriesResults(instance, 7, 2, true);
             }
             ++responseCount;
-            server.ReceiveMessage(message.Serialize(), instance);
-            server.WaitForAtLeastOneWorkerLoop();
             if (successfulResponseCount + 1 > clusterConfiguration.instanceIds.size() - successfulResponseCount - 1) {
                 EXPECT_EQ(2, server.GetCommitIndex()) << successfulResponseCount << " out of " << responseCount;
                 EXPECT_EQ(2, mockLog->commitIndex);
@@ -1812,13 +1797,7 @@ TEST_F(ServerTests, LeaderAppendOlderEntriesAfterDiscoveringFollowerIsBehind) {
 
     // Act
     messagesSent.clear();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = 8;
-    message.appendEntriesResults.success = false;
-    message.appendEntriesResults.matchIndex = 1;
-    server.ReceiveMessage(message.Serialize(), 2);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesResults(2, 8, 1, false);
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
@@ -1838,13 +1817,7 @@ TEST_F(ServerTests, LeaderAppendOnlyLogEntryAfterDiscoveringFollowerHasNoLogAtAl
 
     // Act
     messagesSent.clear();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = 8;
-    message.appendEntriesResults.success = false;
-    message.appendEntriesResults.matchIndex = 0;
-    server.ReceiveMessage(message.Serialize(), 2);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesResults(2, 8, 0, false);
 
     // Assert
     ASSERT_EQ(1, messagesSent.size());
@@ -1885,25 +1858,13 @@ TEST_F(ServerTests, NextIndexAdvancedAndNextEntryAppendedAfterPreviousAcknowledg
     BecomeLeader(8);
     mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
     server.WaitForAtLeastOneWorkerLoop();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = 8;
-    message.appendEntriesResults.success = false;
-    message.appendEntriesResults.matchIndex = 0;
-    server.ReceiveMessage(message.Serialize(), 2);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesResults(2, 8, 0, false);
 
     // Act
     messagesSent.clear();
     server.AppendLogEntries({secondEntry});
     server.WaitForAtLeastOneWorkerLoop();
-    message = Raft::Message();
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = 8;
-    message.appendEntriesResults.success = true;
-    message.appendEntriesResults.matchIndex = 1;
-    server.ReceiveMessage(message.Serialize(), 2);
-    server.WaitForAtLeastOneWorkerLoop();
+    ReceiveAppendEntriesResults(2, 8, 1, true);
 
     // Assert
     bool sendEntrySent = false;
@@ -1962,16 +1923,11 @@ TEST_F(ServerTests, IgnoreAppendEntriesResultsIfNotLeader) {
     // Arrange
     mockPersistentState->variables.currentTerm = 1;
     MobilizeServer();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = 1;
-    message.appendEntriesResults.success = true;
-    message.appendEntriesResults.matchIndex = 42;
 
     // Act
     for (auto instance: clusterConfiguration.instanceIds) {
         if (instance != serverConfiguration.selfInstanceId) {
-            server.ReceiveMessage(message.Serialize(), instance);
+            ReceiveAppendEntriesResults(instance, 1, 42);
         }
     }
     server.WaitForAtLeastOneWorkerLoop();
@@ -2115,11 +2071,6 @@ TEST_F(ServerTests, IgnoreDuplicateAppendEntriesResults) {
     Raft::LogEntry testEntry;
     testEntry.term = 3;
     BecomeLeader(3);
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = 3;
-    message.appendEntriesResults.success = true;
-    message.appendEntriesResults.matchIndex = 1;
 
     // Act
     server.AppendLogEntries({testEntry});
@@ -2127,8 +2078,8 @@ TEST_F(ServerTests, IgnoreDuplicateAppendEntriesResults) {
     messagesSent.clear();
     mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
     server.WaitForAtLeastOneWorkerLoop();
-    server.ReceiveMessage(message.Serialize(), 2);
-    server.ReceiveMessage(message.Serialize(), 2);
+    ReceiveAppendEntriesResults(2, 3, 1);
+    ReceiveAppendEntriesResults(2, 3, 1);
 
     // Assert
     EXPECT_EQ(1, server.GetMatchIndex(2));
@@ -2141,14 +2092,9 @@ TEST_F(ServerTests, ReinitializeVolatileLeaderStateAfterElection) {
     testEntry.term = 7;
     server.AppendLogEntries({testEntry});
     server.WaitForAtLeastOneWorkerLoop();
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = 7;
-    message.appendEntriesResults.success = true;
-    message.appendEntriesResults.matchIndex = 1;
     for (auto instance: clusterConfiguration.instanceIds) {
         if (instance != serverConfiguration.selfInstanceId) {
-            server.ReceiveMessage(message.Serialize(), instance);
+            ReceiveAppendEntriesResults(instance, 7, 1);
         }
     }
     server.WaitForAtLeastOneWorkerLoop();
@@ -2501,14 +2447,8 @@ TEST_F(ServerTests, StepDownFromLeadershipOnceSingleConfigCommittedAndNotInClust
     size_t responseCount = 0;
     for (auto instance: newInstanceIds) {
         if (instance != serverConfiguration.selfInstanceId) {
-            Raft::Message message;
-            message.type = Raft::Message::Type::AppendEntriesResults;
-            message.appendEntriesResults.term = term;
-            message.appendEntriesResults.success = true;
-            message.appendEntriesResults.matchIndex = 1;
+            ReceiveAppendEntriesResults(instance, term, 1);
             ++responseCount;
-            server.ReceiveMessage(message.Serialize(), instance);
-            server.WaitForAtLeastOneWorkerLoop();
             if (responseCount >= 2) {
                 EXPECT_EQ(
                     Raft::IServer::ElectionState::Follower,
@@ -2554,13 +2494,7 @@ TEST_F(ServerTests, SendCorrectHeartBeatToNewServersOnceJointConfigApplied) {
         ) {
             messagesSent.clear();
             newServerReceivedHeartBeat = true;
-            Raft::Message message;
-            message.type = Raft::Message::Type::AppendEntriesResults;
-            message.appendEntriesResults.term = term;
-            message.appendEntriesResults.success = false;
-            message.appendEntriesResults.matchIndex = 0;
-            server.ReceiveMessage(message.Serialize(), 12);
-            server.WaitForAtLeastOneWorkerLoop();
+            ReceiveAppendEntriesResults(12, term, 0, false);
             break;
         }
     }
@@ -2789,13 +2723,7 @@ TEST_F(ServerTests, DoNotApplyJointConfigurationIfNewServersAreNotYetCaughtUp) {
         if (instanceNumber == serverConfiguration.selfInstanceId) {
             continue;
         }
-        Raft::Message message;
-        message.type = Raft::Message::Type::AppendEntriesResults;
-        message.appendEntriesResults.term = term;
-        message.appendEntriesResults.success = true;
-        message.appendEntriesResults.matchIndex = 1;
-        server.ReceiveMessage(message.Serialize(), instanceNumber);
-        server.WaitForAtLeastOneWorkerLoop();
+        ReceiveAppendEntriesResults(instanceNumber, term, 1);
     }
 
     // Act
@@ -2843,13 +2771,7 @@ TEST_F(ServerTests, ApplyJointConfigurationOnceNewServersCaughtUp) {
         if (instanceNumber == serverConfiguration.selfInstanceId) {
             continue;
         }
-        Raft::Message message;
-        message.type = Raft::Message::Type::AppendEntriesResults;
-        message.appendEntriesResults.term = term;
-        message.appendEntriesResults.success = true;
-        message.appendEntriesResults.matchIndex = 1;
-        server.ReceiveMessage(message.Serialize(), instanceNumber);
-        server.WaitForAtLeastOneWorkerLoop();
+        ReceiveAppendEntriesResults(instanceNumber, term, 1);
     }
 
     // Act
@@ -2857,13 +2779,7 @@ TEST_F(ServerTests, ApplyJointConfigurationOnceNewServersCaughtUp) {
     mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
     server.WaitForAtLeastOneWorkerLoop();
     for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
-        Raft::Message message;
-        message.type = Raft::Message::Type::AppendEntriesResults;
-        message.appendEntriesResults.term = term;
-        message.appendEntriesResults.success = true;
-        message.appendEntriesResults.matchIndex = 1;
-        server.ReceiveMessage(message.Serialize(), instanceNumber);
-        server.WaitForAtLeastOneWorkerLoop();
+        ReceiveAppendEntriesResults(instanceNumber, term, 1);
     }
     messagesSent.clear();
     mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
@@ -2914,13 +2830,7 @@ TEST_F(ServerTests, ApplyNewConfigurationOnceJointConfigurationCommitted) {
         if (instanceNumber == serverConfiguration.selfInstanceId) {
             continue;
         }
-        Raft::Message message;
-        message.type = Raft::Message::Type::AppendEntriesResults;
-        message.appendEntriesResults.term = term;
-        message.appendEntriesResults.success = true;
-        message.appendEntriesResults.matchIndex = 1;
-        server.ReceiveMessage(message.Serialize(), instanceNumber);
-        server.WaitForAtLeastOneWorkerLoop();
+        ReceiveAppendEntriesResults(instanceNumber, term, 1);
     }
     messagesSent.clear();
     mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
@@ -2988,13 +2898,7 @@ TEST_F(ServerTests, DoNotApplySingleConfigurationWhenJointConfigurationCommitted
         if (instanceNumber == serverConfiguration.selfInstanceId) {
             continue;
         }
-        Raft::Message message;
-        message.type = Raft::Message::Type::AppendEntriesResults;
-        message.appendEntriesResults.term = term;
-        message.appendEntriesResults.success = true;
-        message.appendEntriesResults.matchIndex = 1;
-        server.ReceiveMessage(message.Serialize(), instanceNumber);
-        server.WaitForAtLeastOneWorkerLoop();
+        ReceiveAppendEntriesResults(instanceNumber, term, 1);
     }
     messagesSent.clear();
 
@@ -3019,16 +2923,11 @@ TEST_F(ServerTests, JointConfigurationShouldBeCommittedIfMajorityAchievedByCommo
     entry.command = std::move(command);
     mockLog->entries = {entry};
     BecomeLeader(term, false);
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = term;
-    message.appendEntriesResults.success = true;
-    message.appendEntriesResults.matchIndex = 1;
-    server.ReceiveMessage(message.Serialize(), 7);
-    server.ReceiveMessage(message.Serialize(), 6);
+    ReceiveAppendEntriesResults(7, term, 1);
+    ReceiveAppendEntriesResults(6, term, 1);
 
     // Act
-    server.ReceiveMessage(message.Serialize(), 5);
+    ReceiveAppendEntriesResults(5, term, 1);
 
     // Assert
     EXPECT_EQ(1, server.GetCommitIndex());
@@ -3052,13 +2951,7 @@ TEST_F(ServerTests, LeaderStepsDownIfNotInNewConfigurationOnceItIsCommitted) {
 
     // Act
     for (auto instanceNumber: newConfiguration.instanceIds) {
-        Raft::Message message;
-        message.type = Raft::Message::Type::AppendEntriesResults;
-        message.appendEntriesResults.term = term;
-        message.appendEntriesResults.success = true;
-        message.appendEntriesResults.matchIndex = 1;
-        server.ReceiveMessage(message.Serialize(), instanceNumber);
-        server.WaitForAtLeastOneWorkerLoop();
+        ReceiveAppendEntriesResults(instanceNumber, term, 1);
     }
     messagesSent.clear();
 
@@ -3091,13 +2984,7 @@ TEST_F(ServerTests, LeaderMaintainsLeadershipIfInNewConfigurationOnceItIsCommitt
         if (instanceNumber == serverConfiguration.selfInstanceId) {
             continue;
         }
-        Raft::Message message;
-        message.type = Raft::Message::Type::AppendEntriesResults;
-        message.appendEntriesResults.term = term;
-        message.appendEntriesResults.success = true;
-        message.appendEntriesResults.matchIndex = 1;
-        server.ReceiveMessage(message.Serialize(), instanceNumber);
-        server.WaitForAtLeastOneWorkerLoop();
+        ReceiveAppendEntriesResults(instanceNumber, term, 1);
     }
     messagesSent.clear();
 
@@ -3130,18 +3017,11 @@ TEST_F(ServerTests, JointConcensusIsNotAchievedSolelyFromSimpleMajority) {
 
     // Act
     for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
-        Raft::Message message;
-        message.type = Raft::Message::Type::AppendEntriesResults;
-        message.appendEntriesResults.term = term;
         if (idsOfInstancesSuccessfullyMatchingLog.find(instanceNumber) == idsOfInstancesSuccessfullyMatchingLog.end()) {
-            message.appendEntriesResults.success = false;
-            message.appendEntriesResults.matchIndex = 0;
+            ReceiveAppendEntriesResults(instanceNumber, term, 0, false);
         } else {
-            message.appendEntriesResults.success = true;
-            message.appendEntriesResults.matchIndex = 1;
+            ReceiveAppendEntriesResults(instanceNumber, term, 1, true);
         }
-        server.ReceiveMessage(message.Serialize(), instanceNumber);
-        server.WaitForAtLeastOneWorkerLoop();
     }
 
     // Assert
@@ -3289,12 +3169,7 @@ TEST_F(ServerTests, StaleServerShouldRevertToFollowerWhenAppendEntryResultsHighe
     server.WaitForAtLeastOneWorkerLoop();
 
     // Act
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = term + 1;
-    message.appendEntriesResults.success = false;
-    message.appendEntriesResults.matchIndex = 0;
-    server.ReceiveMessage(message.Serialize(), 2);
+    ReceiveAppendEntriesResults(2, term + 1, 0, false);
 
     // Assert
     EXPECT_EQ(
@@ -3515,18 +3390,12 @@ TEST_F(ServerTests, CallDelegateOnCommitConfiguration) {
     };
     server.SetCommitConfigurationDelegate(onCommitConfiguration);
     BecomeLeader(term, false);
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = term;
-    message.appendEntriesResults.success = true;
-    message.appendEntriesResults.matchIndex = 2;
 
     // Act
     EXPECT_TRUE(configCommitted == nullptr);
     for (auto instance: clusterConfiguration.instanceIds) {
         if (instance != serverConfiguration.selfInstanceId) {
-            server.ReceiveMessage(message.Serialize(), instance);
-            server.WaitForAtLeastOneWorkerLoop();
+            ReceiveAppendEntriesResults(instance, term, 2);
         }
     }
 
@@ -3573,17 +3442,11 @@ TEST_F(ServerTests, DoNotCallCommitConfigurationDelegateWhenReplayingOldSingleCo
     };
     server.SetCommitConfigurationDelegate(onCommitConfiguration);
     BecomeLeader(term, false);
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = term;
-    message.appendEntriesResults.success = true;
-    message.appendEntriesResults.matchIndex = 2;
 
     // Act
     for (auto instance: clusterConfiguration.instanceIds) {
         if (instance != serverConfiguration.selfInstanceId) {
-            server.ReceiveMessage(message.Serialize(), instance);
-            server.WaitForAtLeastOneWorkerLoop();
+            ReceiveAppendEntriesResults(instance, term, 2);
         }
     }
 
