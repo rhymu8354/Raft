@@ -1104,6 +1104,7 @@ namespace Raft {
         void RevertToFollower() {
             ResetRetransmissionState();
             shared->electionState = IServer::ElectionState::Follower;
+            shared->configChangePending = false;
             ResetElectionTimer();
         }
 
@@ -1291,7 +1292,13 @@ namespace Raft {
                 const auto commandType = entry.command->GetType();
                 if (commandType == "SingleConfiguration") {
                     const auto command = std::static_pointer_cast< Raft::SingleConfigurationCommand >(entry.command);
-                    if (shared->electionState == ElectionState::Leader) {
+                    if (
+                        (shared->electionState == ElectionState::Leader)
+                        && !IsCommandApplied(
+                            "JointConfiguration",
+                            i + 1
+                        )
+                    ) {
                         shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                             3,
                             "Single configuration committed: %s",
@@ -1304,8 +1311,8 @@ namespace Raft {
                         ) {
                             RevertToFollower();
                         }
+                        QueueConfigCommittedAnnouncement(shared->clusterConfiguration);
                     }
-                    QueueConfigCommittedAnnouncement(shared->clusterConfiguration);
                 } else if (commandType == "JointConfiguration") {
                     if (
                         (shared->electionState == ElectionState::Leader)

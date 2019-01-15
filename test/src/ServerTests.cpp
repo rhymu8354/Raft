@@ -3611,18 +3611,26 @@ TEST_F(ServerTests, CallDelegateOnApplyConfiguration) {
 TEST_F(ServerTests, CallDelegateOnCommitConfiguration) {
     // Arrange
     constexpr int term = 5;
-    constexpr int leaderId = 5;
     serverConfiguration.selfInstanceId = 2;
     clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
     Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
     newConfiguration.instanceIds = {2, 6, 7, 12};
-    auto command = std::make_shared< Raft::SingleConfigurationCommand >();
-    command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
-    command->configuration.instanceIds = newConfiguration.instanceIds;
-    Raft::LogEntry entry;
-    entry.term = term;
-    entry.command = std::move(command);
-    mockLog->entries = {entry};
+    auto jointConfigCommand = std::make_shared< Raft::JointConfigurationCommand >();
+    jointConfigCommand->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    jointConfigCommand->newConfiguration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry jointConfigEntry;
+    jointConfigEntry.term = term;
+    jointConfigEntry.command = std::move(jointConfigCommand);
+    auto singleConfigCommand = std::make_shared< Raft::SingleConfigurationCommand >();
+    singleConfigCommand->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    singleConfigCommand->configuration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry singleConfigEntry;
+    singleConfigEntry.term = term;
+    singleConfigEntry.command = std::move(singleConfigCommand);
+    mockLog->entries = {
+        std::move(jointConfigEntry),
+        std::move(singleConfigEntry)
+    };
     std::unique_ptr< Raft::ClusterConfiguration > configCommitted;
     const auto onCommitConfiguration = [&configCommitted](
         const Raft::ClusterConfiguration& newConfiguration
@@ -3630,18 +3638,21 @@ TEST_F(ServerTests, CallDelegateOnCommitConfiguration) {
         configCommitted.reset(new Raft::ClusterConfiguration(newConfiguration));
     };
     server.SetCommitConfigurationDelegate(onCommitConfiguration);
-    MobilizeServer();
+    BecomeLeader(term, false);
     Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = term;
-    message.appendEntries.leaderCommit = 1;
-    message.appendEntries.prevLogIndex = 0;
-    message.appendEntries.prevLogTerm = 0;
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = term;
+    message.appendEntriesResults.success = true;
+    message.appendEntriesResults.matchIndex = 2;
 
     // Act
     EXPECT_TRUE(configCommitted == nullptr);
-    server.ReceiveMessage(message.Serialize(), leaderId);
-    server.WaitForAtLeastOneWorkerLoop();
+    for (auto instance: clusterConfiguration.instanceIds) {
+        if (instance != serverConfiguration.selfInstanceId) {
+            server.ReceiveMessage(message.Serialize(), instance);
+            server.WaitForAtLeastOneWorkerLoop();
+        }
+    }
 
     // Assert
     ASSERT_FALSE(configCommitted == nullptr);
@@ -3649,6 +3660,57 @@ TEST_F(ServerTests, CallDelegateOnCommitConfiguration) {
         std::set< int >({2, 6, 7, 12}),
         configCommitted->instanceIds
     );
+}
+
+TEST_F(ServerTests, DoNotCallCommitConfigurationDelegateWhenReplayingOldSingleConfigurationCommand) {
+    // Arrange
+    constexpr int term = 5;
+    serverConfiguration.selfInstanceId = 2;
+    clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+    Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+    newConfiguration.instanceIds = {2, 6, 7, 12};
+    Raft::ClusterConfiguration nextConfiguration(clusterConfiguration);
+    nextConfiguration.instanceIds = {2, 6, 7, 13};
+    auto singleConfigCommand = std::make_shared< Raft::SingleConfigurationCommand >();
+    singleConfigCommand->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+    singleConfigCommand->configuration.instanceIds = newConfiguration.instanceIds;
+    Raft::LogEntry singleConfigEntry;
+    singleConfigEntry.term = term;
+    singleConfigEntry.command = std::move(singleConfigCommand);
+    auto jointConfigCommand = std::make_shared< Raft::JointConfigurationCommand >();
+    jointConfigCommand->oldConfiguration.instanceIds = newConfiguration.instanceIds;
+    jointConfigCommand->newConfiguration.instanceIds = nextConfiguration.instanceIds;
+    Raft::LogEntry jointConfigEntry;
+    jointConfigEntry.term = term;
+    jointConfigEntry.command = std::move(jointConfigCommand);
+    mockLog->entries = {
+        std::move(singleConfigEntry),
+        std::move(jointConfigEntry),
+    };
+    bool configCommitted = false;
+    const auto onCommitConfiguration = [&configCommitted](
+        const Raft::ClusterConfiguration& newConfiguration
+    ) {
+        configCommitted = true;
+    };
+    server.SetCommitConfigurationDelegate(onCommitConfiguration);
+    BecomeLeader(term, false);
+    Raft::Message message;
+    message.type = Raft::Message::Type::AppendEntriesResults;
+    message.appendEntriesResults.term = term;
+    message.appendEntriesResults.success = true;
+    message.appendEntriesResults.matchIndex = 2;
+
+    // Act
+    for (auto instance: clusterConfiguration.instanceIds) {
+        if (instance != serverConfiguration.selfInstanceId) {
+            server.ReceiveMessage(message.Serialize(), instance);
+            server.WaitForAtLeastOneWorkerLoop();
+        }
+    }
+
+    // Assert
+    EXPECT_FALSE(configCommitted);
 }
 
 TEST_F(ServerTests, VoteAfterElectionShouldNotPreventAppendEntriesRetransmission) {
