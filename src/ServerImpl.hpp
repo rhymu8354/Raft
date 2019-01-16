@@ -13,6 +13,7 @@
 #include "Message.hpp"
 #include "ServerSharedProperties.hpp"
 
+#include <condition_variable>
 #include <future>
 #include <Raft/LogEntry.hpp>
 #include <Raft/ILog.hpp>
