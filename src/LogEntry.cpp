@@ -112,11 +112,6 @@ namespace Raft {
         });
     }
 
-    LogEntry::LogEntry(const std::string& serialization)
-        : LogEntry(Json::Value::FromEncoding(serialization))
-    {
-    }
-
     LogEntry::LogEntry(const Json::Value& json) {
         term = json["term"];
         const std::string typeAsString = json["type"];
@@ -124,11 +119,6 @@ namespace Raft {
         if (factory != COMMAND_FACTORIES.factoriesByType.end()) {
             command = factory->second(json["command"]);
         }
-    }
-
-    LogEntry::operator std::string() const {
-        Json::Value json = *this;
-        return json.ToEncoding();
     }
 
     LogEntry::operator Json::Value() const {

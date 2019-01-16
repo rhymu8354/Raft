@@ -96,32 +96,18 @@ namespace Raft {
         // Methods
 
         /**
-         * This is the constructor of the class.
-         *
-         * @param[in] serialization
-         *     If not empty, this is the serialized form of the log entry, used
-         *     to initialize the type and properties of the log entry.
+         * Construct a default, empty LogEntry.
          */
-        LogEntry(const std::string& serialization = "");
+        LogEntry() = default;
 
         /**
-         * This is the constructor of the class.
+         * Construct a LogEntry from its encoded JSON form.
          *
-         * @param[in] serialization
-         *     If not empty, this is the serialized form of the log entry, used
+         * @param[in] json
+         *     If not empty, this is the encoded form of the log entry, used
          *     to initialize the type and properties of the log entry.
          */
         LogEntry(const Json::Value& json);
-
-        /**
-         * This method returns a string which can be used to construct a new
-         * log entry with the exact same contents as this log entry.
-         *
-         * @return
-         *     A string which can be used to construct a new log entry with the
-         *     exact same contents as this log entry is returned.
-         */
-        operator std::string() const;
 
         /**
          * This method returns a JSON value which can be used to construct a

@@ -11,7 +11,7 @@
 #include <Json/Value.hpp>
 #include <Raft/LogEntry.hpp>
 
-TEST(LogEntryTests, SerializeSingleConfigurationCommand) {
+TEST(LogEntryTests, EncodeSingleConfigurationCommand) {
     // Arrange
     auto command = std::make_shared< Raft::SingleConfigurationCommand >();
     command->oldConfiguration.instanceIds = {5, 42, 85, 13531, 8354};
@@ -34,13 +34,13 @@ TEST(LogEntryTests, SerializeSingleConfigurationCommand) {
                 })},
             })},
         }),
-        Json::Value::FromEncoding(entry)
+        entry
     );
 }
 
-TEST(LogEntryTests, DeserializeSingleConfigurationCommand) {
+TEST(LogEntryTests, DecodeSingleConfigurationCommand) {
     // Arrange
-    auto serializedEntry = Json::Object({
+    auto encodedEntry = Json::Object({
         {"type", "SingleConfiguration"},
         {"term", 9},
         {"command", Json::Object({
@@ -54,7 +54,7 @@ TEST(LogEntryTests, DeserializeSingleConfigurationCommand) {
     });
 
     // Act
-    const auto entry = Raft::LogEntry(serializedEntry.ToEncoding());
+    const auto entry = Raft::LogEntry(encodedEntry);
 
     // Assert
     EXPECT_EQ(9, entry.term);
@@ -70,7 +70,7 @@ TEST(LogEntryTests, DeserializeSingleConfigurationCommand) {
     );
 }
 
-TEST(LogEntryTests, SerializeJointConfigurationCommand) {
+TEST(LogEntryTests, EncodeJointConfigurationCommand) {
     // Arrange
     auto command = std::make_shared< Raft::JointConfigurationCommand >();
     command->oldConfiguration.instanceIds = {42, 85, 13531, 8354};
@@ -93,13 +93,13 @@ TEST(LogEntryTests, SerializeJointConfigurationCommand) {
                 })},
             })},
         }),
-        Json::Value::FromEncoding(entry)
+        entry
     );
 }
 
-TEST(LogEntryTests, DeserializeJointConfigurationCommand) {
+TEST(LogEntryTests, DecodeJointConfigurationCommand) {
     // Arrange
-    auto serializedEntry = Json::Object({
+    auto encodedEntry = Json::Object({
         {"type", "JointConfiguration"},
         {"term", 9},
         {"command", Json::Object({
@@ -113,7 +113,7 @@ TEST(LogEntryTests, DeserializeJointConfigurationCommand) {
     });
 
     // Act
-    const auto entry = Raft::LogEntry(serializedEntry.ToEncoding());
+    const auto entry = Raft::LogEntry(encodedEntry);
 
     // Assert
     EXPECT_EQ(9, entry.term);
