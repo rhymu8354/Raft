@@ -871,4 +871,49 @@ namespace ServerTests {
         EXPECT_FALSE(configCommitted);
     }
 
+    TEST_F(ServerTests_Reconfiguration, InitializeInstanceInfoAddBackServerThatWasPreviouslyLeader) {
+        // Arrange
+        clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+        serverConfiguration.selfInstanceId = 2;
+        Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
+        newConfiguration.instanceIds = {2, 6, 7, 11};
+        MobilizeServer();
+        auto jointConfigCommand = std::make_shared< Raft::JointConfigurationCommand >();
+        jointConfigCommand->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+        jointConfigCommand->newConfiguration.instanceIds = newConfiguration.instanceIds;
+        Raft::LogEntry jointConfigEntry;
+        jointConfigEntry.term = 6;
+        jointConfigEntry.command = std::move(jointConfigCommand);
+        auto singleConfigCommand = std::make_shared< Raft::SingleConfigurationCommand >();
+        singleConfigCommand->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
+        singleConfigCommand->configuration.instanceIds = newConfiguration.instanceIds;
+        Raft::LogEntry singleConfigEntry;
+        singleConfigEntry.term = 6;
+        singleConfigEntry.command = std::move(singleConfigCommand);
+        ReceiveAppendEntriesFromMockLeader(5, 6, {jointConfigEntry, singleConfigEntry});
+
+        // Act
+        WaitForElectionTimeout();
+        for (auto instance: newConfiguration.instanceIds) {
+            CastVote(instance, 7, true);
+        }
+        messagesSent.clear();
+        server.ChangeConfiguration(clusterConfiguration);
+        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        server.WaitForAtLeastOneWorkerLoop();
+        messagesSent.clear();
+        ReceiveAppendEntriesResults(5, 7, 0, false);
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        for (const auto& messageSent: messagesSent) {
+            if (
+                (messageSent.message.type == Raft::Message::Type::AppendEntries)
+                && (messageSent.receiverInstanceNumber == 5)
+            ) {
+                EXPECT_EQ(1, messageSent.message.appendEntries.prevLogIndex);
+            }
+        }
+    }
+
 }

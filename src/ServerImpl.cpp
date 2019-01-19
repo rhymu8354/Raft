@@ -497,7 +497,7 @@ namespace Raft {
             (void)shared->jointConfiguration->instanceIds.insert(instanceId);
             if (
                 (shared->electionState == ElectionState::Leader)
-                && (shared->instances.find(instanceId) == shared->instances.end())
+                && (shared->clusterConfiguration.instanceIds.find(instanceId) == shared->clusterConfiguration.instanceIds.end())
             ) {
                 auto& instance = shared->instances[instanceId];
                 InitializeInstanceInfo(instance);
