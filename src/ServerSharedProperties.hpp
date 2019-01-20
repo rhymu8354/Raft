@@ -11,6 +11,7 @@
  */
 
 #include "ConfigCommittedAnnouncement.hpp"
+#include "ElectionStateChangeAnnouncement.hpp"
 #include "InstanceInfo.hpp"
 #include "LeadershipAnnouncement.hpp"
 #include "Message.hpp"
@@ -106,6 +107,12 @@ namespace Raft {
          * This holds leadership announcements to be sent by the worker thread.
          */
         std::queue< LeadershipAnnouncement > leadershipAnnouncementsToBeSent;
+
+        /**
+         * This holds election state change announcements to be sent by the
+         * worker thread.
+         */
+        std::queue< ElectionStateChangeAnnouncement > electionStateChangeAnnouncementsToBeSent;
 
         /**
          * This holds cluster configuration applied announcements to be sent by

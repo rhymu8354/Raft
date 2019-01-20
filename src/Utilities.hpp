@@ -110,6 +110,23 @@ namespace Raft {
     );
 
     /**
+     * Send the given election state change announcements, using the given
+     * delegate.
+     *
+     * @param[in] electionStateChangeDelegate
+     *     This is the delegate to use to send election state change
+     *     announcements.
+     *
+     * @param[in,out] electionStateChangeAnnouncementsToBeSent
+     *     This holds the election state change announcements to be sent,
+     *     and is consumed by the function.
+     */
+    void SendElectionStateChangeAnnouncements(
+        Raft::IServer::ElectionStateChangeDelegate electionStateChangeDelegate,
+        std::queue< ElectionStateChangeAnnouncement >&& electionStateChangeAnnouncementsToBeSent
+    );
+
+    /**
      * This function sends the given configuration applied announcements, using
      * the given delegate.
      *

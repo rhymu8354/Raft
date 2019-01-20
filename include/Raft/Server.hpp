@@ -191,6 +191,7 @@ namespace Raft {
     public:
         virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) override;
         virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) override;
+        virtual void SetElectionStateChangeDelegate(ElectionStateChangeDelegate electionStateChangeDelegate) override;
         virtual void SetApplyConfigurationDelegate(ApplyConfigurationDelegate applyConfigurationDelegate) override;
         virtual void SetCommitConfigurationDelegate(CommitConfigurationDelegate commitConfigurationDelegate) override;
         virtual void Mobilize(

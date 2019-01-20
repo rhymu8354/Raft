@@ -55,6 +55,12 @@ namespace Raft {
         LeadershipChangeDelegate leadershipChangeDelegate;
 
         /**
+         * This is the delegate to be called later whenever the server's
+         * election state changes.
+         */
+        ElectionStateChangeDelegate electionStateChangeDelegate;
+
+        /**
          * This is the delegate to be called later whenever a single
          * cluster configuration is applied by the server.
          */
@@ -174,6 +180,12 @@ namespace Raft {
             int leaderId,
             int term
         );
+
+        /**
+         * Queues an eleection state change announcement message to be sent
+         * later.
+         */
+        void QueueElectionStateChangeAnnouncement();
 
         /**
          * Queue a configuration applied announcement message to be sent
@@ -296,6 +308,18 @@ namespace Raft {
          *     properties of the server.
          */
         void SendQueuedLeadershipAnnouncements(
+            std::unique_lock< decltype(shared->mutex) >& lock
+        );
+
+        /**
+         * This method is called in order to send any queued election state
+         * change announcements.
+         *
+         * @param[in] lock
+         *     This is the object holding the mutex protecting the shared
+         *     properties of the server.
+         */
+        void SendQueuedElectionStateChangeAnnouncements(
             std::unique_lock< decltype(shared->mutex) >& lock
         );
 

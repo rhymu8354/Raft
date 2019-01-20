@@ -15,6 +15,7 @@ set(Headers
     include/Raft/Server.hpp
     include/Raft/TimeKeeper.hpp
     src/ConfigCommittedAnnouncement.hpp
+    src/ElectionStateChangeAnnouncement.hpp
     src/InstanceInfo.hpp
     src/LeadershipAnnouncement.hpp
     src/Message.hpp

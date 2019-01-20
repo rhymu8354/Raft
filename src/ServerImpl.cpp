@@ -112,6 +112,16 @@ namespace Raft {
         workerAskedToStopOrWakeUp.notify_one();
     }
 
+    void Server::Impl::QueueElectionStateChangeAnnouncement() {
+        ElectionStateChangeAnnouncement electionStateChangeAnnouncementToBeSent;
+        electionStateChangeAnnouncementToBeSent.term = shared->persistentStateCache.currentTerm;
+        electionStateChangeAnnouncementToBeSent.electionState = shared->electionState;
+        electionStateChangeAnnouncementToBeSent.didVote = shared->persistentStateCache.votedThisTerm;
+        electionStateChangeAnnouncementToBeSent.votedFor = shared->persistentStateCache.votedFor;
+        shared->electionStateChangeAnnouncementsToBeSent.push(std::move(electionStateChangeAnnouncementToBeSent));
+        workerAskedToStopOrWakeUp.notify_one();
+    }
+
     void Server::Impl::QueueConfigAppliedAnnouncement(
         const ClusterConfiguration& newConfiguration
     ) {
@@ -191,6 +201,7 @@ namespace Raft {
     void Server::Impl::StartElection(double now) {
         UpdateCurrentTerm(shared->persistentStateCache.currentTerm + 1);
         StepUpAsCandidate();
+        QueueElectionStateChangeAnnouncement();
         SendInitialVoteRequests(now);
     }
 
@@ -408,6 +419,23 @@ namespace Raft {
         lock.lock();
     }
 
+    void Server::Impl::SendQueuedElectionStateChangeAnnouncements(
+        std::unique_lock< decltype(shared->mutex) >& lock
+    ) {
+        decltype(shared->electionStateChangeAnnouncementsToBeSent) electionStateChangeAnnouncementsToBeSent;
+        electionStateChangeAnnouncementsToBeSent.swap(shared->electionStateChangeAnnouncementsToBeSent);
+        if (electionStateChangeDelegate == nullptr) {
+            return;
+        }
+        auto electionStateChangeDelegateCopy = electionStateChangeDelegate;
+        lock.unlock();
+        SendElectionStateChangeAnnouncements(
+            electionStateChangeDelegateCopy,
+            std::move(electionStateChangeAnnouncementsToBeSent)
+        );
+        lock.lock();
+    }
+
     void Server::Impl::SendQueuedConfigAppliedAnnouncements(
         std::unique_lock< decltype(shared->mutex) >& lock
     ) {
@@ -469,6 +497,7 @@ namespace Raft {
             3,
             "Received majority vote -- assuming leadership"
         );
+        QueueElectionStateChangeAnnouncement();
         QueueLeadershipChangeAnnouncement(
             shared->serverConfiguration.selfInstanceId,
             shared->persistentStateCache.currentTerm
@@ -616,6 +645,7 @@ namespace Raft {
                         ) == shared->clusterConfiguration.instanceIds.end()
                     ) {
                         RevertToFollower();
+                        QueueElectionStateChangeAnnouncement();
                     }
                     QueueConfigCommittedAnnouncement(
                         shared->clusterConfiguration,
@@ -725,6 +755,7 @@ namespace Raft {
         if (messageDetails.term > shared->persistentStateCache.currentTerm) {
             UpdateCurrentTerm(messageDetails.term);
             RevertToFollower();
+            QueueElectionStateChangeAnnouncement();
         }
         if (!shared->isVotingMember) {
             return;
@@ -817,6 +848,7 @@ namespace Raft {
             );
             UpdateCurrentTerm(messageDetails.term);
             RevertToFollower();
+            QueueElectionStateChangeAnnouncement();
             return;
         }
         auto& instance = shared->instances[senderInstanceNumber];
@@ -968,10 +1000,12 @@ namespace Raft {
             );
             return;
         } else {
+            bool electionStateChanged = (shared->electionState != ElectionState::Follower);
             if (
                 (shared->electionState != ElectionState::Leader)
                 || (shared->persistentStateCache.currentTerm < messageDetails.term)
             ) {
+                electionStateChanged = true;
                 UpdateCurrentTerm(messageDetails.term);
                 if (!shared->thisTermLeaderAnnounced) {
                     shared->thisTermLeaderAnnounced = true;
@@ -983,6 +1017,9 @@ namespace Raft {
                 }
             }
             RevertToFollower();
+            if (electionStateChanged) {
+                QueueElectionStateChangeAnnouncement();
+            }
             AdvanceCommitIndex(messageDetails.leaderCommit);
             if (
                 (messageDetails.prevLogIndex > shared->lastIndex)
@@ -1046,6 +1083,7 @@ namespace Raft {
         if (messageDetails.term > shared->persistentStateCache.currentTerm) {
             UpdateCurrentTerm(messageDetails.term);
             RevertToFollower();
+            QueueElectionStateChangeAnnouncement();
         }
         if (shared->electionState != ElectionState::Leader) {
             return;
@@ -1205,6 +1243,7 @@ namespace Raft {
         }
         QueueRetransmissionsToBeSent(now);
         SendQueuedMessages(lock);
+        SendQueuedElectionStateChangeAnnouncements(lock);
         SendQueuedLeadershipAnnouncements(lock);
         SendQueuedConfigAppliedAnnouncements(lock);
         SendQueuedConfigCommittedAnnouncements(lock);

@@ -350,6 +350,38 @@ namespace ServerTests {
                 leadershipChangeDetails.term = term;
             }
         );
+        server.SetElectionStateChangeDelegate(
+            [this](
+                int term,
+                Raft::IServer::ElectionState electionState,
+                bool didVote,
+                int votedFor
+            ){
+                std::string electionStateAsString;
+                switch (electionState) {
+                    case Raft::IServer::ElectionState::Follower: {
+                        electionStateAsString = "follower";
+                    } break;
+                    case Raft::IServer::ElectionState::Candidate: {
+                        electionStateAsString = "candidate";
+                    } break;
+                    case Raft::IServer::ElectionState::Leader: {
+                        electionStateAsString = "leader";
+                    } break;
+                    default: {
+                        electionStateAsString = "???";
+                    } break;
+                }
+                electionStateChanges.push_back(
+                    Json::Object({
+                        {"term", term},
+                        {"electionState", electionStateAsString},
+                        {"didVote", didVote},
+                        {"votedFor", votedFor},
+                    })
+                );
+            }
+        );
     }
 
     void Common::SetUp() {

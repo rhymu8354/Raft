@@ -1194,4 +1194,44 @@ namespace ServerTests {
         EXPECT_TRUE(retransmissionSentToServer11);
     }
 
+    TEST_F(ServerTests_Elections, AnnounceElectionStateChanges) {
+        // Arrange
+        constexpr int leaderId = 2;
+        constexpr int selfId = 5;
+        constexpr int firstTerm = 1;
+        mockPersistentState->variables.currentTerm = 0;
+        serverConfiguration.selfInstanceId = selfId;
+        MobilizeServer();
+
+        // Act
+        ReceiveAppendEntriesFromMockLeader(leaderId, firstTerm);
+        WaitForElectionTimeout();
+        CastVotes(2);
+
+        // Assert
+        EXPECT_EQ(
+            std::vector< Json::Value >({
+                Json::Object({
+                    {"term", firstTerm},
+                    {"electionState", "follower"},
+                    {"didVote", false},
+                    {"votedFor", 0},
+                }),
+                Json::Object({
+                    {"term", firstTerm + 1},
+                    {"electionState", "candidate"},
+                    {"didVote", true},
+                    {"votedFor", selfId},
+                }),
+                Json::Object({
+                    {"term", firstTerm + 1},
+                    {"electionState", "leader"},
+                    {"didVote", true},
+                    {"votedFor", selfId},
+                }),
+            }),
+            electionStateChanges
+        );
+    }
+
 }

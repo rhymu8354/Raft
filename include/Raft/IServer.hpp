@@ -132,6 +132,37 @@ namespace Raft {
         >;
 
         /**
+         * Declare the type of delegate used to announce the server's
+         * election state changes.
+         *
+         * @param[in] term
+         *     This is the generation number of the server cluster leadership,
+         *     which is incremented whenever a new election is started.
+         *
+         * @param[in] electionState
+         *     This indicates whether the server is currently a follower,
+         *     candidate, or leader.
+         *
+         * @param[in] didVote
+         *     This indicates whether or not the server voted for a candidate
+         *     in this term.
+         *
+         * @param[in] votedFor
+         *     This is the unique identifier of the server for which this
+         *     server voted in this term, if a vote was indeed cast.  It will
+         *     be zero if the server did not vote for a candidate
+         *     in this term.
+         */
+        using ElectionStateChangeDelegate = std::function<
+            void(
+                int term,
+                ElectionState electionState,
+                bool didVote,
+                int votedFor
+            )
+        >;
+
+        /**
          * Declare the type of delegate used to announce that a single cluster
          * configuration has been applied by the server.
          *
@@ -186,6 +217,16 @@ namespace Raft {
          *     change occurs in the server cluster.
          */
         virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) = 0;
+
+        /**
+         * Set up the delegate to be called later whenever the server's
+         * election state changes.
+         *
+         * @param[in] electionStateChangeDelegate
+         *     This is the delegate to be called later whenever the server's
+         *     election state changes.
+         */
+        virtual void SetElectionStateChangeDelegate(ElectionStateChangeDelegate electionStateChangeDelegate) = 0;
 
         /**
          * Set up a delegate to be called later whenever a single cluster

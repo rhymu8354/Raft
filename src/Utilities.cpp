@@ -84,6 +84,22 @@ namespace Raft {
         }
     }
 
+    void SendElectionStateChangeAnnouncements(
+        Raft::IServer::ElectionStateChangeDelegate electionStateChangeDelegate,
+        std::queue< ElectionStateChangeAnnouncement >&& electionStateChangeAnnouncementsToBeSent
+    ) {
+        while (!electionStateChangeAnnouncementsToBeSent.empty()) {
+            const auto& electionStateChangeAnnouncementToBeSent = electionStateChangeAnnouncementsToBeSent.front();
+            electionStateChangeDelegate(
+                electionStateChangeAnnouncementToBeSent.term,
+                electionStateChangeAnnouncementToBeSent.electionState,
+                electionStateChangeAnnouncementToBeSent.didVote,
+                electionStateChangeAnnouncementToBeSent.votedFor
+            );
+            electionStateChangeAnnouncementsToBeSent.pop();
+        }
+    }
+
     void SendConfigAppliedAnnouncements(
         Raft::IServer::ApplyConfigurationDelegate applyConfigurationDelegate,
         std::queue< Raft::ClusterConfiguration >&& configAppliedAnnouncementsToBeSent

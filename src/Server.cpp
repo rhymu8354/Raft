@@ -125,6 +125,11 @@ namespace Raft {
         impl_->leadershipChangeDelegate = leadershipChangeDelegate;
     }
 
+    void Server::SetElectionStateChangeDelegate(ElectionStateChangeDelegate electionStateChangeDelegate) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->electionStateChangeDelegate = electionStateChangeDelegate;
+    }
+
     void Server::SetApplyConfigurationDelegate(ApplyConfigurationDelegate applyConfigurationDelegate) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->applyConfigurationDelegate = applyConfigurationDelegate;

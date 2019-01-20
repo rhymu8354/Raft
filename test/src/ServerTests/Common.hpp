@@ -17,6 +17,7 @@
 
 #include <functional>
 #include <gtest/gtest.h>
+#include <Json/Value.hpp>
 #include <Raft/ILog.hpp>
 #include <Raft/IPersistentState.hpp>
 #include <Raft/LogEntry.hpp>
@@ -158,6 +159,7 @@ namespace ServerTests {
             int leaderId = 0;
             int term = 0;
         } leadershipChangeDetails;
+        std::vector< Json::Value > electionStateChanges;
 
         // Methods
 
