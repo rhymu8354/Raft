@@ -1005,7 +1005,9 @@ namespace Raft {
                 (shared->electionState != ElectionState::Leader)
                 || (shared->persistentStateCache.currentTerm < messageDetails.term)
             ) {
-                electionStateChanged = true;
+                if (shared->persistentStateCache.currentTerm < messageDetails.term) {
+                    electionStateChanged = true;
+                }
                 UpdateCurrentTerm(messageDetails.term);
                 if (!shared->thisTermLeaderAnnounced) {
                     shared->thisTermLeaderAnnounced = true;

@@ -1234,4 +1234,22 @@ namespace ServerTests {
         );
     }
 
+    TEST_F(ServerTests_Elections, NoElectionStateChangesOnHeartbeat) {
+        // Arrange
+        constexpr int leaderId = 2;
+        constexpr int selfId = 5;
+        constexpr int term = 1;
+        mockPersistentState->variables.currentTerm = 0;
+        serverConfiguration.selfInstanceId = selfId;
+        MobilizeServer();
+        ReceiveAppendEntriesFromMockLeader(leaderId, term);
+        electionStateChanges.clear();
+
+        // Act
+        ReceiveAppendEntriesFromMockLeader(leaderId, term);
+
+        // Assert
+        EXPECT_TRUE(electionStateChanges.empty());
+    }
+
 }
