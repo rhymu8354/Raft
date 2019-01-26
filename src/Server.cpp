@@ -26,6 +26,16 @@
 #include <thread>
 #include <time.h>
 
+namespace {
+
+    /**
+     * This is the maximum number of broadcast time samples to measure
+     * before dropping old measurements.
+     */
+    constexpr size_t NUM_BROADCAST_TIME_SAMPLES = 1024;
+
+}
+
 namespace Raft {
 
     Server::~Server() noexcept = default;
@@ -161,6 +171,7 @@ namespace Raft {
         impl_->ApplyConfiguration(clusterConfiguration);
         impl_->shared->lastIndex = 0;
         impl_->SetLastIndex(logKeeper->GetSize());
+        ResetStatistics();
         impl_->stopWorker = std::promise< void >();
         impl_->worker = std::thread(&Impl::Worker, impl_.get());
     }
@@ -243,6 +254,30 @@ namespace Raft {
             impl_->shared->clusterConfiguration,
             newConfiguration
         );
+    }
+
+    void Server::ResetStatistics() {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->shared->broadcastTimeMeasurements.resize(NUM_BROADCAST_TIME_SAMPLES);
+        impl_->shared->numBroadcastTimeMeasurements = 0;
+        impl_->shared->broadcastTimeMeasurementsSum = 0;
+        impl_->shared->minBroadcastTime = 0;
+        impl_->shared->maxBroadcastTime = 0;
+    }
+
+    Json::Value Server::GetStatistics() {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        return Json::Object({
+            {"minBroadcastTime", (double)impl_->shared->minBroadcastTime / 1000000.0},
+            {
+                "avgBroadcastTime", (
+                    (impl_->shared->numBroadcastTimeMeasurements == 0)
+                    ? 0.0
+                    : (double)impl_->shared->broadcastTimeMeasurementsSum / (double)impl_->shared->numBroadcastTimeMeasurements / 1000000.0
+                )
+            },
+            {"maxBroadcastTime", (double)impl_->shared->maxBroadcastTime / 1000000.0},
+        });
     }
 
 }

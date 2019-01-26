@@ -208,6 +208,8 @@ namespace Raft {
         virtual ElectionState GetElectionState() override;
         virtual void AppendLogEntries(const std::vector< LogEntry >& entries) override;
         virtual void ChangeConfiguration(const ClusterConfiguration& newConfiguration) override;
+        virtual void ResetStatistics() override;
+        virtual Json::Value GetStatistics() override;
 
         // Private properties
     private:

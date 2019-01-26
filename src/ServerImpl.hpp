@@ -20,6 +20,7 @@
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
 #include <thread>
+#include <vector>
 
 namespace Raft {
 
@@ -91,6 +92,17 @@ namespace Raft {
         std::condition_variable_any workerAskedToStopOrWakeUp;
 
         // Methods
+
+        /**
+         * Update broadcast time statistics by adding the next measurement,
+         * which is the difference between the current time and the given
+         * send time.
+         *
+         * @param[in] sendTime
+         *     This is the time the broadcast message was sent, presuming
+         *     the response was just received now.
+         */
+        void MeasureBroadcastTime(double sendTime);
 
         /**
          * Return the set of identifiers for the instances currently involved

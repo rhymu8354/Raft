@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <future>
 #include <map>
+#include <math.h>
 #include <mutex>
 #include <queue>
 #include <Raft/LogEntry.hpp>
@@ -27,6 +28,29 @@
 #include <time.h>
 
 namespace Raft {
+
+    void Server::Impl::MeasureBroadcastTime(double sendTime) {
+        const auto now = timeKeeper->GetCurrentTime();
+        const auto measurement = (uintmax_t)(ceil((now - sendTime) * 1000000.0));
+        if (shared->numBroadcastTimeMeasurements == 0) {
+            shared->minBroadcastTime = measurement;
+            shared->maxBroadcastTime = measurement;
+            ++shared->numBroadcastTimeMeasurements;
+        } else {
+            shared->minBroadcastTime = std::min(shared->minBroadcastTime, measurement);
+            shared->maxBroadcastTime = std::max(shared->maxBroadcastTime, measurement);
+            if (shared->numBroadcastTimeMeasurements == shared->broadcastTimeMeasurements.size()) {
+                shared->broadcastTimeMeasurementsSum -= shared->broadcastTimeMeasurements[shared->nextBroadcastTimeMeasurementIndex];
+            } else {
+                ++shared->numBroadcastTimeMeasurements;
+            }
+        }
+        shared->broadcastTimeMeasurementsSum += measurement;
+        shared->broadcastTimeMeasurements[shared->nextBroadcastTimeMeasurementIndex] = measurement;
+        if (++shared->nextBroadcastTimeMeasurementIndex == shared->broadcastTimeMeasurements.size()) {
+            shared->nextBroadcastTimeMeasurementIndex = 0;
+        }
+    }
 
     const std::set< int >& Server::Impl::GetInstanceIds() const {
         if (shared->jointConfiguration == nullptr) {
@@ -1071,6 +1095,9 @@ namespace Raft {
         int senderInstanceNumber
     ) {
         auto& instance = shared->instances[senderInstanceNumber];
+        if (instance.awaitingResponse) {
+            MeasureBroadcastTime(instance.timeLastRequestSent);
+        }
         shared->diagnosticsSender.SendDiagnosticInformationFormatted(
             1,
             "Received AppendEntriesResults(%s, term %d, match %zu, next %zu) from server %d (we are %s in term %d)",

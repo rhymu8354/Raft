@@ -798,4 +798,26 @@ namespace ServerTests {
         EXPECT_FALSE(mockLog->invalidEntryIndexed);
     }
 
+    TEST_F(ServerTests_Replication, MeasureBroadcastTime) {
+        // Arrange
+        BecomeLeader(1);
+        server.ResetStatistics();
+        mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Act
+        for (auto instance: clusterConfiguration.instanceIds) {
+            if (instance != serverConfiguration.selfInstanceId) {
+                mockTimeKeeper->currentTime += 0.001;
+                ReceiveAppendEntriesResults(instance, 1, 1);
+            }
+        }
+
+        // Assert
+        const auto stats = server.GetStatistics();
+        EXPECT_NEAR(0.001, (double)stats["minBroadcastTime"], 0.0001);
+        EXPECT_NEAR(0.0025, (double)stats["avgBroadcastTime"], 0.0001);
+        EXPECT_NEAR(0.004, (double)stats["maxBroadcastTime"], 0.0001);
+    }
+
 }

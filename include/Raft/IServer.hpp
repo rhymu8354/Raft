@@ -339,6 +339,19 @@ namespace Raft {
          *     transition.
          */
         virtual void ChangeConfiguration(const ClusterConfiguration& newConfiguration) = 0;
+
+        /**
+         * Reset collected statistics.
+         */
+        virtual void ResetStatistics() = 0;
+
+        /**
+         * Return collected statistics.
+         *
+         * @return
+         *     Statistics collected by the server are returned.
+         */
+        virtual Json::Value GetStatistics() = 0;
     };
 
     /**

@@ -27,8 +27,10 @@
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
 #include <random>
+#include <stdint.h>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <thread>
+#include <vector>
 
 namespace Raft {
 
@@ -213,6 +215,42 @@ namespace Raft {
          * the server state variables which need to be persistent.
          */
         std::shared_ptr< Raft::IPersistentState > persistentStateKeeper;
+
+        /**
+         * This is the number of broadcast time measurements that have
+         * been taken since the server started or statistics were reset.
+         */
+        size_t numBroadcastTimeMeasurements = 0;
+
+        /**
+         * This is the next index to set in the broadcast time measurement
+         * memory.
+         */
+        size_t nextBroadcastTimeMeasurementIndex = 0;
+
+        /**
+         * This is the sum of all broadcast time measurements that have been
+         * made, in microseconds.
+         */
+        uintmax_t broadcastTimeMeasurementsSum = 0;
+
+        /**
+         * This is the minimum measured broadcast time, in microseconds,
+         * since the server started or statistics were reset.
+         */
+        uintmax_t minBroadcastTime = 0;
+
+        /**
+         * This is the maximum measured broadcast time, in microseconds,
+         * since the server started or statistics were reset.
+         */
+        uintmax_t maxBroadcastTime = 0;
+
+        /**
+         * This holds onto the broadcast time measurements that have been made.
+         * The measurements are stored in units of microseconds.
+         */
+        std::vector< uintmax_t > broadcastTimeMeasurements;
 
         // Methods
 
