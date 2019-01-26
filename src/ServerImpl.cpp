@@ -227,6 +227,7 @@ namespace Raft {
         StepUpAsCandidate();
         QueueElectionStateChangeAnnouncement();
         SendInitialVoteRequests(now);
+        ResetElectionTimer();
     }
 
     void Server::Impl::AttemptLogReplication(int instanceId) {

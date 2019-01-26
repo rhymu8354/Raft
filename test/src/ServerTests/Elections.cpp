@@ -341,6 +341,18 @@ namespace ServerTests {
         }
     }
 
+    TEST_F(ServerTests_Elections, ElectionTimeoutResetIfTimeOutWhileCandidate) {
+        // Arrange
+        BecomeCandidate(1);
+        const auto electionTimeout = server.GetElectionTimeout();
+
+        // Act
+        WaitForElectionTimeout();
+
+        // Assert
+        EXPECT_NE(electionTimeout, server.GetElectionTimeout());
+    }
+
     TEST_F(ServerTests_Elections, ReceiveVoteRequestWhenSameTermNoVotePending) {
         // Arrange
         MobilizeServer();

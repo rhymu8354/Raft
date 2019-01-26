@@ -182,6 +182,14 @@ namespace Raft {
         int GetClusterLeaderId() const;
 
         /**
+         * Return the current election timeout value.
+         *
+         * @return
+         *     The current election timeout value is returned.
+         */
+        double GetElectionTimeout() const;
+
+        /**
          * This method puts the server back into the state it was in when
          * first mobilized.
          */

@@ -125,6 +125,11 @@ namespace Raft {
         }
     }
 
+    double Server::GetElectionTimeout() const {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        return impl_->shared->currentElectionTimeout;
+    }
+
     void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->sendMessageDelegate = sendMessageDelegate;
