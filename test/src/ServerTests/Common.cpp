@@ -390,6 +390,7 @@ namespace ServerTests {
         serverConfiguration.selfInstanceId = 5;
         serverConfiguration.minimumElectionTimeout = 0.1;
         serverConfiguration.maximumElectionTimeout = 0.2;
+        serverConfiguration.heartbeatInterval = 0.05;
         serverConfiguration.rpcTimeout = 0.01;
         mockPersistentState->variables.currentTerm = 0;
         mockPersistentState->variables.votedThisTerm = false;

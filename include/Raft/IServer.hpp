@@ -88,6 +88,16 @@ namespace Raft {
             double maximumElectionTimeout = 0.3;
 
             /**
+             * This is the amount of time that the leader will not send any
+             * messages before it decides to send out a "heartbeat" message
+             * to all followers in order to maintain leadership.
+             *
+             * It should be greater than the RPC timeout and less than
+             * the minimum election timeout.
+             */
+            double heartbeatInterval = 0.075;
+
+            /**
              * This is the maximum amount of time to wait for a response to an
              * RPC request, before retransmitting the request.
              */

@@ -711,10 +711,11 @@ namespace ServerTests {
 
     TEST_F(ServerTests_Elections, LeaderShouldSendRegularHeartbeats) {
         // Arrange
+        serverConfiguration.heartbeatInterval = 0.001;
         BecomeLeader();
 
         // Act
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += 0.0011;
         server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
@@ -731,7 +732,7 @@ namespace ServerTests {
             if (instanceNumber == serverConfiguration.selfInstanceId) {
                 EXPECT_EQ(0, heartbeatsReceivedPerInstance[instanceNumber]);
             } else {
-                EXPECT_NE(0, heartbeatsReceivedPerInstance[instanceNumber]);
+                EXPECT_EQ(1, heartbeatsReceivedPerInstance[instanceNumber]);
             }
         }
     }

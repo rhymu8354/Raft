@@ -1227,7 +1227,7 @@ namespace Raft {
                 !shared->sentHeartBeats
                 || (
                     timeSinceLastLeaderMessage
-                    >= shared->serverConfiguration.minimumElectionTimeout / 2
+                    >= shared->serverConfiguration.heartbeatInterval
                 )
             ) {
                 QueueHeartBeatsToBeSent(now);
