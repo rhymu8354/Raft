@@ -24,7 +24,9 @@ are recommended toolchains for popular platforms.
 
 ## Building
 
-This library is not intended to stand alone.  It is intended to be included in a larger solution which uses [CMake](https://cmake.org/) to generate the build system and build applications which will link with the library.
+This library is not intended to stand alone.  It is intended to be included in
+a larger solution which uses [CMake](https://cmake.org/) to generate the build
+system and build applications which will link with the library.
 
 There are two distinct steps in the build process:
 
