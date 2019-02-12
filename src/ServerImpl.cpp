@@ -776,16 +776,39 @@ namespace Raft {
         const Message::RequestVoteDetails& messageDetails,
         int senderInstanceNumber
     ) {
+        const auto now = timeKeeper->GetCurrentTime();
         const auto termBeforeMessageProcessed = shared->persistentStateCache.currentTerm;
+        if (
+            shared->thisTermLeaderAnnounced
+            && (
+                now - shared->timeOfLastLeaderMessage
+                < shared->serverConfiguration.minimumElectionTimeout
+            )
+        ) {
+            shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                1,
+                "Ignoring vote for server %d for term %d (we were in term %d; vote requested before minimum election timeout)",
+                senderInstanceNumber,
+                messageDetails.term,
+                termBeforeMessageProcessed
+            );
+            return;
+        }
         if (messageDetails.term > shared->persistentStateCache.currentTerm) {
             UpdateCurrentTerm(messageDetails.term);
             RevertToFollower();
             QueueElectionStateChangeAnnouncement();
         }
         if (!shared->isVotingMember) {
+            shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                1,
+                "Ignoring vote for server %d for term %d (we were in term %d, but non-voting member)",
+                senderInstanceNumber,
+                messageDetails.term,
+                termBeforeMessageProcessed
+            );
             return;
         }
-        const auto now = timeKeeper->GetCurrentTime();
         Message response;
         response.type = Message::Type::RequestVoteResults;
         response.requestVoteResults.term = shared->persistentStateCache.currentTerm;

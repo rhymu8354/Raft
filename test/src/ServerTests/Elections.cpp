@@ -447,6 +447,19 @@ namespace ServerTests {
         EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 
+    TEST_F(ServerTests_Elections, ReceiveVoteRequestBeforeMinimumElectionTimeoutAfterLastLeaderMessage) {
+        // Arrange
+        MobilizeServer();
+        ReceiveAppendEntriesFromMockLeader(2, 2);
+
+        // Act
+        AdvanceTimeToJustBeforeElectionTimeout();
+        RequestVote(6, 3, 0);
+
+        // Assert
+        EXPECT_TRUE(messagesSent.empty());
+    }
+
     TEST_F(ServerTests_Elections, GrantVoteRequestLesserTerm) {
         // Arrange
         mockPersistentState->variables.currentTerm = 2;
@@ -572,6 +585,8 @@ namespace ServerTests {
         BecomeLeader(1);
 
         // Act
+        messagesSent.clear();
+        mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout;
         RequestVote(2, 2, 0);
 
         // Assert
@@ -594,6 +609,7 @@ namespace ServerTests {
         BecomeLeader(1);
 
         // Act
+        mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout;
         RequestVote(2, 2, 0);
 
         // Assert
@@ -629,8 +645,7 @@ namespace ServerTests {
     TEST_F(ServerTests_Elections, AfterRevertToFollowerDoNotStartNewElectionBeforeMinimumTimeout) {
         // Arrange
         BecomeLeader();
-        WaitForElectionTimeout();
-        messagesSent.clear();
+        mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout;
         RequestVote(2, 2, 0);
         messagesSent.clear();
 

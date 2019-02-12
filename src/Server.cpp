@@ -172,6 +172,7 @@ namespace Raft {
         impl_->shared->instances.clear();
         impl_->shared->electionState = IServer::ElectionState::Follower;
         impl_->shared->timeOfLastLeaderMessage = 0.0;
+        impl_->shared->thisTermLeaderAnnounced = false;
         impl_->shared->votesForUsCurrentConfig = 0;
         impl_->ApplyConfiguration(clusterConfiguration);
         impl_->shared->lastIndex = 0;
