@@ -81,7 +81,7 @@ namespace Raft {
          * with the rest of the cluster, this is the minimum matchIndex
          * required to consider a server to have "caught up".
          */
-        size_t catchUpIndex = 0;
+        size_t newServerCatchUpIndex = 0;
 
         /**
          * This holds all configuration items for the server instance.
@@ -127,6 +127,12 @@ namespace Raft {
          * by the worker thread.
          */
         std::queue< ConfigCommittedAnnouncement > configCommittedAnnouncementsToBeSent;
+
+        /**
+         * This indicates whether or not the worker thread should announce
+         * that the server has "caught up" to the rest of the cluster.
+         */
+        bool sendCaughtUpAnnouncement = false;
 
         /**
          * If this is not nullptr, then the worker thread should set the result
@@ -251,6 +257,19 @@ namespace Raft {
          * The measurements are stored in units of microseconds.
          */
         std::vector< uintmax_t > broadcastTimeMeasurements;
+
+        /**
+         * This is the initial "last index" of the leader, used to determine
+         * when the server has "caught up" to the rest of the cluster.
+         */
+        size_t selfCatchUpIndex = 0;
+
+        /**
+         * This flag is set once the server has "caught up" to the rest of the
+         * cluster (the commit index has reached the initial "last index" of
+         * the leader).
+         */
+        bool caughtUp = false;
 
         // Methods
 

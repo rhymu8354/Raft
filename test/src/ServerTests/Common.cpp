@@ -382,6 +382,11 @@ namespace ServerTests {
                 );
             }
         );
+        server.SetCaughtUpDelegate(
+            [this]{
+                caughtUp = true;
+            }
+        );
     }
 
     void Common::SetUp() {

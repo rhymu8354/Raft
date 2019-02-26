@@ -155,6 +155,14 @@ namespace Raft {
         impl_->commitConfigurationDelegate = commitConfigurationDelegate;
     }
 
+    void Server::SetCaughtUpDelegate(CaughtUpDelegate caughtUpDelegate) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->caughtUpDelegate = caughtUpDelegate;
+        if (impl_->shared->caughtUp) {
+            impl_->QueueCaughtUpAnnouncement();
+        }
+    }
+
     void Server::Mobilize(
         std::shared_ptr< ILog > logKeeper,
         std::shared_ptr< IPersistentState > persistentStateKeeper,
@@ -255,7 +263,7 @@ namespace Raft {
             FormatSet(newConfiguration.instanceIds).c_str()
         );
         impl_->shared->configChangePending = true;
-        impl_->shared->catchUpIndex = impl_->shared->commitIndex;
+        impl_->shared->newServerCatchUpIndex = impl_->shared->commitIndex;
         impl_->ApplyConfiguration(
             impl_->shared->clusterConfiguration,
             newConfiguration

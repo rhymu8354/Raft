@@ -69,7 +69,7 @@ namespace Raft {
                 continue;
             }
             const auto& instance = shared->instances[instanceId];
-            if (instance.matchIndex < shared->catchUpIndex) {
+            if (instance.matchIndex < shared->newServerCatchUpIndex) {
                 return false;
             }
         }
@@ -161,6 +161,11 @@ namespace Raft {
         announcement.newConfig = newConfiguration;
         announcement.logIndex = logIndex;
         shared->configCommittedAnnouncementsToBeSent.push(std::move(announcement));
+        workerAskedToStopOrWakeUp.notify_one();
+    }
+
+    void Server::Impl::QueueCaughtUpAnnouncement() {
+        shared->sendCaughtUpAnnouncement = true;
         workerAskedToStopOrWakeUp.notify_one();
     }
 
@@ -495,6 +500,22 @@ namespace Raft {
         lock.lock();
     }
 
+    void Server::Impl::SendCaughtUpAnnouncement(
+        std::unique_lock< decltype(shared->mutex) >& lock
+    ) {
+        if (!shared->sendCaughtUpAnnouncement) {
+            return;
+        }
+        shared->sendCaughtUpAnnouncement = false;
+        if (caughtUpDelegate == nullptr) {
+            return;
+        }
+        auto caughtUpDelegateCopy = caughtUpDelegate;
+        lock.unlock();
+        caughtUpDelegateCopy();
+        lock.lock();
+    }
+
     void Server::Impl::UpdateCurrentTerm(int newTerm) {
         if (shared->persistentStateCache.currentTerm == newTerm) {
             return;
@@ -517,6 +538,7 @@ namespace Raft {
         shared->electionState = IServer::ElectionState::Leader;
         shared->thisTermLeaderAnnounced = true;
         shared->leaderId = shared->serverConfiguration.selfInstanceId;
+        shared->selfCatchUpIndex = shared->logKeeper->GetSize();
         shared->sentHeartBeats = false;
         shared->diagnosticsSender.SendDiagnosticInformationString(
             3,
@@ -700,6 +722,13 @@ namespace Raft {
                     AppendLogEntries({std::move(entry)});
                 }
             }
+        }
+        if (
+            !shared->caughtUp
+            && (shared->commitIndex >= shared->selfCatchUpIndex)
+        ) {
+            shared->caughtUp = true;
+            QueueCaughtUpAnnouncement();
         }
     }
 
@@ -1070,6 +1099,9 @@ namespace Raft {
             if (electionStateChanged) {
                 QueueElectionStateChangeAnnouncement();
             }
+            if (shared->selfCatchUpIndex == 0) {
+                shared->selfCatchUpIndex = messageDetails.prevLogIndex + entries.size();
+            }
             AdvanceCommitIndex(messageDetails.leaderCommit);
             if (
                 (messageDetails.prevLogIndex > shared->lastIndex)
@@ -1300,6 +1332,7 @@ namespace Raft {
         SendQueuedLeadershipAnnouncements(lock);
         SendQueuedConfigAppliedAnnouncements(lock);
         SendQueuedConfigCommittedAnnouncements(lock);
+        SendCaughtUpAnnouncement(lock);
     }
 
     void Server::Impl::Worker() {

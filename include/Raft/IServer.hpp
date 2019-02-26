@@ -205,6 +205,13 @@ namespace Raft {
             )
         >;
 
+        /**
+         * Declare the type of delegate used to announce that the server
+         * has "caught up" to the rest of the cluster (the commit index
+         * has reached the initial "last index" of the leader).
+         */
+        using CaughtUpDelegate = std::function< void() >;
+
         // Methods
     public:
         /**
@@ -257,6 +264,18 @@ namespace Raft {
          *     cluster configuration is committed to the cluster.
          */
         virtual void SetCommitConfigurationDelegate(CommitConfigurationDelegate commitConfigurationDelegate) = 0;
+
+        /**
+         * Set up a delegate to be called when the server has "caught up" to
+         * the rest of the cluster (the commit index has reached the initial
+         * "last index" of the leader).
+         *
+         * @param[in] caughtUpDelegate
+         *     This is the delegate to be called when the server
+         *     has "caught up" to the rest of the cluster (the commit index
+         *     has reached the initial "last index" of the leader).
+         */
+        virtual void SetCaughtUpDelegate(CaughtUpDelegate caughtUpDelegate) = 0;
 
         /**
          * This method starts the server's worker thread.

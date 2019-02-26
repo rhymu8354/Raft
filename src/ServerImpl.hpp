@@ -74,6 +74,13 @@ namespace Raft {
         CommitConfigurationDelegate commitConfigurationDelegate;
 
         /**
+         * This is the delegate to be called when the server
+         * has "caught up" to the rest of the cluster (the commit index
+         * has reached the initial "last index" of the leader).
+         */
+        CaughtUpDelegate caughtUpDelegate;
+
+        /**
          * This thread performs any background tasks required of the
          * server, such as starting an election if no message is received
          * from the cluster leader before the next timeout.
@@ -227,6 +234,11 @@ namespace Raft {
         );
 
         /**
+         * Queue a "caught up" announcement message to be sent later.
+         */
+        void QueueCaughtUpAnnouncement();
+
+        /**
          * Reset state variables involved in the retransmission process.
          */
         void ResetRetransmissionState();
@@ -354,6 +366,17 @@ namespace Raft {
          *     properties of the server.
          */
         void SendQueuedConfigCommittedAnnouncements(
+            std::unique_lock< decltype(shared->mutex) >& lock
+        );
+
+        /**
+         * Send "caught up" announcement if it's due.
+         *
+         * @param[in] lock
+         *     This is the object holding the mutex protecting the shared
+         *     properties of the server.
+         */
+        void SendCaughtUpAnnouncement(
             std::unique_lock< decltype(shared->mutex) >& lock
         );
 

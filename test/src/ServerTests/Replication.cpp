@@ -820,4 +820,73 @@ namespace ServerTests {
         EXPECT_NEAR(0.004, (double)stats["maxBroadcastTime"], 0.0001);
     }
 
+    TEST_F(ServerTests_Replication, LeaderDeclareCaughtUpOnceCommitIndexReachesInitialLeaderLastIndex) {
+        // Arrange
+        constexpr int term = 5;
+        Raft::LogEntry entry;
+        entry.term = term;
+        mockLog->entries = {entry};
+        BecomeLeader(term, false);
+
+        // Act
+        EXPECT_FALSE(caughtUp);
+        for (auto instance: clusterConfiguration.instanceIds) {
+            if (instance != serverConfiguration.selfInstanceId) {
+                if (instance != serverConfiguration.selfInstanceId) {
+                    ReceiveAppendEntriesResults(instance, term, 1);
+                }
+            }
+        }
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        EXPECT_TRUE(caughtUp);
+    }
+
+    TEST_F(ServerTests_Replication, FollowerDeclareCaughtUpOnceCommitIndexReachesInitialLeaderLastIndex) {
+        // Arrange
+        constexpr int leaderId = 2;
+        constexpr int newTerm = 9;
+        mockPersistentState->variables.currentTerm = 0;
+        serverConfiguration.selfInstanceId = 5;
+        MobilizeServer();
+        Raft::LogEntry entry;
+        entry.term = newTerm;
+        ReceiveAppendEntriesFromMockLeader(leaderId, newTerm, {entry});
+
+        // Act
+        EXPECT_FALSE(caughtUp);
+        ReceiveAppendEntriesFromMockLeader(leaderId, newTerm, 1);
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        EXPECT_TRUE(caughtUp);
+    }
+
+    TEST_F(ServerTests_Replication, CaughtUpDelegateCalledOnSubscribeIfAlreadyCaughtUp) {
+        // Arrange
+        constexpr int leaderId = 2;
+        constexpr int newTerm = 9;
+        mockPersistentState->variables.currentTerm = 0;
+        serverConfiguration.selfInstanceId = 5;
+        server.SetCaughtUpDelegate(nullptr);
+        MobilizeServer();
+        Raft::LogEntry entry;
+        entry.term = newTerm;
+        ReceiveAppendEntriesFromMockLeader(leaderId, newTerm, {entry});
+        ReceiveAppendEntriesFromMockLeader(leaderId, newTerm, 1);
+
+        // Act
+        EXPECT_FALSE(caughtUp);
+        server.SetCaughtUpDelegate(
+            [this]{
+                caughtUp = true;
+            }
+        );
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        EXPECT_TRUE(caughtUp);
+    }
+
 }

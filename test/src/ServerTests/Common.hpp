@@ -160,6 +160,7 @@ namespace ServerTests {
             int term = 0;
         } leadershipChangeDetails;
         std::vector< Json::Value > electionStateChanges;
+        bool caughtUp = false;
 
         // Methods
 
