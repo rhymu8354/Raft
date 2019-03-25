@@ -14,6 +14,7 @@
 #include "ServerSharedProperties.hpp"
 
 #include <condition_variable>
+#include <functional>
 #include <future>
 #include <Raft/LogEntry.hpp>
 #include <Raft/ILog.hpp>
@@ -431,6 +432,27 @@ namespace Raft {
          *     This is the new value to set for the last index.
          */
         void SetLastIndex(size_t newLastIndex);
+
+        /**
+         * Determine whether or not there is a command in the log from the
+         * given index to the end which, when passed to the given visitor
+         * function, returns true.
+         *
+         * @param[in] visitor
+         *     This is function which is used to find a command in the log.
+         *
+         * @param[in] index
+         *     This is the starting index for which to search for the command.
+         *
+         * @return
+         *     An indication of whether or not a command is found in the log
+         *     from the given index to the end that causes the given visitor
+         *     to return true is returned.
+         */
+        bool IsCommandApplied(
+            std::function< bool(std::shared_ptr< ::Raft::Command > command) > visitor,
+            size_t index
+        );
 
         /**
          * Determine whether or not there is a command of the given type

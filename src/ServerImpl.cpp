@@ -633,19 +633,31 @@ namespace Raft {
     }
 
     bool Server::Impl::IsCommandApplied(
-        const std::string& type,
+        std::function< bool(std::shared_ptr< ::Raft::Command > command) > visitor,
         size_t index
     ) {
         while (index <= shared->lastIndex) {
             const auto command = shared->logKeeper->operator[](index++).command;
-            if (
-                (command != nullptr)
-                && (command->GetType() == type)
-            ) {
+            if (visitor(command)) {
                 return true;
             }
         }
         return false;
+    }
+
+    bool Server::Impl::IsCommandApplied(
+        const std::string& type,
+        size_t index
+    ) {
+        return IsCommandApplied(
+            [type](std::shared_ptr< ::Raft::Command > command){
+                return (
+                    (command != nullptr)
+                    && (command->GetType() == type)
+                );
+            },
+            index
+        );
     }
 
     void Server::Impl::AdvanceCommitIndex(size_t newCommitIndex) {
