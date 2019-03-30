@@ -31,6 +31,26 @@ namespace Raft {
         virtual size_t GetSize() = 0;
 
         /**
+         * Return the last index represented by the snapshot upon which this
+         * log is based.
+         *
+         * @return
+         *     The last index represented by the snapshot upon which this
+         *     log is based is returned.
+         */
+        virtual size_t GetBaseIndex() = 0;
+
+        /**
+         * Return the index of the last entry in the log, or in the snapshot
+         * upon which this log is based, if the log is empty.
+         *
+         * @return
+         *     The index of the last entry in the log, or in the snapshot
+         *     upon which this log is based, if the log is empty, is returned.
+         */
+        virtual size_t GetLastIndex() = 0;
+
+        /**
          * Return the log entry at the given index.
          *
          * @param[in] index

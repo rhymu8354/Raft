@@ -45,6 +45,14 @@ namespace ServerTests {
         destructionDelegates.push_back(destructionDelegate);
     }
 
+    size_t MockLog::GetBaseIndex() {
+        return 0;
+    }
+
+    size_t MockLog::GetLastIndex() {
+        return entries.size();
+    }
+
     size_t MockLog::GetSize() {
         return entries.size();
     }

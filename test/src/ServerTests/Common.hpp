@@ -88,6 +88,8 @@ namespace ServerTests {
 
         // Raft::ILog
 
+        virtual size_t GetBaseIndex() override;
+        virtual size_t GetLastIndex() override;
         virtual size_t GetSize() override;
         virtual const Raft::LogEntry& operator[](size_t index) override;
         virtual void RollBack(size_t index) override;
