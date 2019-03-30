@@ -538,7 +538,7 @@ namespace Raft {
         shared->electionState = IServer::ElectionState::Leader;
         shared->thisTermLeaderAnnounced = true;
         shared->leaderId = shared->serverConfiguration.selfInstanceId;
-        shared->selfCatchUpIndex = shared->logKeeper->GetSize();
+        shared->selfCatchUpIndex = shared->logKeeper->GetLastIndex();
         shared->sentHeartBeats = false;
         shared->diagnosticsSender.SendDiagnosticInformationString(
             3,
@@ -664,7 +664,7 @@ namespace Raft {
         const auto lastCommitIndex = shared->commitIndex;
         const auto newCommitIndexWeHave = std::min(
             newCommitIndex,
-            shared->logKeeper->GetSize()
+            shared->logKeeper->GetLastIndex()
         );
         if (newCommitIndexWeHave != shared->commitIndex) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
@@ -673,7 +673,7 @@ namespace Raft {
                 shared->commitIndex,
                 newCommitIndexWeHave,
                 newCommitIndex,
-                shared->logKeeper->GetSize()
+                shared->logKeeper->GetLastIndex()
             );
             shared->commitIndex = newCommitIndexWeHave;
             shared->logKeeper->Commit(shared->commitIndex);

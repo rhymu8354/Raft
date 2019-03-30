@@ -46,11 +46,11 @@ namespace ServerTests {
     }
 
     size_t MockLog::GetBaseIndex() {
-        return 0;
+        return baseIndex;
     }
 
     size_t MockLog::GetLastIndex() {
-        return entries.size();
+        return baseIndex + entries.size();
     }
 
     size_t MockLog::GetSize() {
@@ -59,14 +59,14 @@ namespace ServerTests {
 
     const Raft::LogEntry& MockLog::operator[](size_t index) {
         if (
-            (index == 0)
-            || (index > entries.size())
+            (index <= baseIndex)
+            || (index > baseIndex + entries.size())
         ) {
             invalidEntryIndexed = true;
             static Raft::LogEntry outOfRangeReturnValue;
             return outOfRangeReturnValue;
         }
-        return entries[index - 1];
+        return entries[index - baseIndex - 1];
     }
 
     void MockLog::RollBack(size_t index) {
@@ -197,13 +197,12 @@ namespace ServerTests {
         message.type = Raft::Message::Type::AppendEntries;
         message.appendEntries.term = term;
         message.appendEntries.leaderCommit = leaderCommit;
-        if (mockLog->entries.empty()) {
-            message.appendEntries.prevLogIndex = 0;
-            message.appendEntries.prevLogTerm = 0;
-        } else {
-            message.appendEntries.prevLogIndex = mockLog->entries.size();
-            message.appendEntries.prevLogTerm = term;
-        }
+        message.appendEntries.prevLogIndex = mockLog->baseIndex + mockLog->entries.size();
+        message.appendEntries.prevLogTerm = (
+            mockLog->entries.empty()
+            ? 0
+            : term
+        );
         server.ReceiveMessage(message.Serialize(), leaderId);
         server.WaitForAtLeastOneWorkerLoop();
         messagesSent.clear();
@@ -216,7 +215,7 @@ namespace ServerTests {
         ReceiveAppendEntriesFromMockLeader(
             leaderId,
             term,
-            mockLog->entries.size()
+            mockLog->baseIndex + mockLog->entries.size()
         );
     }
 
@@ -233,10 +232,10 @@ namespace ServerTests {
         message.appendEntries.term = term;
         message.appendEntries.leaderCommit = leaderCommit;
         message.appendEntries.prevLogIndex = prevLogIndex;
-        if (prevLogIndex == 0) {
+        if (prevLogIndex <= mockLog->baseIndex) {
             message.appendEntries.prevLogTerm = 0;
         } else {
-            message.appendEntries.prevLogTerm = mockLog->entries[prevLogIndex - 1].term;
+            message.appendEntries.prevLogTerm = mockLog->entries[prevLogIndex - mockLog->baseIndex - 1].term;
         }
         message.log = entries;
         server.ReceiveMessage(message.Serialize(), leaderId);
@@ -257,7 +256,7 @@ namespace ServerTests {
             leaderId,
             term,
             leaderCommit,
-            mockLog->entries.size(),
+            mockLog->baseIndex + mockLog->entries.size(),
             entries,
             clearMessagesSent
         );
@@ -307,7 +306,7 @@ namespace ServerTests {
         if (acknowledgeInitialHeartbeats) {
             for (auto instance: clusterConfiguration.instanceIds) {
                 if (instance != serverConfiguration.selfInstanceId) {
-                    ReceiveAppendEntriesResults(instance, term, mockLog->entries.size());
+                    ReceiveAppendEntriesResults(instance, term, mockLog->baseIndex + mockLog->entries.size());
                 }
             }
             messagesSent.clear();

@@ -701,6 +701,24 @@ namespace ServerTests {
         EXPECT_EQ(0, mockLog->commitIndex);
     }
 
+    TEST_F(ServerTests_Replication, CommitLogAnyEntriesWeHaveWhenIndexLessThanBasePlusSize) {
+        // Arrange
+        constexpr int leaderId = 2;
+        constexpr int term = 5;
+        mockPersistentState->variables.currentTerm = term;
+        Raft::LogEntry entry;
+        entry.term = term;
+        mockLog->entries = {entry};
+        mockLog->baseIndex = 100;
+        MobilizeServer();
+
+        // Act
+        ReceiveAppendEntriesFromMockLeader(leaderId, term, 101, 0, {});
+
+        // Assert
+        EXPECT_EQ(101, mockLog->commitIndex);
+    }
+
     TEST_F(ServerTests_Replication, StaleServerShouldRevertToFollowerWhenAppendEntryResultsHigherTermReceived) {
         // Arrange
         constexpr int term = 7;
@@ -843,6 +861,31 @@ namespace ServerTests {
         EXPECT_TRUE(caughtUp);
     }
 
+    TEST_F(ServerTests_Replication, LeaderMustNotDeclareCaughtUpIfCommitIndexHasNotYetReachedInitialLeaderLastIndexWhenBaseIndexNonZero) {
+        // Arrange
+        constexpr int term = 5;
+        Raft::LogEntry entry1, entry2;
+        entry1.term = term;
+        entry2.term = term;
+        mockLog->entries = {entry1, entry2};
+        mockLog->baseIndex = 100;
+        BecomeLeader(term, false);
+
+        // Act
+        EXPECT_FALSE(caughtUp);
+        for (auto instance: clusterConfiguration.instanceIds) {
+            if (instance != serverConfiguration.selfInstanceId) {
+                if (instance != serverConfiguration.selfInstanceId) {
+                    ReceiveAppendEntriesResults(instance, term, 101);
+                }
+            }
+        }
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        EXPECT_FALSE(caughtUp);
+    }
+
     TEST_F(ServerTests_Replication, FollowerDeclareCaughtUpOnceCommitIndexReachesInitialLeaderLastIndex) {
         // Arrange
         constexpr int leaderId = 2;
@@ -887,6 +930,34 @@ namespace ServerTests {
 
         // Assert
         EXPECT_TRUE(caughtUp);
+    }
+
+    TEST_F(ServerTests_Replication, CommitIndexInitializedFromLog) {
+        // Arrange
+        constexpr int leaderId = 2;
+        constexpr int term = 5;
+        mockPersistentState->variables.currentTerm = term;
+
+        // Act
+        mockLog->baseIndex = 123;
+        MobilizeServer();
+
+        // Assert
+        EXPECT_EQ(123, server.GetCommitIndex());
+    }
+
+    TEST_F(ServerTests_Replication, LastIndexInitializedFromLog) {
+        // Arrange
+        constexpr int leaderId = 2;
+        constexpr int term = 5;
+        mockPersistentState->variables.currentTerm = term;
+
+        // Act
+        mockLog->baseIndex = 123;
+        MobilizeServer();
+
+        // Assert
+        EXPECT_EQ(123, server.GetLastIndex());
     }
 
 }

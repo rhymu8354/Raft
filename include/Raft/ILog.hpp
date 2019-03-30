@@ -23,7 +23,9 @@ namespace Raft {
     class ILog {
     public:
         /**
-         * Return the number of entries in the log.
+         * Return the number of entries in the log, including entries that have
+         * been incorporated into the snapshot and are no longer available as
+         * individual entries for replication.
          *
          * @return
          *     The number of entries in the log is returned.

@@ -68,6 +68,7 @@ namespace ServerTests {
 
         std::vector< Raft::LogEntry > entries;
         bool invalidEntryIndexed = false;
+        size_t baseIndex = 0;
         size_t commitIndex = 0;
         size_t commitCount = 0;
         std::vector< std::function< void() > > destructionDelegates;
