@@ -1150,7 +1150,7 @@ namespace Raft {
                 if (!entriesToAdd.empty()) {
                     shared->logKeeper->Append(entriesToAdd);
                 }
-                SetLastIndex(shared->logKeeper->GetSize());
+                SetLastIndex(shared->logKeeper->GetLastIndex());
                 response.appendEntriesResults.matchIndex = shared->lastIndex;
             }
         }

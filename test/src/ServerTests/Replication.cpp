@@ -960,4 +960,30 @@ namespace ServerTests {
         EXPECT_EQ(123, server.GetLastIndex());
     }
 
+    TEST_F(ServerTests_Replication, CorrectMatchIndexInAppendEntriesResultsBasedOnSnapshot) {
+        // Arrange
+        Raft::LogEntry oldEntry, nextEntry;
+        oldEntry.term = 7;
+        nextEntry.term = 8;
+        mockLog->entries = {oldEntry};
+        mockLog->baseIndex = 100;
+        mockLog->commitIndex = 100;
+        MobilizeServer();
+        ReceiveAppendEntriesFromMockLeader(2, 8);
+
+        // Act
+        ReceiveAppendEntriesFromMockLeader(2, 8, 101, 101, {nextEntry}, false);
+
+        // Assert
+        ASSERT_EQ(2, mockLog->entries.size());
+        EXPECT_EQ(oldEntry.term, mockLog->entries[0].term);
+        EXPECT_EQ(nextEntry.term, mockLog->entries[1].term);
+        ASSERT_EQ(1, messagesSent.size());
+        EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
+        EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
+        EXPECT_EQ(8, messagesSent[0].message.appendEntriesResults.term);
+        EXPECT_TRUE(messagesSent[0].message.appendEntriesResults.success);
+        EXPECT_EQ(102, messagesSent[0].message.appendEntriesResults.matchIndex);
+    }
+
 }
