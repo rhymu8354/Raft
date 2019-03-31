@@ -53,6 +53,17 @@ namespace Raft {
         virtual size_t GetLastIndex() = 0;
 
         /**
+         * Return the term of the log entry at the given index.
+         *
+         * @param[in] index
+         *     This is the index of the log entry for which to return the term.
+         *
+         * @return
+         *     The term of the log entry at the given index is returned.
+         */
+        virtual int GetTerm(size_t index) = 0;
+
+        /**
          * Return the log entry at the given index.
          *
          * @param[in] index

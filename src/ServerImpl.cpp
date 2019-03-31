@@ -213,7 +213,7 @@ namespace Raft {
         message.requestVote.term = shared->persistentStateCache.currentTerm;
         message.requestVote.lastLogIndex = shared->lastIndex;
         if (shared->lastIndex > 0) {
-            message.requestVote.lastLogTerm = shared->logKeeper->operator[](shared->lastIndex).term;
+            message.requestVote.lastLogTerm = shared->logKeeper->GetTerm(shared->lastIndex);
         } else {
             message.requestVote.lastLogTerm = 0;
         }
@@ -249,16 +249,17 @@ namespace Raft {
             return;
         }
         auto& instance = shared->instances[instanceId];
+        // TODO: If nextIndex is before baseIndex, the follower doesn't
+        // have all the entries in the current snapshot, so we need to
+        // send the snapshot.
         Message message;
         message.type = Message::Type::AppendEntries;
         message.appendEntries.term = shared->persistentStateCache.currentTerm;
         message.appendEntries.leaderCommit = shared->commitIndex;
         message.appendEntries.prevLogIndex = instance.nextIndex - 1;
-        if (message.appendEntries.prevLogIndex == 0) {
-            message.appendEntries.prevLogTerm = 0;
-        } else {
-            message.appendEntries.prevLogTerm = shared->logKeeper->operator[](message.appendEntries.prevLogIndex).term;
-        }
+        message.appendEntries.prevLogTerm = shared->logKeeper->GetTerm(
+            message.appendEntries.prevLogIndex
+        );
         for (size_t i = instance.nextIndex; i <= shared->lastIndex; ++i) {
             message.log.push_back(shared->logKeeper->operator[](i));
         }
@@ -313,11 +314,7 @@ namespace Raft {
         message.appendEntries.term = shared->persistentStateCache.currentTerm;
         message.appendEntries.leaderCommit = shared->commitIndex;
         message.appendEntries.prevLogIndex = shared->lastIndex;
-        if (shared->lastIndex == 0) {
-            message.appendEntries.prevLogTerm = 0;
-        } else {
-            message.appendEntries.prevLogTerm = shared->logKeeper->operator[](shared->lastIndex).term;
-        }
+        message.appendEntries.prevLogTerm = shared->logKeeper->GetTerm(shared->lastIndex);
         shared->diagnosticsSender.SendDiagnosticInformationFormatted(
             0,
             "Sending heartbeat (term %d)",
@@ -346,11 +343,7 @@ namespace Raft {
         message.appendEntries.term = shared->persistentStateCache.currentTerm;
         message.appendEntries.leaderCommit = shared->commitIndex;
         message.appendEntries.prevLogIndex = shared->lastIndex - entries.size();
-        if (message.appendEntries.prevLogIndex == 0) {
-            message.appendEntries.prevLogTerm = 0;
-        } else {
-            message.appendEntries.prevLogTerm = shared->logKeeper->operator[](message.appendEntries.prevLogIndex).term;
-        }
+        message.appendEntries.prevLogTerm = shared->logKeeper->GetTerm(message.appendEntries.prevLogIndex);
         message.log = entries;
         if (entries.empty()) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
@@ -854,11 +847,7 @@ namespace Raft {
         response.type = Message::Type::RequestVoteResults;
         response.requestVoteResults.term = shared->persistentStateCache.currentTerm;
         const auto lastIndex = shared->lastIndex;
-        const auto lastTerm = (
-            (shared->lastIndex == 0)
-            ? 0
-            : shared->logKeeper->operator[](shared->lastIndex).term
-        );
+        const auto lastTerm = shared->logKeeper->GetTerm(shared->lastIndex);
         if (shared->persistentStateCache.currentTerm > messageDetails.term) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
@@ -1120,7 +1109,7 @@ namespace Raft {
             if (
                 (messageDetails.prevLogIndex > shared->lastIndex)
                 || (
-                    shared->logKeeper->operator[](messageDetails.prevLogIndex).term
+                    shared->logKeeper->GetTerm(messageDetails.prevLogIndex)
                     != messageDetails.prevLogTerm
                 )
             ) {
@@ -1140,8 +1129,7 @@ namespace Raft {
                     ) {
                         entriesToAdd.push_back(std::move(newEntry));
                     } else {
-                        const auto& oldEntry = shared->logKeeper->operator[](logIndex);
-                        if (oldEntry.term != newEntry.term) {
+                        if (shared->logKeeper->GetTerm(logIndex) != newEntry.term) {
                             conflictFound = true;
                             SetLastIndex(logIndex - 1);
                             shared->logKeeper->RollBack(logIndex - 1);
@@ -1242,7 +1230,7 @@ namespace Raft {
                     > shared->clusterConfiguration.instanceIds.size() - totalMatchCounts
                 )
                 && (
-                    shared->logKeeper->operator[](indexMatchCountsOldServersEntry->first).term
+                    shared->logKeeper->GetTerm(indexMatchCountsOldServersEntry->first)
                     == shared->persistentStateCache.currentTerm
                 )
             ) {
@@ -1267,7 +1255,7 @@ namespace Raft {
                                 > shared->nextClusterConfiguration.instanceIds.size() - totalMatchCounts
                             )
                             && (
-                                shared->logKeeper->operator[](indexMatchCountsNewServersEntry->first).term
+                                shared->logKeeper->GetTerm(indexMatchCountsNewServersEntry->first)
                                 == shared->persistentStateCache.currentTerm
                             )
                         ) {

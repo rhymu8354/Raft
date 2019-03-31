@@ -69,6 +69,7 @@ namespace ServerTests {
         std::vector< Raft::LogEntry > entries;
         bool invalidEntryIndexed = false;
         size_t baseIndex = 0;
+        int baseTerm = 0;
         size_t commitIndex = 0;
         size_t commitCount = 0;
         std::vector< std::function< void() > > destructionDelegates;
@@ -89,9 +90,10 @@ namespace ServerTests {
 
         // Raft::ILog
 
+        virtual size_t GetSize() override;
         virtual size_t GetBaseIndex() override;
         virtual size_t GetLastIndex() override;
-        virtual size_t GetSize() override;
+        virtual int GetTerm(size_t index) override;
         virtual const Raft::LogEntry& operator[](size_t index) override;
         virtual void RollBack(size_t index) override;
         virtual void Append(const std::vector< Raft::LogEntry >& newEntries) override;

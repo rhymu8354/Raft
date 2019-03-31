@@ -86,6 +86,29 @@ namespace ServerTests {
         }
     }
 
+    TEST_F(ServerTests_Replication, LeaderAppendLogEntryFirstAfterSnapshot) {
+        // Arrange
+        mockLog->baseIndex = 100;
+        mockLog->commitIndex = 100;
+        mockLog->baseTerm = 2;
+        BecomeLeader(3);
+        Raft::LogEntry entry;
+        entry.term = 3;
+
+        // Act
+        server.AppendLogEntries({entry});
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        for (const auto& messageSent: messagesSent) {
+            if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+                EXPECT_EQ(3, messageSent.message.appendEntries.term);
+                EXPECT_EQ(100, messageSent.message.appendEntries.prevLogIndex);
+                EXPECT_EQ(2, messageSent.message.appendEntries.prevLogTerm);
+            }
+        }
+    }
+
     TEST_F(ServerTests_Replication, FollowerAppendLogEntry) {
         // Arrange
         constexpr int leaderId = 2;
@@ -274,6 +297,29 @@ namespace ServerTests {
         EXPECT_EQ(3, messagesSent[0].message.appendEntries.prevLogTerm);
         ASSERT_EQ(1, messagesSent[0].message.log.size());
         EXPECT_EQ(7, messagesSent[0].message.log[0].term);
+    }
+
+    TEST_F(ServerTests_Replication, LeaderAppendFirstEntryBasedOnSnapshotAfterDiscoveringFollowerIsBehind) {
+        // Arrange
+        mockLog->baseIndex = 100;
+        mockLog->commitIndex = 100;
+        mockLog->baseTerm = 7;
+        AppendNoOpEntry(3);
+        BecomeLeader(8);
+        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Act
+        messagesSent.clear();
+        ReceiveAppendEntriesResults(2, 8, 100, false);
+
+        // Assert
+        ASSERT_EQ(1, messagesSent.size());
+        EXPECT_EQ(Raft::Message::Type::AppendEntries, messagesSent[0].message.type);
+        EXPECT_EQ(100, messagesSent[0].message.appendEntries.prevLogIndex);
+        EXPECT_EQ(7, messagesSent[0].message.appendEntries.prevLogTerm);
+        ASSERT_EQ(1, messagesSent[0].message.log.size());
+        EXPECT_EQ(3, messagesSent[0].message.log[0].term);
     }
 
     TEST_F(ServerTests_Replication, LeaderAppendOnlyLogEntryAfterDiscoveringFollowerHasNoLogAtAllNopeNoSirIAmNewPleaseForgiveMe) {
@@ -713,7 +759,7 @@ namespace ServerTests {
         MobilizeServer();
 
         // Act
-        ReceiveAppendEntriesFromMockLeader(leaderId, term, 101, 0, {});
+        ReceiveAppendEntriesFromMockLeader(leaderId, term, 101, 101, {});
 
         // Assert
         EXPECT_EQ(101, mockLog->commitIndex);
@@ -962,9 +1008,9 @@ namespace ServerTests {
 
     TEST_F(ServerTests_Replication, CorrectMatchIndexInAppendEntriesResultsBasedOnSnapshot) {
         // Arrange
-        Raft::LogEntry oldEntry, nextEntry;
+        Raft::LogEntry oldEntry, newEntry;
         oldEntry.term = 7;
-        nextEntry.term = 8;
+        newEntry.term = 8;
         mockLog->entries = {oldEntry};
         mockLog->baseIndex = 100;
         mockLog->commitIndex = 100;
@@ -972,12 +1018,12 @@ namespace ServerTests {
         ReceiveAppendEntriesFromMockLeader(2, 8);
 
         // Act
-        ReceiveAppendEntriesFromMockLeader(2, 8, 101, 101, {nextEntry}, false);
+        ReceiveAppendEntriesFromMockLeader(2, 8, 101, 101, {newEntry}, false);
 
         // Assert
         ASSERT_EQ(2, mockLog->entries.size());
         EXPECT_EQ(oldEntry.term, mockLog->entries[0].term);
-        EXPECT_EQ(nextEntry.term, mockLog->entries[1].term);
+        EXPECT_EQ(newEntry.term, mockLog->entries[1].term);
         ASSERT_EQ(1, messagesSent.size());
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
@@ -1003,6 +1049,30 @@ namespace ServerTests {
 
         // Assert
         EXPECT_EQ(1, mockLog->commitIndex);
+    }
+
+    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesWhenLogEmptyBasedOnSnapshot) {
+        // Arrange
+        Raft::LogEntry newEntry;
+        newEntry.term = 8;
+        mockLog->baseIndex = 100;
+        mockLog->baseTerm = 7;
+        mockLog->commitIndex = 100;
+        MobilizeServer();
+
+        // Act
+        messagesSent.clear();
+        ReceiveAppendEntriesFromMockLeader(2, 8, 100, 100, {newEntry}, false);
+
+        // Assert
+        ASSERT_EQ(1, mockLog->entries.size());
+        EXPECT_EQ(newEntry.term, mockLog->entries[0].term);
+        ASSERT_EQ(1, messagesSent.size());
+        EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
+        EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
+        EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.term);
+        EXPECT_TRUE(messagesSent[0].message.appendEntriesResults.success);
+        EXPECT_EQ(101, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
 }

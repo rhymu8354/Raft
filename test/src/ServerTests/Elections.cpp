@@ -149,7 +149,7 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Elections, RequestVoteIncludesLastTermWithLog) {
+    TEST_F(ServerTests_Elections, RequestVoteIncludesLastTermFromLog) {
         // Arrange
         AppendNoOpEntry(3);
         AppendNoOpEntry(7);
@@ -162,6 +162,25 @@ namespace ServerTests {
         for (const auto messageInfo: messagesSent) {
             EXPECT_EQ(
                 7,
+                messageInfo.message.requestVote.lastLogTerm
+            );
+        }
+    }
+
+    TEST_F(ServerTests_Elections, RequestVoteIncludesLastTermFromSnapshot) {
+        // Arrange
+        mockLog->baseIndex = 100;
+        mockLog->commitIndex = 100;
+        mockLog->baseTerm = 42;
+        MobilizeServer();
+
+        // Act
+        WaitForElectionTimeout();
+
+        // Assert
+        for (const auto messageInfo: messagesSent) {
+            EXPECT_EQ(
+                42,
                 messageInfo.message.requestVote.lastLogTerm
             );
         }
@@ -370,7 +389,7 @@ namespace ServerTests {
         EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 
-    TEST_F(ServerTests_Elections, ReceiveVoteRequestWhenOurLogIsGreaterTerm) {
+    TEST_F(ServerTests_Elections, ReceiveVoteRequestWhenOurLogIsGreaterTermNoSnapshot) {
         // Arrange
         mockPersistentState->variables.currentTerm = 2;
         AppendNoOpEntry(2);
@@ -378,6 +397,27 @@ namespace ServerTests {
 
         // Act
         RequestVote(2, 3, 1, 1);
+
+        // Assert
+        ASSERT_EQ(1, messagesSent.size());
+        EXPECT_EQ(
+            Raft::Message::Type::RequestVoteResults,
+            messagesSent[0].message.type
+        );
+        EXPECT_EQ(3, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
+    }
+
+    TEST_F(ServerTests_Elections, ReceiveVoteRequestWhenOurLogIsGreaterTermNoLogWithSnapshot) {
+        // Arrange
+        mockPersistentState->variables.currentTerm = 2;
+        mockLog->baseIndex = 100;
+        mockLog->commitIndex = 100;
+        mockLog->baseTerm = 2;
+        MobilizeServer();
+
+        // Act
+        RequestVote(2, 3, 100, 1);
 
         // Assert
         ASSERT_EQ(1, messagesSent.size());
@@ -760,6 +800,27 @@ namespace ServerTests {
                 EXPECT_EQ(0, heartbeatsReceivedPerInstance[instanceNumber]);
             } else {
                 EXPECT_EQ(1, heartbeatsReceivedPerInstance[instanceNumber]);
+            }
+        }
+    }
+
+    TEST_F(ServerTests_Elections, HeartbeatNoLogEntriesSinceSnapshot) {
+        // Arrange
+        mockLog->baseIndex = 100;
+        mockLog->commitIndex = 100;
+        mockLog->baseTerm = 42;
+        serverConfiguration.heartbeatInterval = 0.001;
+        BecomeLeader();
+
+        // Act
+        mockTimeKeeper->currentTime += 0.0011;
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        for (const auto& messageSent: messagesSent) {
+            if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+                EXPECT_EQ(100, messageSent.message.appendEntries.prevLogIndex);
+                EXPECT_EQ(42, messageSent.message.appendEntries.prevLogTerm);
             }
         }
     }

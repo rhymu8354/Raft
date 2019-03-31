@@ -45,6 +45,10 @@ namespace ServerTests {
         destructionDelegates.push_back(destructionDelegate);
     }
 
+    size_t MockLog::GetSize() {
+        return entries.size();
+    }
+
     size_t MockLog::GetBaseIndex() {
         return baseIndex;
     }
@@ -53,8 +57,15 @@ namespace ServerTests {
         return baseIndex + entries.size();
     }
 
-    size_t MockLog::GetSize() {
-        return entries.size();
+    int MockLog::GetTerm(size_t index) {
+        if (index > baseIndex + entries.size()) {
+            return 0;
+        }
+        return (
+            (index <= baseIndex)
+            ? baseTerm
+            : entries[index - baseIndex - 1].term
+        );
     }
 
     const Raft::LogEntry& MockLog::operator[](size_t index) {
@@ -233,7 +244,7 @@ namespace ServerTests {
         message.appendEntries.leaderCommit = leaderCommit;
         message.appendEntries.prevLogIndex = prevLogIndex;
         if (prevLogIndex <= mockLog->baseIndex) {
-            message.appendEntries.prevLogTerm = 0;
+            message.appendEntries.prevLogTerm = mockLog->baseTerm;
         } else {
             message.appendEntries.prevLogTerm = mockLog->entries[prevLogIndex - mockLog->baseIndex - 1].term;
         }
