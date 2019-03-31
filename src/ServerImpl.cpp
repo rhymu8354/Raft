@@ -1114,7 +1114,9 @@ namespace Raft {
             if (shared->selfCatchUpIndex == 0) {
                 shared->selfCatchUpIndex = messageDetails.prevLogIndex + entries.size();
             }
-            AdvanceCommitIndex(messageDetails.leaderCommit);
+            if (messageDetails.leaderCommit > shared->commitIndex) {
+                AdvanceCommitIndex(messageDetails.leaderCommit);
+            }
             if (
                 (messageDetails.prevLogIndex > shared->lastIndex)
                 || (

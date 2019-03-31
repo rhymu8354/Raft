@@ -986,4 +986,23 @@ namespace ServerTests {
         EXPECT_EQ(102, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
+    TEST_F(ServerTests_Replication, DoNotRewindCommitIndexIfLeaderCommitIsBehind) {
+        // Arrange
+        constexpr int leaderId = 2;
+        constexpr int term = 5;
+        mockPersistentState->variables.currentTerm = term;
+        Raft::LogEntry entry;
+        entry.term = term;
+        mockLog->entries = {entry};
+        MobilizeServer();
+        ReceiveAppendEntriesFromMockLeader(leaderId, term, 1, 0, {});
+        const auto commitCountStart = mockLog->commitCount;
+
+        // Act
+        ReceiveAppendEntriesFromMockLeader(leaderId, term, 0, 0, {});
+
+        // Assert
+        EXPECT_EQ(1, mockLog->commitIndex);
+    }
+
 }
