@@ -163,6 +163,11 @@ namespace Raft {
         }
     }
 
+    void Server::SetSnapshotDelegate(SnapshotDelegate snapshotDelegate) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->snapshotDelegate = snapshotDelegate;
+    }
+
     void Server::Mobilize(
         std::shared_ptr< ILog > logKeeper,
         std::shared_ptr< IPersistentState > persistentStateKeeper,
@@ -230,6 +235,21 @@ namespace Raft {
             case Message::Type::AppendEntriesResults: {
                 impl_->OnReceiveAppendEntriesResults(
                     message.appendEntriesResults,
+                    senderInstanceNumber
+                );
+            } break;
+
+            case Message::Type::InstallSnapshot: {
+                impl_->OnReceiveInstallSnapshot(
+                    message.installSnapshot,
+                    std::move(message.snapshot),
+                    senderInstanceNumber
+                );
+            } break;
+
+            case Message::Type::InstallSnapshotResults: {
+                impl_->OnReceiveInstallSnapshotResults(
+                    message.installSnapshotResults,
                     senderInstanceNumber
                 );
             } break;

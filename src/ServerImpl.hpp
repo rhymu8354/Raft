@@ -82,6 +82,13 @@ namespace Raft {
         CaughtUpDelegate caughtUpDelegate;
 
         /**
+         * This is the delegate to be called when the server
+         * has received a message installing a snapshot to set
+         * the server's state.
+         */
+        SnapshotDelegate snapshotDelegate;
+
+        /**
          * This thread performs any background tasks required of the
          * server, such as starting an election if no message is received
          * from the cluster leader before the next timeout.
@@ -240,6 +247,28 @@ namespace Raft {
         void QueueCaughtUpAnnouncement();
 
         /**
+         * Queue a snapshot announcement message to be sent later.
+         *
+         * @param[in] snapshot
+         *     This contains a complete copy of the server state, built from
+         *     the first log entry up to and including the entry at the
+         *     given last included index.
+         *
+         * @param[in] lastIncludedIndex
+         *     This is the index of the last log entry that was used to
+         *     assemble the snapshot.
+         *
+         * @param[in] lastIncludedTerm
+         *     This is the term of the last log entry that was used to
+         *     assemble the snapshot.
+         */
+        void QueueSnapshotAnnouncement(
+            Json::Value&& snapshot,
+            size_t lastIncludedIndex,
+            int lastIncludedTerm
+        );
+
+        /**
          * Reset state variables involved in the retransmission process.
          */
         void ResetRetransmissionState();
@@ -378,6 +407,17 @@ namespace Raft {
          *     properties of the server.
          */
         void SendCaughtUpAnnouncement(
+            std::unique_lock< decltype(shared->mutex) >& lock
+        );
+
+        /**
+         * Send any queued snapshot announcements.
+         *
+         * @param[in] lock
+         *     This is the object holding the mutex protecting the shared
+         *     properties of the server.
+         */
+        void SendQueuedSnapshotAnnouncements(
             std::unique_lock< decltype(shared->mutex) >& lock
         );
 
@@ -572,6 +612,43 @@ namespace Raft {
          */
         void OnReceiveAppendEntriesResults(
             const Message::AppendEntriesResultsDetails& messageDetails,
+            int senderInstanceNumber
+        );
+
+        /**
+         * This method is called whenever the server receives an
+         * InstallSnapshot message from the cluster leader.
+         *
+         * @param[in] message
+         *     This contains the details of the message received.
+         *
+         * @param[in] snapshot
+         *     This is a condensed form of all the information the server needs
+         *     to reconstruct its state as built from a series of log entries.
+         *
+         * @param[in] senderInstanceNumber
+         *     This is the unique identifier of the server that sent the
+         *     message.
+         */
+        void OnReceiveInstallSnapshot(
+            const Message::InstallSnapshotDetails& messageDetails,
+            Json::Value&& snapshot,
+            int senderInstanceNumber
+        );
+
+        /**
+         * This method is called whenever the server receives an
+         * InstallSnapshotResults message from the cluster leader.
+         *
+         * @param[in] message
+         *     This contains the details of the message received.
+         *
+         * @param[in] senderInstanceNumber
+         *     This is the unique identifier of the server that sent the
+         *     message.
+         */
+        void OnReceiveInstallSnapshotResults(
+            const Message::InstallSnapshotResultsDetails& messageDetails,
             int senderInstanceNumber
         );
 

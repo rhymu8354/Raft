@@ -298,3 +298,86 @@ TEST(MessageTests, DeserializeAppendEntriesResults) {
     EXPECT_FALSE(message.appendEntriesResults.success);
     EXPECT_EQ(10, message.appendEntriesResults.matchIndex);
 }
+
+TEST(MessageTests, SerializeInstallSnapshot) {
+    // Arrange
+    Raft::Message message;
+    message.type = Raft::Message::Type::InstallSnapshot;
+    message.installSnapshot.term = 8;
+    message.installSnapshot.lastIncludedIndex = 2;
+    message.installSnapshot.lastIncludedTerm = 7;
+    message.snapshot = Json::Object({
+        {"foo", "bar"},
+    });
+
+    // Act
+    EXPECT_EQ(
+        Json::Object({
+            {"type", "InstallSnapshot"},
+            {"term", 8},
+            {"lastIncludedIndex", 2},
+            {"lastIncludedTerm", 7},
+            {"snapshot", message.snapshot},
+        }),
+        Json::Value::FromEncoding(message.Serialize())
+    );
+}
+
+TEST(MessageTests, DeserializeInstallSnapshot) {
+    // Arrange
+    const Json::Value snapshot = Json::Object({
+        {"foo", "bar"},
+    });
+    const auto serializedMessage = Json::Object({
+        {"type", "InstallSnapshot"},
+        {"term", 8},
+        {"lastIncludedIndex", 2},
+        {"lastIncludedTerm", 7},
+        {"snapshot", snapshot},
+    }).ToEncoding();
+
+    // Act
+    Raft::Message message(serializedMessage);
+
+    // Act
+    EXPECT_EQ(Raft::Message::Type::InstallSnapshot, message.type);
+    EXPECT_EQ(8, message.installSnapshot.term);
+    EXPECT_EQ(2, message.installSnapshot.lastIncludedIndex);
+    EXPECT_EQ(7, message.installSnapshot.lastIncludedTerm);
+    EXPECT_EQ(snapshot, message.snapshot);
+}
+
+TEST(MessageTests, SerializeInstallSnapshotResults) {
+    // Arrange
+    Raft::Message message;
+    message.type = Raft::Message::Type::InstallSnapshotResults;
+    message.installSnapshotResults.term = 8;
+    message.installSnapshotResults.matchIndex = 100;
+
+    // Act
+    EXPECT_EQ(
+        Json::Object({
+            {"type", "InstallSnapshotResults"},
+            {"term", 8},
+            {"matchIndex", 100},
+        }),
+        Json::Value::FromEncoding(message.Serialize())
+    );
+}
+
+TEST(MessageTests, DeserializeInstallSnapshotResults) {
+    // Arrange
+    const auto serializedMessage = Json::Object({
+        {"type", "InstallSnapshotResults"},
+        {"term", 8},
+        {"matchIndex", 100},
+    }).ToEncoding();
+
+    // Act
+    Raft::Message message(serializedMessage);
+
+    // Act
+    EXPECT_EQ(Raft::Message::Type::InstallSnapshotResults, message.type);
+    EXPECT_EQ(8, message.installSnapshotResults.term);
+    EXPECT_EQ(100, message.installSnapshotResults.matchIndex);
+}

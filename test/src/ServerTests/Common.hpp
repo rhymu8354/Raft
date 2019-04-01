@@ -72,6 +72,7 @@ namespace ServerTests {
         int baseTerm = 0;
         size_t commitIndex = 0;
         size_t commitCount = 0;
+        Json::Value snapshot;
         std::vector< std::function< void() > > destructionDelegates;
 
         // Lifecycle
@@ -92,6 +93,7 @@ namespace ServerTests {
 
         virtual size_t GetSize() override;
         virtual size_t GetBaseIndex() override;
+        virtual const Json::Value& GetSnapshot() override;
         virtual size_t GetLastIndex() override;
         virtual int GetTerm(size_t index) override;
         virtual const Raft::LogEntry& operator[](size_t index) override;
@@ -238,6 +240,7 @@ namespace ServerTests {
         );
         void BecomeCandidate(int term = 1);
         void SetServerDelegates();
+        bool InstallSnapshotSent();
 
         // ::testing::Test
 

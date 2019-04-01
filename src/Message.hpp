@@ -10,6 +10,7 @@
  */
 
 #include <memory>
+#include <Json/Value.hpp>
 #include <Raft/LogEntry.hpp>
 #include <stddef.h>
 #include <string>
@@ -60,6 +61,18 @@ namespace Raft {
              * message.
              */
             AppendEntriesResults,
+
+            /**
+             * This is sent by the cluster leader to replicate server state
+             * that has been condensed into a snapshot.
+             */
+            InstallSnapshot,
+
+            /**
+             * This is sent by a follower to respond to an InstallSnapshot
+             * message.
+             */
+            InstallSnapshotResults,
         };
 
         /**
@@ -156,6 +169,45 @@ namespace Raft {
             size_t matchIndex = 0;
         };
 
+        /**
+         * This holds message properties for InstallSnapshot type messages.
+         */
+        struct InstallSnapshotDetails {
+            /**
+             * This is the current term in effect at the sender.
+             */
+            int term = 0;
+
+            /**
+             * This is the index of the last log entry that was used to
+             * assemble the snapshot.
+             */
+            size_t lastIncludedIndex = 0;
+
+            /**
+             * This is the term of the last log entry that was used to
+             * assemble the snapshot.
+             */
+            int lastIncludedTerm = 0;
+        };
+
+        /**
+         * This holds message properties for InstallSnapshotResults type
+         * messages.
+         */
+        struct InstallSnapshotResultsDetails {
+            /**
+             * This is the current term in effect at the sender.
+             */
+            int term = 0;
+
+            /**
+             * This is the index of the last log entry which the follower
+             * has determined matches what the leader has.
+             */
+            size_t matchIndex = 0;
+        };
+
         // Properties
 
         /**
@@ -171,13 +223,26 @@ namespace Raft {
             RequestVoteResultsDetails requestVoteResults;
             AppendEntriesDetails appendEntries;
             AppendEntriesResultsDetails appendEntriesResults;
+            InstallSnapshotDetails installSnapshot;
+            InstallSnapshotResultsDetails installSnapshotResults;
         };
 
         /**
          * These are the log entries attached to the message.
+         *
          * This is only used for messages of type AppendEntries.
          */
         std::vector< LogEntry > log;
+
+        /**
+         * This is a condensed form of all the information the server needs
+         * to reconstruct its state as built from all log entries from the
+         * beginning up to and including the entry with index of
+         * `lastIncludedIndex`.
+         *
+         * This is only used for messages of type InstallSnapshot.
+         */
+        Json::Value snapshot;
 
         // Methods
 

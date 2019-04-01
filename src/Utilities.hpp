@@ -160,6 +160,22 @@ namespace Raft {
         std::queue< ConfigCommittedAnnouncement >&& configCommittedAnnouncementsToBeSent
     );
 
+    /**
+     * This function sends the given snapshot announcements, using the given
+     * delegate.
+     *
+     * @param[in] snapshotDelegate
+     *     This is the delegate to use to send snapshot announcements.
+     *
+     * @param[in,out] snapshotAnnouncementsToBeSent
+     *     This holds the snapshot announcements to be sent,
+     *     and is consumed by the function.
+     */
+    void SendSnapshotAnnouncements(
+        Raft::IServer::SnapshotDelegate snapshotDelegate,
+        std::queue< SnapshotAnnouncement >&& snapshotAnnouncementsToBeSent
+    );
+
 }
 
 #endif /* RAFT_UTILITIES_HPP */

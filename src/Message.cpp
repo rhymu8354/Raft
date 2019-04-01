@@ -40,6 +40,16 @@ namespace Raft {
             appendEntriesResults.term = json["term"];
             appendEntriesResults.success = json["success"];
             appendEntriesResults.matchIndex = json["matchIndex"];
+        } else if (typeAsString == "InstallSnapshot") {
+            type = Message::Type::InstallSnapshot;
+            installSnapshot.term = json["term"];
+            installSnapshot.lastIncludedIndex = json["lastIncludedIndex"];
+            installSnapshot.lastIncludedTerm = json["lastIncludedTerm"];
+            snapshot = json["snapshot"];
+        } else if (typeAsString == "InstallSnapshotResults") {
+            type = Message::Type::InstallSnapshotResults;
+            installSnapshotResults.term = json["term"];
+            installSnapshotResults.matchIndex = json["matchIndex"];
         }
     }
 
@@ -78,6 +88,20 @@ namespace Raft {
                 json["term"] = appendEntriesResults.term;
                 json["success"] = appendEntriesResults.success;
                 json["matchIndex"] = appendEntriesResults.matchIndex;
+            } break;
+
+            case Message::Type::InstallSnapshot: {
+                json["type"] = "InstallSnapshot";
+                json["term"] = installSnapshot.term;
+                json["lastIncludedIndex"] = installSnapshot.lastIncludedIndex;
+                json["lastIncludedTerm"] = installSnapshot.lastIncludedTerm;
+                json["snapshot"] = snapshot;
+            } break;
+
+            case Message::Type::InstallSnapshotResults: {
+                json["type"] = "InstallSnapshotResults";
+                json["term"] = installSnapshotResults.term;
+                json["matchIndex"] = installSnapshotResults.matchIndex;
             } break;
 
             default: {

@@ -212,6 +212,31 @@ namespace Raft {
          */
         using CaughtUpDelegate = std::function< void() >;
 
+        /**
+         * Declare the type of delegate used to announce that the server has
+         * received a message installing a snapshot to set the server's state.
+         *
+         * @param[in] snapshot
+         *     This contains a complete copy of the server state, built from
+         *     the first log entry up to and including the entry at the
+         *     given last included index.
+         *
+         * @param[in] lastIncludedIndex
+         *     This is the index of the last log entry that was used to
+         *     assemble the snapshot.
+         *
+         * @param[in] lastIncludedTerm
+         *     This is the term of the last log entry that was used to
+         *     assemble the snapshot.
+         */
+        using SnapshotDelegate = std::function<
+            void(
+                const Json::Value& snapshot,
+                size_t lastIncludedIndex,
+                int lastIncludedTerm
+            )
+        >;
+
         // Methods
     public:
         /**
@@ -276,6 +301,17 @@ namespace Raft {
          *     has reached the initial "last index" of the leader).
          */
         virtual void SetCaughtUpDelegate(CaughtUpDelegate caughtUpDelegate) = 0;
+
+        /**
+         * Set up a delegate to be called when the server has received a
+         * message installing a snapshot to set the server's state.
+         *
+         * @param[in] snapshotDelegate
+         *     This is the delegate to be called when the server
+         *     has received a message installing a snapshot to set
+         *     the server's state.
+         */
+        virtual void SetSnapshotDelegate(SnapshotDelegate snapshotDelegate) = 0;
 
         /**
          * This method starts the server's worker thread.

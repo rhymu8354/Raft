@@ -118,12 +118,27 @@ namespace Raft {
         std::queue< ConfigCommittedAnnouncement >&& configCommittedAnnouncementsToBeSent
     ) {
         while (!configCommittedAnnouncementsToBeSent.empty()) {
-            const auto& configCommittedAnnouncementToBeSent = configCommittedAnnouncementsToBeSent.front();
+            const auto& snapshotAnnouncementToBeSent = configCommittedAnnouncementsToBeSent.front();
             commitConfigurationDelegate(
-                configCommittedAnnouncementToBeSent.newConfig,
-                configCommittedAnnouncementToBeSent.logIndex
+                snapshotAnnouncementToBeSent.newConfig,
+                snapshotAnnouncementToBeSent.logIndex
             );
             configCommittedAnnouncementsToBeSent.pop();
+        }
+    }
+
+    void SendSnapshotAnnouncements(
+        Raft::IServer::SnapshotDelegate snapshotDelegate,
+        std::queue< SnapshotAnnouncement >&& snapshotAnnouncementsToBeSent
+    ) {
+        while (!snapshotAnnouncementsToBeSent.empty()) {
+            const auto& snapshotAnnouncementToBeSent = snapshotAnnouncementsToBeSent.front();
+            snapshotDelegate(
+                snapshotAnnouncementToBeSent.snapshot,
+                snapshotAnnouncementToBeSent.lastIncludedIndex,
+                snapshotAnnouncementToBeSent.lastIncludedTerm
+            );
+            snapshotAnnouncementsToBeSent.pop();
         }
     }
 

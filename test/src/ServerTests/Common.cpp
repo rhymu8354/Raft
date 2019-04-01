@@ -53,6 +53,10 @@ namespace ServerTests {
         return baseIndex;
     }
 
+    const Json::Value& MockLog::GetSnapshot() {
+        return snapshot;
+    }
+
     size_t MockLog::GetLastIndex() {
         return baseIndex + entries.size();
     }
@@ -405,6 +409,15 @@ namespace ServerTests {
                 caughtUp = true;
             }
         );
+    }
+
+    bool Common::InstallSnapshotSent() {
+        for (const auto& messageSent: messagesSent) {
+            if (messageSent.message.type == Raft::Message::Type::InstallSnapshot) {
+                return true;
+            }
+        }
+        return false;
     }
 
     void Common::SetUp() {

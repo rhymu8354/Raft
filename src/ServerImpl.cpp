@@ -169,6 +169,19 @@ namespace Raft {
         workerAskedToStopOrWakeUp.notify_one();
     }
 
+    void Server::Impl::QueueSnapshotAnnouncement(
+        Json::Value&& snapshot,
+        size_t lastIncludedIndex,
+        int lastIncludedTerm
+    ) {
+        SnapshotAnnouncement announcement;
+        announcement.snapshot = std::move(snapshot);
+        announcement.lastIncludedIndex = lastIncludedIndex;
+        announcement.lastIncludedTerm = lastIncludedTerm;
+        shared->snapshotAnnouncementsToBeSent.push(std::move(announcement));
+        workerAskedToStopOrWakeUp.notify_one();
+    }
+
     void Server::Impl::ResetRetransmissionState() {
         for (auto instanceId: GetInstanceIds()) {
             shared->instances[instanceId].awaitingResponse = false;
@@ -253,51 +266,68 @@ namespace Raft {
         // have all the entries in the current snapshot, so we need to
         // send the snapshot.
         Message message;
-        message.type = Message::Type::AppendEntries;
-        message.appendEntries.term = shared->persistentStateCache.currentTerm;
-        message.appendEntries.leaderCommit = shared->commitIndex;
-        message.appendEntries.prevLogIndex = instance.nextIndex - 1;
-        message.appendEntries.prevLogTerm = shared->logKeeper->GetTerm(
-            message.appendEntries.prevLogIndex
-        );
-        for (size_t i = instance.nextIndex; i <= shared->lastIndex; ++i) {
-            message.log.push_back(shared->logKeeper->operator[](i));
-        }
-        if (shared->lastIndex < instance.nextIndex) {
+        if (instance.nextIndex <= shared->logKeeper->GetBaseIndex()) {
+            message.type = Message::Type::InstallSnapshot;
+            message.installSnapshot.term = shared->persistentStateCache.currentTerm;
+            message.installSnapshot.lastIncludedIndex = shared->logKeeper->GetBaseIndex();
+            message.installSnapshot.lastIncludedTerm = shared->logKeeper->GetTerm(
+                message.installSnapshot.lastIncludedIndex
+            );
+            message.snapshot = shared->logKeeper->GetSnapshot();
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                0,
-                "Replicating log to server %d (0 entries starting at %zu, term %d)",
+                3,
+                "Installing snapshot on server %d (%zu entries ending at %zu, term %d)",
                 instanceId,
-                instance.nextIndex,
-                shared->persistentStateCache.currentTerm
+                message.installSnapshot.lastIncludedIndex,
+                message.installSnapshot.lastIncludedTerm
             );
         } else {
-            shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                2,
-                "Replicating log to server %d (%zu entries starting at %zu, term %d)",
-                instanceId,
-                (size_t)(shared->lastIndex - instance.nextIndex + 1),
-                instance.nextIndex,
-                shared->persistentStateCache.currentTerm
+            message.type = Message::Type::AppendEntries;
+            message.appendEntries.term = shared->persistentStateCache.currentTerm;
+            message.appendEntries.leaderCommit = shared->commitIndex;
+            message.appendEntries.prevLogIndex = instance.nextIndex - 1;
+            message.appendEntries.prevLogTerm = shared->logKeeper->GetTerm(
+                message.appendEntries.prevLogIndex
             );
             for (size_t i = instance.nextIndex; i <= shared->lastIndex; ++i) {
-                if (shared->logKeeper->operator[](i).command == nullptr) {
-                    shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        2,
-                        "Entry #%zu of %zu: term=%d, no-op",
-                        (size_t)(i - instance.nextIndex + 1),
-                        (size_t)(shared->lastIndex - instance.nextIndex + 1),
-                        shared->logKeeper->operator[](i).term
-                    );
-                } else {
-                    shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                        2,
-                        "Entry #%zu of %zu: term=%d, command: '%s'",
-                        (size_t)(i - instance.nextIndex + 1),
-                        (size_t)(shared->lastIndex - instance.nextIndex + 1),
-                        shared->logKeeper->operator[](i).term,
-                        shared->logKeeper->operator[](i).command->GetType().c_str()
-                    );
+                message.log.push_back(shared->logKeeper->operator[](i));
+            }
+            if (shared->lastIndex < instance.nextIndex) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    0,
+                    "Replicating log to server %d (0 entries starting at %zu, term %d)",
+                    instanceId,
+                    instance.nextIndex,
+                    shared->persistentStateCache.currentTerm
+                );
+            } else {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    2,
+                    "Replicating log to server %d (%zu entries starting at %zu, term %d)",
+                    instanceId,
+                    (size_t)(shared->lastIndex - instance.nextIndex + 1),
+                    instance.nextIndex,
+                    shared->persistentStateCache.currentTerm
+                );
+                for (size_t i = instance.nextIndex; i <= shared->lastIndex; ++i) {
+                    if (shared->logKeeper->operator[](i).command == nullptr) {
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            2,
+                            "Entry #%zu of %zu: term=%d, no-op",
+                            (size_t)(i - instance.nextIndex + 1),
+                            (size_t)(shared->lastIndex - instance.nextIndex + 1),
+                            shared->logKeeper->operator[](i).term
+                        );
+                    } else {
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            2,
+                            "Entry #%zu of %zu: term=%d, command: '%s'",
+                            (size_t)(i - instance.nextIndex + 1),
+                            (size_t)(shared->lastIndex - instance.nextIndex + 1),
+                            shared->logKeeper->operator[](i).term,
+                            shared->logKeeper->operator[](i).command->GetType().c_str()
+                        );
+                    }
                 }
             }
         }
@@ -506,6 +536,23 @@ namespace Raft {
         auto caughtUpDelegateCopy = caughtUpDelegate;
         lock.unlock();
         caughtUpDelegateCopy();
+        lock.lock();
+    }
+
+    void Server::Impl::SendQueuedSnapshotAnnouncements(
+        std::unique_lock< decltype(shared->mutex) >& lock
+    ) {
+        decltype(shared->snapshotAnnouncementsToBeSent) snapshotAnnouncementsToBeSent;
+        snapshotAnnouncementsToBeSent.swap(shared->snapshotAnnouncementsToBeSent);
+        if (snapshotDelegate == nullptr) {
+            return;
+        }
+        auto snapshotDelegateCopy = snapshotDelegate;
+        lock.unlock();
+        SendSnapshotAnnouncements(
+            snapshotDelegateCopy,
+            std::move(snapshotAnnouncementsToBeSent)
+        );
         lock.lock();
     }
 
@@ -1285,6 +1332,174 @@ namespace Raft {
         StartConfigChangeIfNewServersHaveCaughtUp();
     }
 
+    void Server::Impl::OnReceiveInstallSnapshot(
+        const Message::InstallSnapshotDetails& messageDetails,
+        Json::Value&& snapshot,
+        int senderInstanceNumber
+    ) {
+        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+            3,
+            "Received InstallSnapshot (%zu entries up to term %d) from server %d in term %d (we are in term %d)",
+            messageDetails.lastIncludedIndex,
+            messageDetails.lastIncludedTerm,
+            senderInstanceNumber,
+            messageDetails.term,
+            shared->persistentStateCache.currentTerm
+        );
+        Message response;
+        response.type = Message::Type::InstallSnapshotResults;
+        response.installSnapshotResults.term = shared->persistentStateCache.currentTerm;
+        if (shared->persistentStateCache.currentTerm <= messageDetails.term) {
+            bool electionStateChanged = (shared->electionState != ElectionState::Follower);
+            if (shared->electionState != ElectionState::Leader) {
+                if (shared->persistentStateCache.currentTerm < messageDetails.term) {
+                    electionStateChanged = true;
+                }
+                UpdateCurrentTerm(messageDetails.term);
+                if (!shared->thisTermLeaderAnnounced) {
+                    shared->thisTermLeaderAnnounced = true;
+                    shared->leaderId = senderInstanceNumber;
+                    QueueLeadershipChangeAnnouncement(
+                        senderInstanceNumber,
+                        shared->persistentStateCache.currentTerm
+                    );
+                }
+            }
+            RevertToFollower();
+            if (electionStateChanged) {
+                QueueElectionStateChangeAnnouncement();
+            }
+            QueueSnapshotAnnouncement(
+                std::move(snapshot),
+                messageDetails.lastIncludedIndex,
+                messageDetails.lastIncludedTerm
+            );
+            response.installSnapshotResults.matchIndex = messageDetails.lastIncludedIndex;
+        }
+        const auto now = timeKeeper->GetCurrentTime();
+        QueueMessageToBeSent(response, senderInstanceNumber, now);
+    }
+
+    void Server::Impl::OnReceiveInstallSnapshotResults(
+        const Message::InstallSnapshotResultsDetails& messageDetails,
+        int senderInstanceNumber
+    ) {
+        auto& instance = shared->instances[senderInstanceNumber];
+        if (instance.awaitingResponse) {
+            MeasureBroadcastTime(instance.timeLastRequestSent);
+        }
+        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+            1,
+            "Received InstallSnapshotResults(term %d) from server %d (we are %s in term %d)",
+            messageDetails.term,
+            senderInstanceNumber,
+            ElectionStateToString(shared->electionState).c_str(),
+            shared->persistentStateCache.currentTerm
+        );
+        if (messageDetails.term > shared->persistentStateCache.currentTerm) {
+            UpdateCurrentTerm(messageDetails.term);
+            RevertToFollower();
+            QueueElectionStateChangeAnnouncement();
+        }
+        if (shared->electionState != ElectionState::Leader) {
+            return;
+        }
+        instance.awaitingResponse = false;
+        instance.matchIndex = messageDetails.matchIndex;
+        instance.nextIndex = messageDetails.matchIndex + 1;
+        if (instance.nextIndex <= shared->lastIndex) {
+            AttemptLogReplication(senderInstanceNumber);
+        }
+        // TODO: This really needs refactoring!
+        // * Ugly code!
+        // * Two instances of this code.
+        std::map< size_t, size_t > indexMatchCountsOldServers;
+        std::map< size_t, size_t > indexMatchCountsNewServers;
+        for (auto instanceId: GetInstanceIds()) {
+            auto& instance = shared->instances[instanceId];
+            if (instanceId == shared->serverConfiguration.selfInstanceId) {
+                continue;
+            }
+            if (
+                shared->clusterConfiguration.instanceIds.find(instanceId)
+                != shared->clusterConfiguration.instanceIds.end()
+            ) {
+                ++indexMatchCountsOldServers[instance.matchIndex];
+            }
+            if (
+                shared->nextClusterConfiguration.instanceIds.find(instanceId)
+                != shared->nextClusterConfiguration.instanceIds.end()
+            ) {
+                ++indexMatchCountsNewServers[instance.matchIndex];
+            }
+        }
+        size_t totalMatchCounts = 0;
+        if (
+            shared->clusterConfiguration.instanceIds.find(shared->serverConfiguration.selfInstanceId)
+            != shared->clusterConfiguration.instanceIds.end()
+        ) {
+            ++totalMatchCounts;
+        }
+        for (
+            auto indexMatchCountsOldServersEntry = indexMatchCountsOldServers.rbegin();
+            indexMatchCountsOldServersEntry != indexMatchCountsOldServers.rend();
+            ++indexMatchCountsOldServersEntry
+        ) {
+            totalMatchCounts += indexMatchCountsOldServersEntry->second;
+            if (
+                (indexMatchCountsOldServersEntry->first > shared->commitIndex)
+                && (
+                    totalMatchCounts
+                    > shared->clusterConfiguration.instanceIds.size() - totalMatchCounts
+                )
+                && (
+                    shared->logKeeper->GetTerm(indexMatchCountsOldServersEntry->first)
+                    == shared->persistentStateCache.currentTerm
+                )
+            ) {
+                if (shared->jointConfiguration) {
+                    totalMatchCounts = 0;
+                    if (
+                        shared->nextClusterConfiguration.instanceIds.find(shared->serverConfiguration.selfInstanceId)
+                        != shared->nextClusterConfiguration.instanceIds.end()
+                    ) {
+                        ++totalMatchCounts;
+                    }
+                    for (
+                        auto indexMatchCountsNewServersEntry = indexMatchCountsNewServers.rbegin();
+                        indexMatchCountsNewServersEntry != indexMatchCountsNewServers.rend();
+                        ++indexMatchCountsNewServersEntry
+                    ) {
+                        totalMatchCounts += indexMatchCountsNewServersEntry->second;
+                        if (
+                            (indexMatchCountsNewServersEntry->first > shared->commitIndex)
+                            && (
+                                totalMatchCounts
+                                > shared->nextClusterConfiguration.instanceIds.size() - totalMatchCounts
+                            )
+                            && (
+                                shared->logKeeper->GetTerm(indexMatchCountsNewServersEntry->first)
+                                == shared->persistentStateCache.currentTerm
+                            )
+                        ) {
+                            AdvanceCommitIndex(
+                                std::min(
+                                    indexMatchCountsOldServersEntry->first,
+                                    indexMatchCountsNewServersEntry->first
+                                )
+                            );
+                            break;
+                        }
+                    }
+                } else {
+                    AdvanceCommitIndex(indexMatchCountsOldServersEntry->first);
+                }
+                break;
+            }
+        }
+        StartConfigChangeIfNewServersHaveCaughtUp();
+    }
+
     void Server::Impl::WaitForWork(
         std::unique_lock< decltype(shared->mutex) >& lock,
         std::future< void >& workerAskedToStop
@@ -1343,6 +1558,7 @@ namespace Raft {
         SendQueuedConfigAppliedAnnouncements(lock);
         SendQueuedConfigCommittedAnnouncements(lock);
         SendCaughtUpAnnouncement(lock);
+        SendQueuedSnapshotAnnouncements(lock);
     }
 
     void Server::Impl::Worker() {

@@ -11,6 +11,7 @@
 
 #include "LogEntry.hpp"
 
+#include <Json/Value.hpp>
 #include <stddef.h>
 #include <vector>
 
@@ -41,6 +42,15 @@ namespace Raft {
          *     log is based is returned.
          */
         virtual size_t GetBaseIndex() = 0;
+
+        /**
+         * Return the server state snapshot upon which this log is based.
+         *
+         * @return
+         *     The server state snapshot upon which this log is based
+         *     is returned.
+         */
+        virtual const Json::Value& GetSnapshot() = 0;
 
         /**
          * Return the index of the last entry in the log, or in the snapshot
