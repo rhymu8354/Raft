@@ -174,11 +174,11 @@ namespace Raft {
         size_t lastIncludedIndex,
         int lastIncludedTerm
     ) {
-        SnapshotAnnouncement announcement;
+        SnapshotInstallationAnnouncement announcement;
         announcement.snapshot = std::move(snapshot);
         announcement.lastIncludedIndex = lastIncludedIndex;
         announcement.lastIncludedTerm = lastIncludedTerm;
-        shared->snapshotAnnouncementsToBeSent.push(std::move(announcement));
+        shared->snapshotInstallationAnnouncementsToBeSent.push(std::move(announcement));
         workerAskedToStopOrWakeUp.notify_one();
     }
 
@@ -542,16 +542,16 @@ namespace Raft {
     void Server::Impl::SendQueuedSnapshotAnnouncements(
         std::unique_lock< decltype(shared->mutex) >& lock
     ) {
-        decltype(shared->snapshotAnnouncementsToBeSent) snapshotAnnouncementsToBeSent;
-        snapshotAnnouncementsToBeSent.swap(shared->snapshotAnnouncementsToBeSent);
-        if (snapshotDelegate == nullptr) {
+        decltype(shared->snapshotInstallationAnnouncementsToBeSent) snapshotInstallationAnnouncementsToBeSent;
+        snapshotInstallationAnnouncementsToBeSent.swap(shared->snapshotInstallationAnnouncementsToBeSent);
+        if (snapshotInstalledDelegate == nullptr) {
             return;
         }
-        auto snapshotDelegateCopy = snapshotDelegate;
+        auto snapshotInstalledDelegateCopy = snapshotInstalledDelegate;
         lock.unlock();
         SendSnapshotAnnouncements(
-            snapshotDelegateCopy,
-            std::move(snapshotAnnouncementsToBeSent)
+            snapshotInstalledDelegateCopy,
+            std::move(snapshotInstallationAnnouncementsToBeSent)
         );
         lock.lock();
     }

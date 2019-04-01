@@ -86,7 +86,7 @@ namespace Raft {
          * has received a message installing a snapshot to set
          * the server's state.
          */
-        SnapshotDelegate snapshotDelegate;
+        SnapshotInstalledDelegate snapshotInstalledDelegate;
 
         /**
          * This thread performs any background tasks required of the

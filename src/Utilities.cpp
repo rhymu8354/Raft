@@ -128,17 +128,17 @@ namespace Raft {
     }
 
     void SendSnapshotAnnouncements(
-        Raft::IServer::SnapshotDelegate snapshotDelegate,
-        std::queue< SnapshotAnnouncement >&& snapshotAnnouncementsToBeSent
+        Raft::IServer::SnapshotInstalledDelegate snapshotInstalledDelegate,
+        std::queue< SnapshotInstallationAnnouncement >&& snapshotInstallationAnnouncementsToBeSent
     ) {
-        while (!snapshotAnnouncementsToBeSent.empty()) {
-            const auto& snapshotAnnouncementToBeSent = snapshotAnnouncementsToBeSent.front();
-            snapshotDelegate(
+        while (!snapshotInstallationAnnouncementsToBeSent.empty()) {
+            const auto& snapshotAnnouncementToBeSent = snapshotInstallationAnnouncementsToBeSent.front();
+            snapshotInstalledDelegate(
                 snapshotAnnouncementToBeSent.snapshot,
                 snapshotAnnouncementToBeSent.lastIncludedIndex,
                 snapshotAnnouncementToBeSent.lastIncludedTerm
             );
-            snapshotAnnouncementsToBeSent.pop();
+            snapshotInstallationAnnouncementsToBeSent.pop();
         }
     }
 

@@ -16,7 +16,7 @@
 #include "LeadershipAnnouncement.hpp"
 #include "Message.hpp"
 #include "MessageToBeSent.hpp"
-#include "SnapshotAnnouncement.hpp"
+#include "SnapshotInstallationAnnouncement.hpp"
 
 #include <algorithm>
 #include <future>
@@ -132,7 +132,7 @@ namespace Raft {
         /**
          * This holds snapshot announcements to be sent by the worker thread.
          */
-        std::queue< SnapshotAnnouncement > snapshotAnnouncementsToBeSent;
+        std::queue< SnapshotInstallationAnnouncement > snapshotInstallationAnnouncementsToBeSent;
 
         /**
          * This indicates whether or not the worker thread should announce

@@ -22,7 +22,7 @@ set(Headers
     src/MessageToBeSent.hpp
     src/ServerImpl.hpp
     src/ServerSharedProperties.hpp
-    src/SnapshotAnnouncement.hpp
+    src/SnapshotInstallationAnnouncement.hpp
     src/Utilities.hpp
 )
 

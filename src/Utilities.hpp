@@ -164,16 +164,16 @@ namespace Raft {
      * This function sends the given snapshot announcements, using the given
      * delegate.
      *
-     * @param[in] snapshotDelegate
+     * @param[in] snapshotInstalledDelegate
      *     This is the delegate to use to send snapshot announcements.
      *
-     * @param[in,out] snapshotAnnouncementsToBeSent
+     * @param[in,out] snapshotInstallationAnnouncementsToBeSent
      *     This holds the snapshot announcements to be sent,
      *     and is consumed by the function.
      */
     void SendSnapshotAnnouncements(
-        Raft::IServer::SnapshotDelegate snapshotDelegate,
-        std::queue< SnapshotAnnouncement >&& snapshotAnnouncementsToBeSent
+        Raft::IServer::SnapshotInstalledDelegate snapshotInstalledDelegate,
+        std::queue< SnapshotInstallationAnnouncement >&& snapshotInstallationAnnouncementsToBeSent
     );
 
 }

@@ -163,9 +163,9 @@ namespace Raft {
         }
     }
 
-    void Server::SetSnapshotDelegate(SnapshotDelegate snapshotDelegate) {
+    void Server::SetSnapshotInstalledDelegate(SnapshotInstalledDelegate snapshotInstalledDelegate) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->snapshotDelegate = snapshotDelegate;
+        impl_->snapshotInstalledDelegate = snapshotInstalledDelegate;
     }
 
     void Server::Mobilize(

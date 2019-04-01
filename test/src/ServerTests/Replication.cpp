@@ -1188,7 +1188,7 @@ namespace ServerTests {
         Json::Value snapshotInstalled;
         size_t lastIncludedIndexInSnapshot = 0;
         int lastIncludedTermInSnapshot = 0;
-        server.SetSnapshotDelegate(
+        server.SetSnapshotInstalledDelegate(
             [
                 this,
                 &snapshotInstalled,

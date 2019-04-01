@@ -1,10 +1,10 @@
 #pragma once
 
 /**
- * @file SnapshotAnnouncement.hpp
+ * @file SnapshotInstallationAnnouncement.hpp
  *
  * This module contains the declaration of the
- * Raft::SnapshotAnnouncement structure.
+ * Raft::SnapshotInstallationAnnouncement structure.
  *
  * © 2019 by Richard Walters
  */
@@ -16,10 +16,10 @@
 namespace Raft {
 
     /**
-     * This holds information used to store a snapshot
+     * This holds information used to store a snapshot installation
      * announcement to be sent later.
      */
-    struct SnapshotAnnouncement {
+    struct SnapshotInstallationAnnouncement {
         /**
          * This contains a complete copy of the server state, built from the
          * first log entry up to and including the entry at the given last

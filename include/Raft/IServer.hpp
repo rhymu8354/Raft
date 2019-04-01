@@ -229,7 +229,7 @@ namespace Raft {
          *     This is the term of the last log entry that was used to
          *     assemble the snapshot.
          */
-        using SnapshotDelegate = std::function<
+        using SnapshotInstalledDelegate = std::function<
             void(
                 const Json::Value& snapshot,
                 size_t lastIncludedIndex,
@@ -306,12 +306,12 @@ namespace Raft {
          * Set up a delegate to be called when the server has received a
          * message installing a snapshot to set the server's state.
          *
-         * @param[in] snapshotDelegate
+         * @param[in] snapshotInstalledDelegate
          *     This is the delegate to be called when the server
          *     has received a message installing a snapshot to set
          *     the server's state.
          */
-        virtual void SetSnapshotDelegate(SnapshotDelegate snapshotDelegate) = 0;
+        virtual void SetSnapshotInstalledDelegate(SnapshotInstalledDelegate snapshotInstalledDelegate) = 0;
 
         /**
          * This method starts the server's worker thread.

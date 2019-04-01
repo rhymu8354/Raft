@@ -203,7 +203,7 @@ namespace Raft {
         virtual void SetApplyConfigurationDelegate(ApplyConfigurationDelegate applyConfigurationDelegate) override;
         virtual void SetCommitConfigurationDelegate(CommitConfigurationDelegate commitConfigurationDelegate) override;
         virtual void SetCaughtUpDelegate(CaughtUpDelegate caughtUpDelegate) override;
-        virtual void SetSnapshotDelegate(SnapshotDelegate snapshotDelegate) override;
+        virtual void SetSnapshotInstalledDelegate(SnapshotInstalledDelegate snapshotInstalledDelegate) override;
         virtual void Mobilize(
             std::shared_ptr< ILog > logKeeper,
             std::shared_ptr< IPersistentState > persistentStateKeeper,
