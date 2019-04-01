@@ -57,6 +57,17 @@ namespace ServerTests {
         return snapshot;
     }
 
+    void MockLog::InstallSnapshot(
+        const Json::Value& snapshot,
+        size_t lastIncludedIndex,
+        int lastIncludedTerm
+    ) {
+        this->snapshot = snapshot;
+        baseIndex = lastIncludedIndex;
+        commitIndex = lastIncludedIndex;
+        baseTerm = lastIncludedTerm;
+    }
+
     size_t MockLog::GetLastIndex() {
         return baseIndex + entries.size();
     }

@@ -53,6 +53,28 @@ namespace Raft {
         virtual const Json::Value& GetSnapshot() = 0;
 
         /**
+         * Update the journal to reflect that it's based on a snapshot.
+         *
+         * @param[in] snapshot
+         *     This contains a complete copy of the server state, built from
+         *     the first log entry up to and including the entry at the
+         *     given last included index.
+         *
+         * @param[in] lastIncludedIndex
+         *     This is the index of the last log entry that was used to
+         *     assemble the snapshot.
+         *
+         * @param[in] lastIncludedTerm
+         *     This is the term of the last log entry that was used to
+         *     assemble the snapshot.
+         */
+        virtual void InstallSnapshot(
+            const Json::Value& snapshot,
+            size_t lastIncludedIndex,
+            int lastIncludedTerm
+        ) = 0;
+
+        /**
          * Return the index of the last entry in the log, or in the snapshot
          * upon which this log is based, if the log is empty.
          *

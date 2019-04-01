@@ -1369,6 +1369,11 @@ namespace Raft {
             if (electionStateChanged) {
                 QueueElectionStateChangeAnnouncement();
             }
+            shared->logKeeper->InstallSnapshot(
+                snapshot,
+                messageDetails.lastIncludedIndex,
+                messageDetails.lastIncludedTerm
+            );
             QueueSnapshotAnnouncement(
                 std::move(snapshot),
                 messageDetails.lastIncludedIndex,

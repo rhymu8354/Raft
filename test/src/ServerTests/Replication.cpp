@@ -1208,7 +1208,7 @@ namespace ServerTests {
         message.type = Raft::Message::Type::InstallSnapshot;
         message.installSnapshot.term = term;
         message.installSnapshot.lastIncludedIndex = 100;
-        message.installSnapshot.lastIncludedTerm = 7;
+        message.installSnapshot.lastIncludedTerm = 3;
         message.snapshot = Json::Object({
             {"foo", "bar"},
         });
@@ -1224,6 +1224,10 @@ namespace ServerTests {
         EXPECT_EQ(message.snapshot, snapshotInstalled);
         EXPECT_EQ(message.installSnapshot.lastIncludedIndex, lastIncludedIndexInSnapshot);
         EXPECT_EQ(message.installSnapshot.lastIncludedTerm, lastIncludedTermInSnapshot);
+        EXPECT_EQ(100, mockLog->baseIndex);
+        EXPECT_EQ(100, mockLog->commitIndex);
+        EXPECT_EQ(3, mockLog->baseTerm);
+        EXPECT_EQ(message.snapshot, mockLog->snapshot);
     }
 
 }

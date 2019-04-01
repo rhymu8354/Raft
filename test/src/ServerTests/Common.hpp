@@ -94,6 +94,11 @@ namespace ServerTests {
         virtual size_t GetSize() override;
         virtual size_t GetBaseIndex() override;
         virtual const Json::Value& GetSnapshot() override;
+        virtual void InstallSnapshot(
+            const Json::Value& snapshot,
+            size_t lastIncludedIndex,
+            int lastIncludedTerm
+        ) override;
         virtual size_t GetLastIndex() override;
         virtual int GetTerm(size_t index) override;
         virtual const Raft::LogEntry& operator[](size_t index) override;
