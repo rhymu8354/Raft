@@ -1113,6 +1113,14 @@ namespace Raft {
                     != messageDetails.prevLogTerm
                 )
             ) {
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    3,
+                    "Mismatch in received AppendEntries (%zu > %zu or %d != %d)",
+                    messageDetails.prevLogIndex,
+                    shared->lastIndex,
+                    shared->logKeeper->GetTerm(messageDetails.prevLogIndex),
+                    messageDetails.prevLogTerm
+                );
                 response.appendEntriesResults.success = false;
                 response.appendEntriesResults.matchIndex = 0;
             } else {
