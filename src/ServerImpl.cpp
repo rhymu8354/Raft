@@ -276,7 +276,7 @@ namespace Raft {
             message.snapshot = shared->logKeeper->GetSnapshot();
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 3,
-                "Installing snapshot on server %d (%zu entries ending at %zu, term %d)",
+                "Installing snapshot on server %d (%zu entries, term %d)",
                 instanceId,
                 message.installSnapshot.lastIncludedIndex,
                 message.installSnapshot.lastIncludedTerm
@@ -1160,14 +1160,23 @@ namespace Raft {
                     != messageDetails.prevLogTerm
                 )
             ) {
-                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-                    3,
-                    "Mismatch in received AppendEntries (%zu > %zu or %d != %d)",
-                    messageDetails.prevLogIndex,
-                    shared->lastIndex,
-                    shared->logKeeper->GetTerm(messageDetails.prevLogIndex),
-                    messageDetails.prevLogTerm
-                );
+                if (messageDetails.prevLogIndex > shared->lastIndex) {
+                    shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        3,
+                        "Mismatch in received AppendEntries (%zu > %zu)",
+                        messageDetails.prevLogIndex,
+                        shared->lastIndex
+                    );
+                } else {
+                    shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        3,
+                        "Mismatch in received AppendEntries (%zu <= %zu but %d != %d)",
+                        messageDetails.prevLogIndex,
+                        shared->lastIndex,
+                        shared->logKeeper->GetTerm(messageDetails.prevLogIndex),
+                        messageDetails.prevLogTerm
+                    );
+                }
                 response.appendEntriesResults.success = false;
                 response.appendEntriesResults.matchIndex = 0;
             } else {
