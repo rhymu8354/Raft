@@ -1230,6 +1230,42 @@ namespace ServerTests {
         EXPECT_EQ(message.snapshot, mockLog->snapshot);
     }
 
+    TEST_F(ServerTests_Replication, FollowerAppendEntriesAfterSnapshot) {
+        // Arrange
+        constexpr int leaderId = 2;
+        constexpr int term = 5;
+        Raft::LogEntry entry;
+        entry.term = term;
+        mockLog->entries = {entry};
+        MobilizeServer();
+
+        // Act
+        Raft::Message message;
+        message.type = Raft::Message::Type::InstallSnapshot;
+        message.installSnapshot.term = term;
+        message.installSnapshot.lastIncludedIndex = 100;
+        message.installSnapshot.lastIncludedTerm = 3;
+        message.snapshot = Json::Object({
+            {"foo", "bar"},
+        });
+        server.ReceiveMessage(message.Serialize(), leaderId);
+        server.WaitForAtLeastOneWorkerLoop();
+        messagesSent.clear();
+        message.type = Raft::Message::Type::AppendEntries;
+        message.appendEntries.term = term;
+        message.appendEntries.leaderCommit = 100;
+        message.appendEntries.prevLogIndex = 100;
+        message.appendEntries.prevLogTerm = 3;
+        server.ReceiveMessage(message.Serialize(), leaderId);
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        ASSERT_EQ(1, messagesSent.size());
+        EXPECT_EQ(leaderId, messagesSent[0].receiverInstanceNumber);
+        EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
+        EXPECT_EQ(100, messagesSent[0].message.appendEntriesResults.matchIndex);
+        EXPECT_TRUE(messagesSent[0].message.appendEntriesResults.success);
+    }
 
     TEST_F(ServerTests_Replication, FollowerDoNotInstallStaleSnapshot) {
         // Arrange

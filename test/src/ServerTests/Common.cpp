@@ -63,6 +63,9 @@ namespace ServerTests {
         int lastIncludedTerm
     ) {
         this->snapshot = snapshot;
+        if (baseIndex < lastIncludedIndex) {
+            entries.clear();
+        }
         baseIndex = lastIncludedIndex;
         commitIndex = lastIncludedIndex;
         baseTerm = lastIncludedTerm;
