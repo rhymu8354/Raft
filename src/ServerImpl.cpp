@@ -1378,17 +1378,20 @@ namespace Raft {
             if (electionStateChanged) {
                 QueueElectionStateChangeAnnouncement();
             }
-            shared->logKeeper->InstallSnapshot(
-                snapshot,
-                messageDetails.lastIncludedIndex,
-                messageDetails.lastIncludedTerm
-            );
-            QueueSnapshotAnnouncement(
-                std::move(snapshot),
-                messageDetails.lastIncludedIndex,
-                messageDetails.lastIncludedTerm
-            );
-            response.installSnapshotResults.matchIndex = messageDetails.lastIncludedIndex;
+            if (shared->commitIndex < messageDetails.lastIncludedIndex) {
+                shared->logKeeper->InstallSnapshot(
+                    snapshot,
+                    messageDetails.lastIncludedIndex,
+                    messageDetails.lastIncludedTerm
+                );
+                shared->lastIndex = messageDetails.lastIncludedIndex;
+                QueueSnapshotAnnouncement(
+                    std::move(snapshot),
+                    messageDetails.lastIncludedIndex,
+                    messageDetails.lastIncludedTerm
+                );
+            }
+            response.installSnapshotResults.matchIndex = shared->lastIndex;
         }
         const auto now = timeKeeper->GetCurrentTime();
         QueueMessageToBeSent(response, senderInstanceNumber, now);
