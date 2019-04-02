@@ -262,9 +262,6 @@ namespace Raft {
             return;
         }
         auto& instance = shared->instances[instanceId];
-        // TODO: If nextIndex is before baseIndex, the follower doesn't
-        // have all the entries in the current snapshot, so we need to
-        // send the snapshot.
         Message message;
         if (instance.nextIndex <= shared->logKeeper->GetBaseIndex()) {
             message.type = Message::Type::InstallSnapshot;
@@ -1240,18 +1237,9 @@ namespace Raft {
             return;
         }
         instance.awaitingResponse = false;
-        if (messageDetails.success) {
-            instance.matchIndex = messageDetails.matchIndex;
-            instance.nextIndex = messageDetails.matchIndex + 1;
-            if (instance.nextIndex <= shared->lastIndex) {
-                AttemptLogReplication(senderInstanceNumber);
-            }
-        } else {
-            // TODO: potential optimization: set nextIndex = matchIndex
-            // from the results.
-            if (instance.nextIndex > 1) {
-                --instance.nextIndex;
-            }
+        instance.matchIndex = messageDetails.matchIndex;
+        instance.nextIndex = messageDetails.matchIndex + 1;
+        if (instance.nextIndex <= shared->lastIndex) {
             AttemptLogReplication(senderInstanceNumber);
         }
         std::map< size_t, size_t > indexMatchCountsOldServers;

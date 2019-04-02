@@ -282,6 +282,7 @@ namespace ServerTests {
         // Arrange
         AppendNoOpEntry(3);
         AppendNoOpEntry(7);
+        AppendNoOpEntry(8);
         BecomeLeader(8);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
         server.WaitForAtLeastOneWorkerLoop();
@@ -295,8 +296,9 @@ namespace ServerTests {
         EXPECT_EQ(Raft::Message::Type::AppendEntries, messagesSent[0].message.type);
         EXPECT_EQ(1, messagesSent[0].message.appendEntries.prevLogIndex);
         EXPECT_EQ(3, messagesSent[0].message.appendEntries.prevLogTerm);
-        ASSERT_EQ(1, messagesSent[0].message.log.size());
+        ASSERT_EQ(2, messagesSent[0].message.log.size());
         EXPECT_EQ(7, messagesSent[0].message.log[0].term);
+        EXPECT_EQ(8, messagesSent[0].message.log[1].term);
     }
 
     TEST_F(ServerTests_Replication, LeaderAppendFirstEntryBasedOnSnapshotAfterDiscoveringFollowerIsBehind) {

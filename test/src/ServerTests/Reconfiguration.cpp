@@ -902,7 +902,7 @@ namespace ServerTests {
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
         server.WaitForAtLeastOneWorkerLoop();
         messagesSent.clear();
-        ReceiveAppendEntriesResults(5, 7, 0, false);
+        ReceiveAppendEntriesResults(5, 7, 1, false);
         server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
