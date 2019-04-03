@@ -14,15 +14,10 @@ set(Headers
     include/Raft/LogEntry.hpp
     include/Raft/Server.hpp
     include/Raft/TimeKeeper.hpp
-    src/ConfigCommittedAnnouncement.hpp
-    src/ElectionStateChangeAnnouncement.hpp
     src/InstanceInfo.hpp
-    src/LeadershipAnnouncement.hpp
     src/Message.hpp
-    src/MessageToBeSent.hpp
     src/ServerImpl.hpp
     src/ServerSharedProperties.hpp
-    src/SnapshotInstallationAnnouncement.hpp
     src/Utilities.hpp
 )
 

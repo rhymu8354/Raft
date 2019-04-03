@@ -130,42 +130,19 @@ namespace Raft {
         return impl_->shared->currentElectionTimeout;
     }
 
-    void Server::SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) {
+    auto Server::SubscribeToEvents(EventDelegate eventDelegate) -> EventsUnsubscribeDelegate {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->sendMessageDelegate = sendMessageDelegate;
-    }
-
-    void Server::SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->leadershipChangeDelegate = leadershipChangeDelegate;
-    }
-
-    void Server::SetElectionStateChangeDelegate(ElectionStateChangeDelegate electionStateChangeDelegate) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->electionStateChangeDelegate = electionStateChangeDelegate;
-    }
-
-    void Server::SetApplyConfigurationDelegate(ApplyConfigurationDelegate applyConfigurationDelegate) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->applyConfigurationDelegate = applyConfigurationDelegate;
-    }
-
-    void Server::SetCommitConfigurationDelegate(CommitConfigurationDelegate commitConfigurationDelegate) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->commitConfigurationDelegate = commitConfigurationDelegate;
-    }
-
-    void Server::SetCaughtUpDelegate(CaughtUpDelegate caughtUpDelegate) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->caughtUpDelegate = caughtUpDelegate;
-        if (impl_->shared->caughtUp) {
-            impl_->QueueCaughtUpAnnouncement();
-        }
-    }
-
-    void Server::SetSnapshotInstalledDelegate(SnapshotInstalledDelegate snapshotInstalledDelegate) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->snapshotInstalledDelegate = snapshotInstalledDelegate;
+        const auto eventSubscriberId = impl_->shared->nextEventSubscriberId++;
+        impl_->shared->eventSubscribers[eventSubscriberId] = eventDelegate;
+        const std::weak_ptr< ServerSharedProperties > sharedWeak = impl_->shared;
+        return [sharedWeak, eventSubscriberId]{
+            const auto shared = sharedWeak.lock();
+            if (shared == nullptr) {
+                return;
+            }
+            std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
+            shared->eventSubscribers.erase(eventSubscriberId);
+        };
     }
 
     void Server::Mobilize(

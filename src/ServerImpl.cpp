@@ -6,7 +6,6 @@
  * © 2018 by Richard Walters
  */
 
-#include "MessageToBeSent.hpp"
 #include "ServerImpl.hpp"
 #include "Utilities.hpp"
 
@@ -97,10 +96,10 @@ namespace Raft {
         auto& instance = shared->instances[instanceNumber];
         instance.timeLastRequestSent = now;
         instance.lastRequest = message;
-        MessageToBeSent messageToBeSent;
-        messageToBeSent.message = std::move(message);
-        messageToBeSent.receiverInstanceNumber = instanceNumber;
-        shared->messagesToBeSent.push(std::move(messageToBeSent));
+        const auto messageToBeSent = std::make_shared< SendMessageEvent >();
+        messageToBeSent->serializedMessage = std::move(message);
+        messageToBeSent->receiverInstanceNumber = instanceNumber;
+        shared->eventQueue.push(messageToBeSent);
         workerAskedToStopOrWakeUp.notify_one();
     }
 
@@ -129,27 +128,29 @@ namespace Raft {
             leaderId,
             term
         );
-        LeadershipAnnouncement leadershipAnnouncementToBeSent;
-        leadershipAnnouncementToBeSent.leaderId = leaderId;
-        leadershipAnnouncementToBeSent.term = term;
-        shared->leadershipAnnouncementsToBeSent.push(std::move(leadershipAnnouncementToBeSent));
+        const auto leadershipChangeEvent = std::make_shared< LeadershipChangeEvent >();
+        leadershipChangeEvent->leaderId = leaderId;
+        leadershipChangeEvent->term = term;
+        shared->eventQueue.push(leadershipChangeEvent);
         workerAskedToStopOrWakeUp.notify_one();
     }
 
     void Server::Impl::QueueElectionStateChangeAnnouncement() {
-        ElectionStateChangeAnnouncement electionStateChangeAnnouncementToBeSent;
-        electionStateChangeAnnouncementToBeSent.term = shared->persistentStateCache.currentTerm;
-        electionStateChangeAnnouncementToBeSent.electionState = shared->electionState;
-        electionStateChangeAnnouncementToBeSent.didVote = shared->persistentStateCache.votedThisTerm;
-        electionStateChangeAnnouncementToBeSent.votedFor = shared->persistentStateCache.votedFor;
-        shared->electionStateChangeAnnouncementsToBeSent.push(std::move(electionStateChangeAnnouncementToBeSent));
+        const auto electionStateEvent = std::make_shared< ElectionStateEvent >();
+        electionStateEvent->term = shared->persistentStateCache.currentTerm;
+        electionStateEvent->electionState = shared->electionState;
+        electionStateEvent->didVote = shared->persistentStateCache.votedThisTerm;
+        electionStateEvent->votedFor = shared->persistentStateCache.votedFor;
+        shared->eventQueue.push(electionStateEvent);
         workerAskedToStopOrWakeUp.notify_one();
     }
 
     void Server::Impl::QueueConfigAppliedAnnouncement(
         const ClusterConfiguration& newConfiguration
     ) {
-        shared->configAppliedAnnouncementsToBeSent.push(newConfiguration);
+        const auto applyConfigurationEvent = std::make_shared< ApplyConfigurationEvent >();
+        applyConfigurationEvent->newConfig = newConfiguration;
+        shared->eventQueue.push(applyConfigurationEvent);
         workerAskedToStopOrWakeUp.notify_one();
     }
 
@@ -157,15 +158,16 @@ namespace Raft {
         const ClusterConfiguration& newConfiguration,
         size_t logIndex
     ) {
-        ConfigCommittedAnnouncement announcement;
-        announcement.newConfig = newConfiguration;
-        announcement.logIndex = logIndex;
-        shared->configCommittedAnnouncementsToBeSent.push(std::move(announcement));
+        const auto commitConfigurationEvent = std::make_shared< CommitConfigurationEvent >();
+        commitConfigurationEvent->newConfig = newConfiguration;
+        commitConfigurationEvent->logIndex = logIndex;
+        shared->eventQueue.push(commitConfigurationEvent);
         workerAskedToStopOrWakeUp.notify_one();
     }
 
     void Server::Impl::QueueCaughtUpAnnouncement() {
-        shared->sendCaughtUpAnnouncement = true;
+        const auto caughtUpEvent = std::make_shared< CaughtUpEvent >();
+        shared->eventQueue.push(caughtUpEvent);
         workerAskedToStopOrWakeUp.notify_one();
     }
 
@@ -174,11 +176,11 @@ namespace Raft {
         size_t lastIncludedIndex,
         int lastIncludedTerm
     ) {
-        SnapshotInstallationAnnouncement announcement;
-        announcement.snapshot = std::move(snapshot);
-        announcement.lastIncludedIndex = lastIncludedIndex;
-        announcement.lastIncludedTerm = lastIncludedTerm;
-        shared->snapshotInstallationAnnouncementsToBeSent.push(std::move(announcement));
+        const auto snapshotInstalledEvent = std::make_shared< SnapshotInstalledEvent >();
+        snapshotInstalledEvent->snapshot = std::move(snapshot);
+        snapshotInstalledEvent->lastIncludedIndex = lastIncludedIndex;
+        snapshotInstalledEvent->lastIncludedTerm = lastIncludedTerm;
+        shared->eventQueue.push(snapshotInstalledEvent);
         workerAskedToStopOrWakeUp.notify_one();
     }
 
@@ -438,118 +440,20 @@ namespace Raft {
         }
     }
 
-    void Server::Impl::SendQueuedMessages(
+    void Server::Impl::ProcessEventQueue(
         std::unique_lock< decltype(shared->mutex) >& lock
     ) {
-        decltype(shared->messagesToBeSent) messagesToBeSent;
-        messagesToBeSent.swap(shared->messagesToBeSent);
-        auto sendMessageDelegateCopy = sendMessageDelegate;
+        decltype(shared->eventQueue) eventQueue;
+        eventQueue.swap(shared->eventQueue);
+        auto eventSubscribers = shared->eventSubscribers;
         lock.unlock();
-        SendMessages(
-            sendMessageDelegateCopy,
-            std::move(messagesToBeSent)
-        );
-        lock.lock();
-    }
-
-    void Server::Impl::SendQueuedLeadershipAnnouncements(
-        std::unique_lock< decltype(shared->mutex) >& lock
-    ) {
-        decltype(shared->leadershipAnnouncementsToBeSent) leadershipAnnouncementsToBeSent;
-        leadershipAnnouncementsToBeSent.swap(shared->leadershipAnnouncementsToBeSent);
-        if (leadershipChangeDelegate == nullptr) {
-            return;
+        while (!eventQueue.empty()) {
+            const auto event = eventQueue.front();
+            for (auto eventSubscriber: eventSubscribers) {
+                eventSubscriber.second(*event);
+            }
+            eventQueue.pop();
         }
-        auto leadershipChangeDelegateCopy = leadershipChangeDelegate;
-        lock.unlock();
-        SendLeadershipAnnouncements(
-            leadershipChangeDelegateCopy,
-            std::move(leadershipAnnouncementsToBeSent)
-        );
-        lock.lock();
-    }
-
-    void Server::Impl::SendQueuedElectionStateChangeAnnouncements(
-        std::unique_lock< decltype(shared->mutex) >& lock
-    ) {
-        decltype(shared->electionStateChangeAnnouncementsToBeSent) electionStateChangeAnnouncementsToBeSent;
-        electionStateChangeAnnouncementsToBeSent.swap(shared->electionStateChangeAnnouncementsToBeSent);
-        if (electionStateChangeDelegate == nullptr) {
-            return;
-        }
-        auto electionStateChangeDelegateCopy = electionStateChangeDelegate;
-        lock.unlock();
-        SendElectionStateChangeAnnouncements(
-            electionStateChangeDelegateCopy,
-            std::move(electionStateChangeAnnouncementsToBeSent)
-        );
-        lock.lock();
-    }
-
-    void Server::Impl::SendQueuedConfigAppliedAnnouncements(
-        std::unique_lock< decltype(shared->mutex) >& lock
-    ) {
-        decltype(shared->configAppliedAnnouncementsToBeSent) configAppliedAnnouncementsToBeSent;
-        configAppliedAnnouncementsToBeSent.swap(shared->configAppliedAnnouncementsToBeSent);
-        if (applyConfigurationDelegate == nullptr) {
-            return;
-        }
-        auto applyConfigurationDelegateCopy = applyConfigurationDelegate;
-        lock.unlock();
-        SendConfigAppliedAnnouncements(
-            applyConfigurationDelegateCopy,
-            std::move(configAppliedAnnouncementsToBeSent)
-        );
-        lock.lock();
-    }
-
-    void Server::Impl::SendQueuedConfigCommittedAnnouncements(
-        std::unique_lock< decltype(shared->mutex) >& lock
-    ) {
-        decltype(shared->configCommittedAnnouncementsToBeSent) configCommittedAnnouncementsToBeSent;
-        configCommittedAnnouncementsToBeSent.swap(shared->configCommittedAnnouncementsToBeSent);
-        if (commitConfigurationDelegate == nullptr) {
-            return;
-        }
-        auto commitConfigurationDelegateCopy = commitConfigurationDelegate;
-        lock.unlock();
-        SendConfigCommittedAnnouncements(
-            commitConfigurationDelegateCopy,
-            std::move(configCommittedAnnouncementsToBeSent)
-        );
-        lock.lock();
-    }
-
-    void Server::Impl::SendCaughtUpAnnouncement(
-        std::unique_lock< decltype(shared->mutex) >& lock
-    ) {
-        if (!shared->sendCaughtUpAnnouncement) {
-            return;
-        }
-        shared->sendCaughtUpAnnouncement = false;
-        if (caughtUpDelegate == nullptr) {
-            return;
-        }
-        auto caughtUpDelegateCopy = caughtUpDelegate;
-        lock.unlock();
-        caughtUpDelegateCopy();
-        lock.lock();
-    }
-
-    void Server::Impl::SendQueuedSnapshotAnnouncements(
-        std::unique_lock< decltype(shared->mutex) >& lock
-    ) {
-        decltype(shared->snapshotInstallationAnnouncementsToBeSent) snapshotInstallationAnnouncementsToBeSent;
-        snapshotInstallationAnnouncementsToBeSent.swap(shared->snapshotInstallationAnnouncementsToBeSent);
-        if (snapshotInstalledDelegate == nullptr) {
-            return;
-        }
-        auto snapshotInstalledDelegateCopy = snapshotInstalledDelegate;
-        lock.unlock();
-        SendSnapshotAnnouncements(
-            snapshotInstalledDelegateCopy,
-            std::move(snapshotInstallationAnnouncementsToBeSent)
-        );
         lock.lock();
     }
 
@@ -1522,7 +1426,7 @@ namespace Raft {
                         == std::future_status::ready
                     )
                     || (shared->workerLoopCompletion != nullptr)
-                    || !shared->messagesToBeSent.empty()
+                    || !shared->eventQueue.empty()
                 );
             }
         );
@@ -1557,13 +1461,7 @@ namespace Raft {
             }
         }
         QueueRetransmissionsToBeSent(now);
-        SendQueuedMessages(lock);
-        SendQueuedElectionStateChangeAnnouncements(lock);
-        SendQueuedLeadershipAnnouncements(lock);
-        SendQueuedConfigAppliedAnnouncements(lock);
-        SendQueuedConfigCommittedAnnouncements(lock);
-        SendCaughtUpAnnouncement(lock);
-        SendQueuedSnapshotAnnouncements(lock);
+        ProcessEventQueue(lock);
     }
 
     void Server::Impl::Worker() {

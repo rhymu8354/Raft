@@ -954,32 +954,6 @@ namespace ServerTests {
         EXPECT_TRUE(caughtUp);
     }
 
-    TEST_F(ServerTests_Replication, CaughtUpDelegateCalledOnSubscribeIfAlreadyCaughtUp) {
-        // Arrange
-        constexpr int leaderId = 2;
-        constexpr int newTerm = 9;
-        mockPersistentState->variables.currentTerm = 0;
-        serverConfiguration.selfInstanceId = 5;
-        server.SetCaughtUpDelegate(nullptr);
-        MobilizeServer();
-        Raft::LogEntry entry;
-        entry.term = newTerm;
-        ReceiveAppendEntriesFromMockLeader(leaderId, newTerm, {entry});
-        ReceiveAppendEntriesFromMockLeader(leaderId, newTerm, 1);
-
-        // Act
-        EXPECT_FALSE(caughtUp);
-        server.SetCaughtUpDelegate(
-            [this]{
-                caughtUp = true;
-            }
-        );
-        server.WaitForAtLeastOneWorkerLoop();
-
-        // Assert
-        EXPECT_TRUE(caughtUp);
-    }
-
     TEST_F(ServerTests_Replication, CommitIndexInitializedFromLog) {
         // Arrange
         constexpr int leaderId = 2;
@@ -1187,25 +1161,6 @@ namespace ServerTests {
         ReceiveAppendEntriesFromMockLeader(2, 4);
 
         // Act
-        Json::Value snapshotInstalled;
-        size_t lastIncludedIndexInSnapshot = 0;
-        int lastIncludedTermInSnapshot = 0;
-        server.SetSnapshotInstalledDelegate(
-            [
-                this,
-                &snapshotInstalled,
-                &lastIncludedIndexInSnapshot,
-                &lastIncludedTermInSnapshot
-            ](
-                const Json::Value& snapshot,
-                size_t lastIncludedIndex,
-                int lastIncludedTerm
-            ){
-                snapshotInstalled = snapshot;
-                lastIncludedIndexInSnapshot = lastIncludedIndex;
-                lastIncludedTermInSnapshot = lastIncludedTerm;
-            }
-        );
         Raft::Message message;
         message.type = Raft::Message::Type::InstallSnapshot;
         message.installSnapshot.term = term;

@@ -162,6 +162,7 @@ namespace ServerTests {
         Raft::Server::ServerConfiguration serverConfiguration;
         std::vector< std::string > diagnosticMessages;
         SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate diagnosticsUnsubscribeDelegate;
+        Raft::IServer::EventsUnsubscribeDelegate eventsUnsubscribeDelegate;
         std::shared_ptr< MockTimeKeeper > mockTimeKeeper = std::make_shared< MockTimeKeeper >();
         std::shared_ptr< MockLog > mockLog = std::make_shared< MockLog >();
         std::shared_ptr< MockPersistentState > mockPersistentState = std::make_shared< MockPersistentState >();
@@ -172,6 +173,12 @@ namespace ServerTests {
             int term = 0;
         } leadershipChangeDetails;
         std::vector< Json::Value > electionStateChanges;
+        std::unique_ptr< Raft::ClusterConfiguration > configApplied;
+        std::unique_ptr< Raft::ClusterConfiguration > configCommitted;
+        size_t commitLogIndex = 0;
+        Json::Value snapshotInstalled;
+        size_t lastIncludedIndexInSnapshot = 0;
+        int lastIncludedTermInSnapshot = 0;
         bool caughtUp = false;
 
         // Methods

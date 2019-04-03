@@ -105,213 +105,290 @@ namespace Raft {
         };
 
         /**
-         * This declares the type of delegate used to request that a message
-         * be sent to another server in the cluster.
-         *
-         * @param[in] serializedMessage
-         *     This is the serialized message to send.
-         *
-         * @param[in] receiverInstanceNumber
-         *     This is the unique identifier of the server to whom to send the
-         *     message.
+         * This is the base type of any event published by the server.
+         * All events will subclass this type and set the appropriate value
+         * for the type field.
          */
-        using SendMessageDelegate = std::function<
-            void(
-                const std::string& serializedMessage,
-                int receiverInstanceNumber
-            )
-        >;
+        struct Event {
+            /**
+             * This is used to identify the subclass of the concrete event.
+             */
+            const enum class Type {
+                /**
+                 * This indicates the event is a request that a message be sent
+                 * to another server in the cluster.
+                 */
+                SendMessage,
+
+                /**
+                 * This indicates the event announces leadership
+                 * changes in the server cluster.
+                 */
+                LeadershipChange,
+
+                /**
+                 * This indicates the event announces the server's
+                 * election state changes.
+                 */
+                ElectionState,
+
+                /**
+                 * This indicates the event announces that a single cluster
+                 * configuration has been applied by the server.
+                 */
+                ApplyConfiguration,
+
+                /**
+                 * This indicates the event announces that a single cluster
+                 * configuration has been committed by the cluster.
+                 */
+                CommitConfiguration,
+
+                /**
+                 * This indicates the event announces that the server has
+                 * received a message installing a snapshot to set the server's
+                 * state.
+                 */
+                SnapshotInstalled,
+
+                /**
+                 * This indicates the event announces that the server has
+                 * "caught up" to the rest of the cluster (the commit index has
+                 * reached the initial "last index" of the leader).
+                 */
+                CaughtUp,
+            } type;
+
+            /**
+             * This is the constructor of the event.
+             *
+             * @param[in] type
+             *     This is used to identify the subclass of the concrete event.
+             */
+            explicit Event(Type type) : type(type) {}
+        };
 
         /**
-         * This declares the type of delegate used to announce leadership
+         * This is an event published by the server.  It requests that a
+         * message be sent to another server in the cluster.
+         */
+        struct SendMessageEvent : public Event {
+            /**
+             * This is the serialized message to send.
+             */
+            std::string serializedMessage;
+
+            /**
+             * This is the unique identifier of the server to whom to send the
+             * message.
+             */
+            int receiverInstanceNumber = 0;
+
+            /**
+             * This is the default constructor.
+             */
+            SendMessageEvent()
+                : Event(Type::SendMessage)
+            {
+            }
+        };
+
+        /**
+         * This is an event published by the server.  It announces leadership
          * changes in the server cluster.
-         *
-         * @param[in] leaderId
-         *     This is the unique identifier of the server which has become
-         *     the leader of the cluster.
-         *
-         * @param[in] term
-         *     This is the generation number of the server cluster leadership,
-         *     which is incremented whenever a new election is started.
          */
-        using LeadershipChangeDelegate = std::function<
-            void(
-                int leaderId,
-                int term
-            )
-        >;
+        struct LeadershipChangeEvent : public Event {
+            /**
+             * This is the unique identifier of the server which has become the
+             * leader of the cluster.
+             */
+            int leaderId = 0;
+
+            /**
+             * This is the generation number of the server cluster leadership,
+             * which is incremented whenever a new election is started.
+             */
+            int term = 0;
+
+            /**
+             * This is the default constructor.
+             */
+            LeadershipChangeEvent()
+                : Event(Type::LeadershipChange)
+            {
+            }
+        };
 
         /**
-         * Declare the type of delegate used to announce the server's
+         * This is an event published by the server.  It announces the server's
          * election state changes.
-         *
-         * @param[in] term
-         *     This is the generation number of the server cluster leadership,
-         *     which is incremented whenever a new election is started.
-         *
-         * @param[in] electionState
-         *     This indicates whether the server is currently a follower,
-         *     candidate, or leader.
-         *
-         * @param[in] didVote
-         *     This indicates whether or not the server voted for a candidate
-         *     in this term.
-         *
-         * @param[in] votedFor
-         *     This is the unique identifier of the server for which this
-         *     server voted in this term, if a vote was indeed cast.  It will
-         *     be zero if the server did not vote for a candidate
-         *     in this term.
          */
-        using ElectionStateChangeDelegate = std::function<
-            void(
-                int term,
-                ElectionState electionState,
-                bool didVote,
-                int votedFor
-            )
-        >;
+        struct ElectionStateEvent : public Event {
+            /**
+             * This is the generation number of the server cluster leadership,
+             * which is incremented whenever a new election is started.
+             */
+            int term = 0;
+
+            /**
+             * This indicates whether the server is currently a follower,
+             * candidate, or leader.
+             */
+            ElectionState electionState = ElectionState::Follower;
+
+            /**
+             * This indicates whether or not the server voted for a candidate
+             * in this term.
+             */
+            bool didVote = false;
+
+            /**
+             * This is the unique identifier of the server for which this
+             * server voted in this term, if a vote was indeed cast.  It will
+             * be zero if the server did not vote for a candidate in this term.
+             */
+            int votedFor = 0;
+
+            /**
+             * This is the default constructor.
+             */
+            ElectionStateEvent()
+                : Event(Type::ElectionState)
+            {
+            }
+        };
 
         /**
-         * Declare the type of delegate used to announce that a single cluster
-         * configuration has been applied by the server.
-         *
-         * @param[in] newConfig
-         *     This is the new single cluster configuration applied by
-         *     the server.
+         * This is an event published by the server.  It announces that a
+         * single cluster configuration has been applied by the server.
          */
-        using ApplyConfigurationDelegate = std::function<
-            void(
-                const ClusterConfiguration& newConfig
-            )
-        >;
+        struct ApplyConfigurationEvent : public Event {
+            /**
+             * This is the new single cluster configuration applied by the
+             * server.
+             */
+            ClusterConfiguration newConfig;
+
+            /**
+             * This is the default constructor.
+             */
+            ApplyConfigurationEvent()
+                : Event(Type::ApplyConfiguration)
+            {
+            }
+        };
 
         /**
-         * Declare the type of delegate used to announce that a single cluster
-         * configuration has been committed by the cluster.
-         *
-         * @param[in] newConfig
-         *     This is the new single cluster configuration committed by
-         *     the cluster.
-         *
-         * @param[in] logIndex
-         *     This is the index of the log at the point where the cluster
-         *     configuration was committed.
+         * This is an event published by the server.  It announces that a
+         * single cluster configuration has been committed by the cluster.
          */
-        using CommitConfigurationDelegate = std::function<
-            void(
-                const ClusterConfiguration& newConfig,
-                size_t logIndex
-            )
-        >;
+        struct CommitConfigurationEvent : public Event {
+            /**
+             * This is the new single cluster configuration committed by the
+             * cluster.
+             */
+            ClusterConfiguration newConfig;
+
+            /**
+             * This is the index of the log at the point where the cluster
+             * configuration was committed.
+             */
+            size_t logIndex = 0;
+
+            /**
+             * This is the default constructor.
+             */
+            CommitConfigurationEvent()
+                : Event(Type::CommitConfiguration)
+            {
+            }
+        };
 
         /**
-         * Declare the type of delegate used to announce that the server
-         * has "caught up" to the rest of the cluster (the commit index
+         * This is an event published by the server.  It announces that the
+         * server has received a message installing a snapshot to set the
+         * server's state.
+         */
+        struct SnapshotInstalledEvent : public Event {
+            /**
+             * This contains a complete copy of the server state, built from
+             * the first log entry up to and including the entry at the given
+             * last included index.
+             */
+            Json::Value snapshot;
+
+            /**
+             * This is the index of the last log entry that was used to
+             * assemble the snapshot.
+             */
+            size_t lastIncludedIndex = 0;
+
+            /**
+             * This is the term of the last log entry that was used to
+             * assemble the snapshot.
+             */
+            int lastIncludedTerm = 0;
+
+            /**
+             * This is the default constructor.
+             */
+            SnapshotInstalledEvent()
+                : Event(Type::SnapshotInstalled)
+            {
+            }
+        };
+
+        /**
+         * This is an event published by the server.  It announces that the
+         * server has "caught up" to the rest of the cluster (the commit index
          * has reached the initial "last index" of the leader).
          */
-        using CaughtUpDelegate = std::function< void() >;
+        struct CaughtUpEvent : public Event {
+            /**
+             * This is the default constructor.
+             */
+            CaughtUpEvent()
+                : Event(Type::CaughtUp)
+            {
+            }
+        };
 
         /**
-         * Declare the type of delegate used to announce that the server has
-         * received a message installing a snapshot to set the server's state.
+         * Declare the type of delegate used to deliver events published by the
+         * server.
          *
-         * @param[in] snapshot
-         *     This contains a complete copy of the server state, built from
-         *     the first log entry up to and including the entry at the
-         *     given last included index.
-         *
-         * @param[in] lastIncludedIndex
-         *     This is the index of the last log entry that was used to
-         *     assemble the snapshot.
-         *
-         * @param[in] lastIncludedTerm
-         *     This is the term of the last log entry that was used to
-         *     assemble the snapshot.
+         * @param[in] baseEvent
+         *     This is a reference to the base of the event that was published.
+         *     The delegate should look at the event's type and downcast
+         *     the reference to the matching subtype for more details.
          */
-        using SnapshotInstalledDelegate = std::function<
+        using EventDelegate = std::function<
             void(
-                const Json::Value& snapshot,
-                size_t lastIncludedIndex,
-                int lastIncludedTerm
+                const Raft::IServer::Event& baseEvent
             )
         >;
+
+        /**
+         * Declare the type of delegate returned when a subscriber subscribes
+         * to server events.  When called, this delegate cancels the
+         * subscription.
+         */
+        using EventsUnsubscribeDelegate = std::function< void() >;
 
         // Methods
     public:
         /**
-         * This method is called to set up the delegate to be called later
-         * whenever the server wants to send a message to another server in the
-         * cluster.
+         * Subscribe to events published by the server.
          *
-         * @param[in] sendMessageDelegate
-         *     This is the delegate to be called later whenever the server
-         *     wants to send a message to another server in the cluster.
-         */
-        virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) = 0;
-
-        /**
-         * This method is called to set up the delegate to be called later
-         * whenever a leadership change occurs in the server cluster.
+         * @param[in] eventDelegate
+         *     This is the delegate to be called whenever an event
+         *     is published by the server.
          *
-         * @param[in] leadershipChangeDelegate
-         *     This is the delegate to be called later whenever a leadership
-         *     change occurs in the server cluster.
+         * @return
+         *     A delegate that can be called to cancel the subscription
+         *     is returned.
          */
-        virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) = 0;
-
-        /**
-         * Set up the delegate to be called later whenever the server's
-         * election state changes.
-         *
-         * @param[in] electionStateChangeDelegate
-         *     This is the delegate to be called later whenever the server's
-         *     election state changes.
-         */
-        virtual void SetElectionStateChangeDelegate(ElectionStateChangeDelegate electionStateChangeDelegate) = 0;
-
-        /**
-         * Set up a delegate to be called later whenever a single cluster
-         * configuration is applied by the server.
-         *
-         * @param[in] applyConfigurationDelegate
-         *     This is the delegate to be called later whenever a single
-         *     cluster configuration is applied by the server.
-         */
-        virtual void SetApplyConfigurationDelegate(ApplyConfigurationDelegate applyConfigurationDelegate) = 0;
-
-        /**
-         * Set up a delegate to be called later whenever a single cluster
-         * configuration is committed to the cluster.
-         *
-         * @param[in] commitConfigurationDelegate
-         *     This is the delegate to be called later whenever a single
-         *     cluster configuration is committed to the cluster.
-         */
-        virtual void SetCommitConfigurationDelegate(CommitConfigurationDelegate commitConfigurationDelegate) = 0;
-
-        /**
-         * Set up a delegate to be called when the server has "caught up" to
-         * the rest of the cluster (the commit index has reached the initial
-         * "last index" of the leader).
-         *
-         * @param[in] caughtUpDelegate
-         *     This is the delegate to be called when the server
-         *     has "caught up" to the rest of the cluster (the commit index
-         *     has reached the initial "last index" of the leader).
-         */
-        virtual void SetCaughtUpDelegate(CaughtUpDelegate caughtUpDelegate) = 0;
-
-        /**
-         * Set up a delegate to be called when the server has received a
-         * message installing a snapshot to set the server's state.
-         *
-         * @param[in] snapshotInstalledDelegate
-         *     This is the delegate to be called when the server
-         *     has received a message installing a snapshot to set
-         *     the server's state.
-         */
-        virtual void SetSnapshotInstalledDelegate(SnapshotInstalledDelegate snapshotInstalledDelegate) = 0;
+        virtual EventsUnsubscribeDelegate SubscribeToEvents(EventDelegate eventDelegate) = 0;
 
         /**
          * This method starts the server's worker thread.

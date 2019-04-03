@@ -350,6 +350,7 @@ namespace ServerTests {
     }
 
     void Common::SetServerDelegates() {
+        server.SetTimeKeeper(mockTimeKeeper);
         diagnosticsUnsubscribeDelegate = server.SubscribeToDiagnostics(
             [this](
                 std::string senderName,
@@ -367,60 +368,74 @@ namespace ServerTests {
             },
             0
         );
-        server.SetTimeKeeper(mockTimeKeeper);
-        server.SetSendMessageDelegate(
+        eventsUnsubscribeDelegate = server.SubscribeToEvents(
             [this](
-                const std::string& message,
-                int receiverInstanceNumber
+                const Raft::IServer::Event& baseEvent
             ){
-                ServerSentMessage(message, receiverInstanceNumber);
-            }
-        );
-        server.SetLeadershipChangeDelegate(
-            [this](
-                int leaderId,
-                int term
-            ){
-                leadershipChangeAnnounced = true;
-                leadershipChangeDetails.leaderId = leaderId;
-                leadershipChangeDetails.term = term;
-            }
-        );
-        server.SetElectionStateChangeDelegate(
-            [this](
-                int term,
-                Raft::IServer::ElectionState electionState,
-                bool didVote,
-                int votedFor
-            ){
-                std::string electionStateAsString;
-                switch (electionState) {
-                    case Raft::IServer::ElectionState::Follower: {
-                        electionStateAsString = "follower";
+                switch (baseEvent.type) {
+                    case Raft::IServer::Event::Type::SendMessage: {
+                        const auto& event = static_cast< const Raft::IServer::SendMessageEvent& >(baseEvent);
+                        ServerSentMessage(event.serializedMessage, event.receiverInstanceNumber);
                     } break;
-                    case Raft::IServer::ElectionState::Candidate: {
-                        electionStateAsString = "candidate";
+
+                    case Raft::IServer::Event::Type::LeadershipChange: {
+                        const auto& event = static_cast< const Raft::IServer::LeadershipChangeEvent& >(baseEvent);
+                        leadershipChangeAnnounced = true;
+                        leadershipChangeDetails.leaderId = event.leaderId;
+                        leadershipChangeDetails.term = event.term;
                     } break;
-                    case Raft::IServer::ElectionState::Leader: {
-                        electionStateAsString = "leader";
+
+                    case Raft::IServer::Event::Type::ElectionState: {
+                        const auto& event = static_cast< const Raft::IServer::ElectionStateEvent& >(baseEvent);
+                        std::string electionStateAsString;
+                        switch (event.electionState) {
+                            case Raft::IServer::ElectionState::Follower: {
+                                electionStateAsString = "follower";
+                            } break;
+                            case Raft::IServer::ElectionState::Candidate: {
+                                electionStateAsString = "candidate";
+                            } break;
+                            case Raft::IServer::ElectionState::Leader: {
+                                electionStateAsString = "leader";
+                            } break;
+                            default: {
+                                electionStateAsString = "???";
+                            } break;
+                        }
+                        electionStateChanges.push_back(
+                            Json::Object({
+                                {"term", event.term},
+                                {"electionState", electionStateAsString},
+                                {"didVote", event.didVote},
+                                {"votedFor", event.votedFor},
+                            })
+                        );
                     } break;
-                    default: {
-                        electionStateAsString = "???";
+
+                    case Raft::IServer::Event::Type::ApplyConfiguration: {
+                        const auto& event = static_cast< const Raft::IServer::ApplyConfigurationEvent& >(baseEvent);
+                        configApplied.reset(new Raft::ClusterConfiguration(event.newConfig));
                     } break;
+
+                    case Raft::IServer::Event::Type::CommitConfiguration: {
+                        const auto& event = static_cast< const Raft::IServer::CommitConfigurationEvent& >(baseEvent);
+                        configCommitted.reset(new Raft::ClusterConfiguration(event.newConfig));
+                        commitLogIndex = event.logIndex;
+                    } break;
+
+                    case Raft::IServer::Event::Type::SnapshotInstalled: {
+                        const auto& event = static_cast< const Raft::IServer::SnapshotInstalledEvent& >(baseEvent);
+                        snapshotInstalled = event.snapshot;
+                        lastIncludedIndexInSnapshot = event.lastIncludedIndex;
+                        lastIncludedTermInSnapshot = event.lastIncludedTerm;
+                    } break;
+
+                    case Raft::IServer::Event::Type::CaughtUp: {
+                        caughtUp = true;
+                    } break;
+
+                    default: break;
                 }
-                electionStateChanges.push_back(
-                    Json::Object({
-                        {"term", term},
-                        {"electionState", electionStateAsString},
-                        {"didVote", didVote},
-                        {"votedFor", votedFor},
-                    })
-                );
-            }
-        );
-        server.SetCaughtUpDelegate(
-            [this]{
-                caughtUp = true;
             }
         );
     }
@@ -448,6 +463,7 @@ namespace ServerTests {
 
     void Common::TearDown() {
         server.Demobilize();
+        eventsUnsubscribeDelegate();
         diagnosticsUnsubscribeDelegate();
     }
 

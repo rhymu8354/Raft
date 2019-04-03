@@ -28,17 +28,17 @@
 namespace Raft {
 
     void PrintTo(
-        const Raft::IServer::ElectionState& electionState,
+        const IServer::ElectionState& electionState,
         std::ostream* os
     ) {
         switch (electionState) {
-            case Raft::IServer::ElectionState::Follower: {
+            case IServer::ElectionState::Follower: {
                 *os << "Follower";
             } break;
-            case Raft::IServer::ElectionState::Candidate: {
+            case IServer::ElectionState::Candidate: {
                 *os << "Candidate";
             } break;
-            case Raft::IServer::ElectionState::Leader: {
+            case IServer::ElectionState::Leader: {
                 *os << "Leader";
             } break;
             default: {
@@ -47,98 +47,12 @@ namespace Raft {
         }
     }
 
-    std::string ElectionStateToString(Raft::Server::ElectionState electionState) {
+    std::string ElectionStateToString(IServer::ElectionState electionState) {
         switch (electionState) {
-            case Raft::Server::ElectionState::Follower: return "Follower";
-            case Raft::Server::ElectionState::Candidate: return "Candidate";
-            case Raft::Server::ElectionState::Leader: return "Leader";
+            case IServer::ElectionState::Follower: return "Follower";
+            case IServer::ElectionState::Candidate: return "Candidate";
+            case IServer::ElectionState::Leader: return "Leader";
             default: return "???";
-        }
-    }
-
-    void SendMessages(
-        Raft::IServer::SendMessageDelegate sendMessageDelegate,
-        std::queue< MessageToBeSent >&& messagesToBeSent
-    ) {
-        while (!messagesToBeSent.empty()) {
-            const auto& messageToBeSent = messagesToBeSent.front();
-            sendMessageDelegate(
-                messageToBeSent.message,
-                messageToBeSent.receiverInstanceNumber
-            );
-            messagesToBeSent.pop();
-        }
-    }
-
-    void SendLeadershipAnnouncements(
-        Raft::IServer::LeadershipChangeDelegate leadershipChangeDelegate,
-        std::queue< LeadershipAnnouncement >&& leadershipAnnouncementsToBeSent
-    ) {
-        while (!leadershipAnnouncementsToBeSent.empty()) {
-            const auto& leadershipAnnouncementToBeSent = leadershipAnnouncementsToBeSent.front();
-            leadershipChangeDelegate(
-                leadershipAnnouncementToBeSent.leaderId,
-                leadershipAnnouncementToBeSent.term
-            );
-            leadershipAnnouncementsToBeSent.pop();
-        }
-    }
-
-    void SendElectionStateChangeAnnouncements(
-        Raft::IServer::ElectionStateChangeDelegate electionStateChangeDelegate,
-        std::queue< ElectionStateChangeAnnouncement >&& electionStateChangeAnnouncementsToBeSent
-    ) {
-        while (!electionStateChangeAnnouncementsToBeSent.empty()) {
-            const auto& electionStateChangeAnnouncementToBeSent = electionStateChangeAnnouncementsToBeSent.front();
-            electionStateChangeDelegate(
-                electionStateChangeAnnouncementToBeSent.term,
-                electionStateChangeAnnouncementToBeSent.electionState,
-                electionStateChangeAnnouncementToBeSent.didVote,
-                electionStateChangeAnnouncementToBeSent.votedFor
-            );
-            electionStateChangeAnnouncementsToBeSent.pop();
-        }
-    }
-
-    void SendConfigAppliedAnnouncements(
-        Raft::IServer::ApplyConfigurationDelegate applyConfigurationDelegate,
-        std::queue< Raft::ClusterConfiguration >&& configAppliedAnnouncementsToBeSent
-    ) {
-        while (!configAppliedAnnouncementsToBeSent.empty()) {
-            const auto& configAppliedAnnouncementToBeSent = configAppliedAnnouncementsToBeSent.front();
-            applyConfigurationDelegate(
-                configAppliedAnnouncementToBeSent
-            );
-            configAppliedAnnouncementsToBeSent.pop();
-        }
-    }
-
-    void SendConfigCommittedAnnouncements(
-        Raft::IServer::CommitConfigurationDelegate commitConfigurationDelegate,
-        std::queue< ConfigCommittedAnnouncement >&& configCommittedAnnouncementsToBeSent
-    ) {
-        while (!configCommittedAnnouncementsToBeSent.empty()) {
-            const auto& snapshotAnnouncementToBeSent = configCommittedAnnouncementsToBeSent.front();
-            commitConfigurationDelegate(
-                snapshotAnnouncementToBeSent.newConfig,
-                snapshotAnnouncementToBeSent.logIndex
-            );
-            configCommittedAnnouncementsToBeSent.pop();
-        }
-    }
-
-    void SendSnapshotAnnouncements(
-        Raft::IServer::SnapshotInstalledDelegate snapshotInstalledDelegate,
-        std::queue< SnapshotInstallationAnnouncement >&& snapshotInstallationAnnouncementsToBeSent
-    ) {
-        while (!snapshotInstallationAnnouncementsToBeSent.empty()) {
-            const auto& snapshotAnnouncementToBeSent = snapshotInstallationAnnouncementsToBeSent.front();
-            snapshotInstalledDelegate(
-                snapshotAnnouncementToBeSent.snapshot,
-                snapshotAnnouncementToBeSent.lastIncludedIndex,
-                snapshotAnnouncementToBeSent.lastIncludedTerm
-            );
-            snapshotInstallationAnnouncementsToBeSent.pop();
         }
     }
 

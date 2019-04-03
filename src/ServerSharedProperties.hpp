@@ -10,13 +10,8 @@
  * © 2019 by Richard Walters
  */
 
-#include "ConfigCommittedAnnouncement.hpp"
-#include "ElectionStateChangeAnnouncement.hpp"
 #include "InstanceInfo.hpp"
-#include "LeadershipAnnouncement.hpp"
 #include "Message.hpp"
-#include "MessageToBeSent.hpp"
-#include "SnapshotInstallationAnnouncement.hpp"
 
 #include <algorithm>
 #include <future>
@@ -52,6 +47,16 @@ namespace Raft {
          * This is used to synchronize access to the properties below.
          */
         std::recursive_mutex mutex;
+
+        /**
+         * This is the next identifier to use for an event subscription.
+         */
+        int nextEventSubscriberId = 0;
+
+        /**
+         * These are the current subscriptions to server events.
+         */
+        std::map< int, Raft::IServer::EventDelegate > eventSubscribers;
 
         /**
          * This holds all configuration items for the server cluster.
@@ -101,44 +106,10 @@ namespace Raft {
         std::mt19937 rng;
 
         /**
-         * This holds messages to be sent to other servers by the worker
+         * This holds events to be published by the server in its worker
          * thread.
          */
-        std::queue< MessageToBeSent > messagesToBeSent;
-
-        /**
-         * This holds leadership announcements to be sent by the worker thread.
-         */
-        std::queue< LeadershipAnnouncement > leadershipAnnouncementsToBeSent;
-
-        /**
-         * This holds election state change announcements to be sent by the
-         * worker thread.
-         */
-        std::queue< ElectionStateChangeAnnouncement > electionStateChangeAnnouncementsToBeSent;
-
-        /**
-         * This holds cluster configuration applied announcements to be sent by
-         * the worker thread.
-         */
-        std::queue< Raft::ClusterConfiguration > configAppliedAnnouncementsToBeSent;
-
-        /**
-         * This holds cluster configuration committed announcements to be sent
-         * by the worker thread.
-         */
-        std::queue< ConfigCommittedAnnouncement > configCommittedAnnouncementsToBeSent;
-
-        /**
-         * This holds snapshot announcements to be sent by the worker thread.
-         */
-        std::queue< SnapshotInstallationAnnouncement > snapshotInstallationAnnouncementsToBeSent;
-
-        /**
-         * This indicates whether or not the worker thread should announce
-         * that the server has "caught up" to the rest of the cluster.
-         */
-        bool sendCaughtUpAnnouncement = false;
+        std::queue< std::shared_ptr< Raft::IServer::Event > > eventQueue;
 
         /**
          * If this is not nullptr, then the worker thread should set the result

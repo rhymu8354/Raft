@@ -197,13 +197,7 @@ namespace Raft {
 
         // IServer
     public:
-        virtual void SetSendMessageDelegate(SendMessageDelegate sendMessageDelegate) override;
-        virtual void SetLeadershipChangeDelegate(LeadershipChangeDelegate leadershipChangeDelegate) override;
-        virtual void SetElectionStateChangeDelegate(ElectionStateChangeDelegate electionStateChangeDelegate) override;
-        virtual void SetApplyConfigurationDelegate(ApplyConfigurationDelegate applyConfigurationDelegate) override;
-        virtual void SetCommitConfigurationDelegate(CommitConfigurationDelegate commitConfigurationDelegate) override;
-        virtual void SetCaughtUpDelegate(CaughtUpDelegate caughtUpDelegate) override;
-        virtual void SetSnapshotInstalledDelegate(SnapshotInstalledDelegate snapshotInstalledDelegate) override;
+        virtual EventsUnsubscribeDelegate SubscribeToEvents(EventDelegate eventDelegate) override;
         virtual void Mobilize(
             std::shared_ptr< ILog > logKeeper,
             std::shared_ptr< IPersistentState > persistentStateKeeper,

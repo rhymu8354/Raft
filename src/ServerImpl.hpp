@@ -45,50 +45,6 @@ namespace Raft {
         std::shared_ptr< TimeKeeper > timeKeeper;
 
         /**
-         * This is the delegate to be called whenever the server
-         * wants to send a message to another server in the cluster.
-         */
-        SendMessageDelegate sendMessageDelegate;
-
-        /**
-         * This is the delegate to be called later whenever a leadership change
-         * occurs in the server cluster.
-         */
-        LeadershipChangeDelegate leadershipChangeDelegate;
-
-        /**
-         * This is the delegate to be called later whenever the server's
-         * election state changes.
-         */
-        ElectionStateChangeDelegate electionStateChangeDelegate;
-
-        /**
-         * This is the delegate to be called later whenever a single
-         * cluster configuration is applied by the server.
-         */
-        ApplyConfigurationDelegate applyConfigurationDelegate;
-
-        /**
-         * This is the delegate to be called later whenever a single
-         * cluster configuration is applied by the server.
-         */
-        CommitConfigurationDelegate commitConfigurationDelegate;
-
-        /**
-         * This is the delegate to be called when the server
-         * has "caught up" to the rest of the cluster (the commit index
-         * has reached the initial "last index" of the leader).
-         */
-        CaughtUpDelegate caughtUpDelegate;
-
-        /**
-         * This is the delegate to be called when the server
-         * has received a message installing a snapshot to set
-         * the server's state.
-         */
-        SnapshotInstalledDelegate snapshotInstalledDelegate;
-
-        /**
          * This thread performs any background tasks required of the
          * server, such as starting an election if no message is received
          * from the cluster leader before the next timeout.
@@ -418,6 +374,17 @@ namespace Raft {
          *     properties of the server.
          */
         void SendQueuedSnapshotAnnouncements(
+            std::unique_lock< decltype(shared->mutex) >& lock
+        );
+
+        /**
+         * Empty out the event queue, processing each event in order.
+         *
+         * @param[in] lock
+         *     This is the object holding the mutex protecting the shared
+         *     properties of the server.
+         */
+        void ProcessEventQueue(
             std::unique_lock< decltype(shared->mutex) >& lock
         );
 

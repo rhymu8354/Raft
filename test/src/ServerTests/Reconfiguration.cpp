@@ -751,13 +751,6 @@ namespace ServerTests {
         entry.term = term;
         entry.command = std::move(command);
         mockLog->entries = {entry};
-        std::unique_ptr< Raft::ClusterConfiguration > configApplied;
-        const auto onApplyConfiguration = [&configApplied](
-            const Raft::ClusterConfiguration& newConfiguration
-        ) {
-            configApplied.reset(new Raft::ClusterConfiguration(newConfiguration));
-        };
-        server.SetApplyConfigurationDelegate(onApplyConfiguration);
 
         // Act
         MobilizeServer();
@@ -793,19 +786,6 @@ namespace ServerTests {
             std::move(jointConfigEntry),
             std::move(singleConfigEntry)
         };
-        std::unique_ptr< Raft::ClusterConfiguration > configCommitted;
-        size_t commitLogIndex = 0;
-        const auto onCommitConfiguration = [
-            &configCommitted,
-            &commitLogIndex
-        ](
-            const Raft::ClusterConfiguration& newConfiguration,
-            size_t logIndex
-        ) {
-            configCommitted.reset(new Raft::ClusterConfiguration(newConfiguration));
-            commitLogIndex = logIndex;
-        };
-        server.SetCommitConfigurationDelegate(onCommitConfiguration);
         BecomeLeader(term, false);
 
         // Act
@@ -850,14 +830,6 @@ namespace ServerTests {
             std::move(singleConfigEntry),
             std::move(jointConfigEntry),
         };
-        bool configCommitted = false;
-        const auto onCommitConfiguration = [&configCommitted](
-            const Raft::ClusterConfiguration& newConfiguration,
-            size_t logIndex
-        ) {
-            configCommitted = true;
-        };
-        server.SetCommitConfigurationDelegate(onCommitConfiguration);
         BecomeLeader(term, false);
 
         // Act
@@ -868,7 +840,7 @@ namespace ServerTests {
         }
 
         // Assert
-        EXPECT_FALSE(configCommitted);
+        EXPECT_TRUE(configCommitted == nullptr);
     }
 
     TEST_F(ServerTests_Reconfiguration, InitializeInstanceInfoAddBackServerThatWasPreviouslyLeader) {
