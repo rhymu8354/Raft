@@ -1051,6 +1051,37 @@ namespace ServerTests {
         EXPECT_EQ(101, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
+    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesFailWhenLogBasedOnSnapshot) {
+        // Arrange
+        Raft::LogEntry newEntry;
+        newEntry.term = 8;
+        mockLog->baseIndex = 100;
+        mockLog->baseTerm = 7;
+        mockLog->commitIndex = 100;
+        MobilizeServer();
+
+        // Act
+        messagesSent.clear();
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntries;
+        message.appendEntries.term = 8;
+        message.appendEntries.leaderCommit = 100;
+        message.appendEntries.prevLogIndex = 101;
+        message.appendEntries.prevLogTerm = 8;
+        message.log = {newEntry};
+        server.ReceiveMessage(message.Serialize(), 2);
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        EXPECT_EQ(0, mockLog->entries.size());
+        ASSERT_EQ(1, messagesSent.size());
+        EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
+        EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
+        EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.term);
+        EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
+        EXPECT_EQ(100, messagesSent[0].message.appendEntriesResults.matchIndex);
+    }
+
     TEST_F(ServerTests_Replication, LeaderInstallSnapshot) {
         // Arrange
         mockLog->baseIndex = 100;

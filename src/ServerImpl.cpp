@@ -1079,7 +1079,7 @@ namespace Raft {
                     );
                 }
                 response.appendEntriesResults.success = false;
-                response.appendEntriesResults.matchIndex = 0;
+                response.appendEntriesResults.matchIndex = shared->logKeeper->GetBaseIndex();
             } else {
                 response.appendEntriesResults.success = true;
                 size_t nextIndex = messageDetails.prevLogIndex + 1;
