@@ -291,6 +291,7 @@ namespace Raft {
             for (size_t i = instance.nextIndex; i <= shared->lastIndex; ++i) {
                 message.log.push_back(shared->logKeeper->operator[](i));
             }
+#ifdef EXTRA_DIAGNOSTICS
             if (shared->lastIndex < instance.nextIndex) {
                 shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                     0,
@@ -329,6 +330,7 @@ namespace Raft {
                     }
                 }
             }
+#endif /* EXTRA_DIAGNOSTICS */
         }
         QueueMessageToBeSent(
             message,
@@ -374,6 +376,7 @@ namespace Raft {
         message.appendEntries.prevLogIndex = shared->lastIndex - entries.size();
         message.appendEntries.prevLogTerm = shared->logKeeper->GetTerm(message.appendEntries.prevLogIndex);
         message.log = entries;
+#ifdef EXTRA_DIAGNOSTICS
         if (entries.empty()) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
@@ -411,6 +414,7 @@ namespace Raft {
                 }
             }
         }
+#endif /* EXTRA_DIAGNOSTICS */
         for (auto instanceNumber: GetInstanceIds()) {
             auto& instance = shared->instances[instanceNumber];
             if (
@@ -608,6 +612,7 @@ namespace Raft {
             shared->logKeeper->GetLastIndex()
         );
         if (newCommitIndexWeHave != shared->commitIndex) {
+#ifdef EXTRA_DIAGNOSTICS
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 2,
                 "Advancing commit index %zu -> %zu (leader has %zu, we have %zu)",
@@ -616,6 +621,7 @@ namespace Raft {
                 newCommitIndex,
                 shared->logKeeper->GetLastIndex()
             );
+#endif /* EXTRA_DIAGNOSTICS */
             shared->commitIndex = newCommitIndexWeHave;
             shared->logKeeper->Commit(shared->commitIndex);
         }
@@ -963,6 +969,7 @@ namespace Raft {
         std::vector< LogEntry >&& entries,
         int senderInstanceNumber
     ) {
+#ifdef EXTRA_DIAGNOSTICS
         if (entries.empty()) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 0,
@@ -1005,6 +1012,7 @@ namespace Raft {
                 }
             }
         }
+#endif /* EXTRA_DIAGNOSTICS */
         Message response;
         response.type = Message::Type::AppendEntriesResults;
         response.appendEntriesResults.term = shared->persistentStateCache.currentTerm;
@@ -1121,6 +1129,7 @@ namespace Raft {
         if (instance.awaitingResponse) {
             MeasureBroadcastTime(instance.timeLastRequestSent);
         }
+#ifdef EXTRA_DIAGNOSTICS
         shared->diagnosticsSender.SendDiagnosticInformationFormatted(
             1,
             "Received AppendEntriesResults(%s, term %d, match %zu, next %zu) from server %d (we are %s in term %d)",
@@ -1132,6 +1141,7 @@ namespace Raft {
             ElectionStateToString(shared->electionState).c_str(),
             shared->persistentStateCache.currentTerm
         );
+#endif /* EXTRA_DIAGNOSTICS */
         if (messageDetails.term > shared->persistentStateCache.currentTerm) {
             UpdateCurrentTerm(messageDetails.term);
             RevertToFollower();

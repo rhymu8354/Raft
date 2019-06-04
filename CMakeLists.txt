@@ -5,6 +5,12 @@
 cmake_minimum_required(VERSION 3.8)
 set(This Raft)
 
+option(RAFT_EXTRA_DIAGNOSTICS "Report extra diagnostics (significant performance hit)" OFF)
+
+if(RAFT_EXTRA_DIAGNOSTICS)
+    target_compile_definitions(${This} PRIVATE EXTRA_DIAGNOSTICS)
+endif(RAFT_EXTRA_DIAGNOSTICS)
+
 set(Headers
     include/Raft/ClusterConfiguration.hpp
     include/Raft/Command.hpp
