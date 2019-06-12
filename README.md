@@ -40,6 +40,8 @@ There are two distinct steps in the build process:
 * [SystemAbstractions](https://github.com/rhymu8354/SystemAbstractions.git) - a
   cross-platform adapter library for system services whose APIs vary from one
   operating system to another
+* [Serialization](https://github.com/rhymu8354/Serialization.git) - a library
+  used to convert data to/from strings of bytes
 
 ### Build system generation
 

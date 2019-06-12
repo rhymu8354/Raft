@@ -9,105 +9,271 @@
 #include "Message.hpp"
 
 #include <Json/Value.hpp>
+#include <Serialization/SerializedBoolean.hpp>
+#include <Serialization/SerializedInteger.hpp>
+#include <Serialization/SerializedString.hpp>
+#include <Serialization/SerializedVector.hpp>
+#include <SystemAbstractions/StringFile.hpp>
+
+namespace {
+
+    constexpr int CURRENT_SERIALIZATION_VERSION = 1;
+
+}
 
 namespace Raft {
 
     Message::Message(const std::string& serialization) {
-        const auto json = Json::Value::FromEncoding(serialization);
-        const std::string typeAsString = json["type"];
-        if (typeAsString == "RequestVote") {
-            type = Message::Type::RequestVote;
-            requestVote.term = json["term"];
-            requestVote.candidateId = json["candidateId"];
-            requestVote.lastLogIndex = json["lastLogIndex"];
-            requestVote.lastLogTerm = json["lastLogTerm"];
-        } else if (typeAsString == "RequestVoteResults") {
-            type = Message::Type::RequestVoteResults;
-            requestVoteResults.term = json["term"];
-            requestVoteResults.voteGranted = json["voteGranted"];
-        } else if (typeAsString == "AppendEntries") {
-            type = Message::Type::AppendEntries;
-            appendEntries.term = json["term"];
-            appendEntries.leaderCommit = json["leaderCommit"];
-            appendEntries.prevLogIndex = json["prevLogIndex"];
-            appendEntries.prevLogTerm = json["prevLogTerm"];
-            const auto& serializedLogEntries = json["log"];
-            for (size_t i = 0; i < serializedLogEntries.GetSize(); ++i) {
-                log.push_back(serializedLogEntries[i]);
-            }
-        } else if (typeAsString == "AppendEntriesResults") {
-            type = Message::Type::AppendEntriesResults;
-            appendEntriesResults.term = json["term"];
-            appendEntriesResults.success = json["success"];
-            appendEntriesResults.matchIndex = json["matchIndex"];
-        } else if (typeAsString == "InstallSnapshot") {
-            type = Message::Type::InstallSnapshot;
-            installSnapshot.term = json["term"];
-            installSnapshot.lastIncludedIndex = json["lastIncludedIndex"];
-            installSnapshot.lastIncludedTerm = json["lastIncludedTerm"];
-            snapshot = json["snapshot"];
-        } else if (typeAsString == "InstallSnapshotResults") {
-            type = Message::Type::InstallSnapshotResults;
-            installSnapshotResults.term = json["term"];
-            installSnapshotResults.matchIndex = json["matchIndex"];
+        SystemAbstractions::StringFile buffer(serialization);
+        Serialization::SerializedInteger version;
+        if (!version.Deserialize(&buffer)) {
+            return;
         }
-    }
-
-    std::string Message::Serialize() const {
-        auto json = Json::Object({});
+        if (version > CURRENT_SERIALIZATION_VERSION) {
+            return;
+        }
+        Serialization::SerializedInteger serializedType;
+        if (!serializedType.Deserialize(&buffer)) {
+            return;
+        }
+        type = (Message::Type)(int)serializedType;
         switch (type) {
             case Message::Type::RequestVote: {
-                json["type"] = "RequestVote";
-                json["term"] = requestVote.term;
-                json["candidateId"] = requestVote.candidateId;
-                json["lastLogIndex"] = requestVote.lastLogIndex;
-                json["lastLogTerm"] = requestVote.lastLogTerm;
+                Serialization::SerializedInteger intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                requestVote.term = intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                requestVote.candidateId = intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                requestVote.lastLogIndex = (size_t)intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                requestVote.lastLogTerm = intField;
             } break;
 
             case Message::Type::RequestVoteResults: {
-                json["type"] = "RequestVoteResults";
-                json["term"] = requestVoteResults.term;
-                json["voteGranted"] = requestVoteResults.voteGranted;
+                Serialization::SerializedInteger intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                requestVoteResults.term = intField;
+                Serialization::SerializedBoolean boolField;
+                if (!boolField.Deserialize(&buffer)) {
+                    return;
+                }
+                requestVoteResults.voteGranted = boolField;
             } break;
 
             case Message::Type::AppendEntries: {
-                json["type"] = "AppendEntries";
-                json["term"] = appendEntries.term;
-                json["leaderCommit"] = appendEntries.leaderCommit;
-                json["prevLogIndex"] = appendEntries.prevLogIndex;
-                json["prevLogTerm"] = appendEntries.prevLogTerm;
-                json["log"] = Json::Array({});
-                auto& serializedLog = json["log"];
-                for (const auto& logEntry: log) {
-                    serializedLog.Add(logEntry);
+                Serialization::SerializedInteger intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                appendEntries.term = intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                appendEntries.leaderCommit = (size_t)intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                appendEntries.prevLogIndex = (size_t)intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                appendEntries.prevLogTerm = intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                const auto numLogEntries = (size_t)intField;
+                log.reserve(numLogEntries);
+                for (size_t i = 0; i < numLogEntries; ++i) {
+                    LogEntry logEntry;
+                    if (!logEntry.Deserialize(&buffer)) {
+                        return;
+                    }
+                    log.push_back(std::move(logEntry));
                 }
             } break;
 
             case Message::Type::AppendEntriesResults: {
-                json["type"] = "AppendEntriesResults";
-                json["term"] = appendEntriesResults.term;
-                json["success"] = appendEntriesResults.success;
-                json["matchIndex"] = appendEntriesResults.matchIndex;
+                Serialization::SerializedInteger intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                appendEntriesResults.term = intField;
+                Serialization::SerializedBoolean boolField;
+                if (!boolField.Deserialize(&buffer)) {
+                    return;
+                }
+                appendEntriesResults.success = boolField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                appendEntriesResults.matchIndex = (size_t)intField;
             } break;
 
             case Message::Type::InstallSnapshot: {
-                json["type"] = "InstallSnapshot";
-                json["term"] = installSnapshot.term;
-                json["lastIncludedIndex"] = installSnapshot.lastIncludedIndex;
-                json["lastIncludedTerm"] = installSnapshot.lastIncludedTerm;
-                json["snapshot"] = snapshot;
+                Serialization::SerializedInteger intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                installSnapshot.term = intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                installSnapshot.lastIncludedIndex = (size_t)intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                installSnapshot.lastIncludedTerm = intField;
+                Serialization::SerializedString stringField;
+                if (!stringField.Deserialize(&buffer)) {
+                    return;
+                }
+                snapshot = Json::Value::FromEncoding(stringField);
             } break;
 
             case Message::Type::InstallSnapshotResults: {
-                json["type"] = "InstallSnapshotResults";
-                json["term"] = installSnapshotResults.term;
-                json["matchIndex"] = installSnapshotResults.matchIndex;
+                Serialization::SerializedInteger intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                installSnapshotResults.term = intField;
+                if (!intField.Deserialize(&buffer)) {
+                    return;
+                }
+                installSnapshotResults.matchIndex = (size_t)intField;
             } break;
 
-            default: {
-            } break;
+            default: return;
         }
-        return json.ToEncoding();
+    }
+
+    std::string Message::Serialize() const {
+        SystemAbstractions::StringFile buffer;
+        Serialization::SerializedInteger version(CURRENT_SERIALIZATION_VERSION);
+        if (!version.Serialize(&buffer)) {
+            return "";
+        }
+        Serialization::SerializedInteger serializedType((int)type);
+        if (!serializedType.Serialize(&buffer)) {
+            return "";
+        }
+        switch (type) {
+            case Message::Type::RequestVote: {
+                Serialization::SerializedInteger intField(requestVote.term);
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                intField = requestVote.candidateId;
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                intField = (int)requestVote.lastLogIndex;
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                intField = requestVote.lastLogTerm;
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+            } break;
+
+            case Message::Type::RequestVoteResults: {
+                Serialization::SerializedInteger intField(requestVoteResults.term);
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                Serialization::SerializedInteger boolField(requestVoteResults.voteGranted);
+                if (!boolField.Serialize(&buffer)) {
+                    return "";
+                }
+            } break;
+
+            case Message::Type::AppendEntries: {
+                Serialization::SerializedInteger intField(appendEntries.term);
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                intField = (int)appendEntries.leaderCommit;
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                intField = (int)appendEntries.prevLogIndex;
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                intField = appendEntries.prevLogTerm;
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                intField = (int)log.size();
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                for (const auto& logEntry: log) {
+                    if (!logEntry.Serialize(&buffer)) {
+                        return "";
+                    }
+                }
+            } break;
+
+            case Message::Type::AppendEntriesResults: {
+                Serialization::SerializedInteger intField(appendEntriesResults.term);
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                Serialization::SerializedInteger boolField(appendEntriesResults.success);
+                if (!boolField.Serialize(&buffer)) {
+                    return "";
+                }
+                intField = (int)appendEntriesResults.matchIndex;
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+            } break;
+
+            case Message::Type::InstallSnapshot: {
+                Serialization::SerializedInteger intField(installSnapshot.term);
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                intField = (int)installSnapshot.lastIncludedIndex;
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                intField = installSnapshot.lastIncludedTerm;
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                Serialization::SerializedString stringField(snapshot.ToEncoding());
+                if (!stringField.Serialize(&buffer)) {
+                    return "";
+                }
+            } break;
+
+            case Message::Type::InstallSnapshotResults: {
+                Serialization::SerializedInteger intField(installSnapshotResults.term);
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+                intField = (int)installSnapshotResults.matchIndex;
+                if (!intField.Serialize(&buffer)) {
+                    return "";
+                }
+            } break;
+
+            default: return "";
+        }
+        return buffer;
     }
 
 }

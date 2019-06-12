@@ -10,8 +10,12 @@
 #include <Json/Value.hpp>
 #include <map>
 #include <Raft/LogEntry.hpp>
+#include <Serialization/SerializedInteger.hpp>
+#include <Serialization/SerializedString.hpp>
 
 namespace {
+
+    constexpr int CURRENT_SERIALIZATION_VERSION = 1;
 
     struct CommandFactories {
         // Properties
@@ -132,11 +136,22 @@ namespace Raft {
     }
 
     bool LogEntry::operator==(const LogEntry& other) const {
-        return (Json::Value)*this == (Json::Value)other;
+        if (term != other.term) {
+            return false;
+        }
+        if (command == nullptr) {
+            return (other.command == nullptr);
+        } else if (other.command == nullptr) {
+            return false;
+        }
+        if (command->GetType() != other.command->GetType()) {
+            return false;
+        }
+        return (command->Encode() == other.command->Encode());
     }
 
     bool LogEntry::operator!=(const LogEntry& other) const {
-        return (Json::Value)*this != (Json::Value)other;
+        return !(*this == other);
     }
 
     void LogEntry::RegisterCommandType(
@@ -145,5 +160,85 @@ namespace Raft {
     ) {
         COMMAND_FACTORIES.factoriesByType[type] = factory;
     }
+
+    bool LogEntry::Serialize(
+        SystemAbstractions::IFile* file,
+        unsigned int serializationVersion
+    ) const {
+        if (serializationVersion > CURRENT_SERIALIZATION_VERSION) {
+            return false;
+        } else if (serializationVersion == 0) {
+            serializationVersion = CURRENT_SERIALIZATION_VERSION;
+        }
+        Serialization::SerializedInteger intField(serializationVersion);
+        if (!intField.Serialize(file)) {
+            return false;
+        }
+        intField = term;
+        if (!intField.Serialize(file)) {
+            return false;
+        }
+        Serialization::SerializedString stringField(
+            (command == nullptr)
+            ? ""
+            : command->GetType()
+        );
+        if (!stringField.Serialize(file)) {
+            return false;
+        }
+        if (command != nullptr) {
+            stringField = command->Encode().ToEncoding();
+            if (!stringField.Serialize(file)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool LogEntry::Deserialize(SystemAbstractions::IFile* file) {
+        Serialization::SerializedInteger intField;
+        if (!intField.Deserialize(file)) {
+            return false;
+        }
+        const auto version = (int)intField;
+        if (version > CURRENT_SERIALIZATION_VERSION) {
+            return false;
+        }
+        if (!intField.Deserialize(file)) {
+            return false;
+        }
+        term = (int)intField;
+        Serialization::SerializedString stringField;
+        if (!stringField.Deserialize(file)) {
+            return false;
+        }
+        const std::string typeAsString = stringField;
+        if (typeAsString.empty()) {
+            command = nullptr;
+        } else {
+            if (!stringField.Deserialize(file)) {
+                return false;
+            }
+            const auto encodedCommand = Json::Value::FromEncoding(stringField);
+            const auto factory = COMMAND_FACTORIES.factoriesByType.find(typeAsString);
+            if (factory != COMMAND_FACTORIES.factoriesByType.end()) {
+                command = factory->second(encodedCommand);
+            }
+        }
+        return true;
+    }
+
+    std::string LogEntry::Render() const {
+        return "";
+    }
+
+    bool LogEntry::Parse(std::string rendering) {
+        return false;
+    }
+
+    bool LogEntry::IsEqualTo(const ISerializedObject* other) const {
+        return false;
+    }
+
 
 }

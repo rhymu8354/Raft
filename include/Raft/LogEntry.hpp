@@ -16,6 +16,7 @@
 #include <Json/Value.hpp>
 #include <memory>
 #include <string>
+#include <Serialization/ISerializedObject.hpp>
 
 namespace Raft {
 
@@ -61,7 +62,9 @@ namespace Raft {
      * directly relate to the algorithm.  It is meant to be subclassed in order
      * to hold actual concrete server state.
      */
-    struct LogEntry {
+    struct LogEntry
+        : public Serialization::ISerializedObject
+    {
         // Types
 
         /**
@@ -160,6 +163,17 @@ namespace Raft {
             const std::string& type,
             CommandFactory factory
         );
+
+        // ISerializedObject
+    public:
+        virtual bool Serialize(
+            SystemAbstractions::IFile* file,
+            unsigned int serializationVersion = 0
+        ) const override;
+        virtual bool Deserialize(SystemAbstractions::IFile* file) override;
+        virtual std::string Render() const override;
+        virtual bool Parse(std::string rendering) override;
+        virtual bool IsEqualTo(const ISerializedObject* other) const override;
     };
 
 }
