@@ -224,8 +224,8 @@ namespace Raft {
     void Server::Impl::SendInitialVoteRequests(double now) {
         Message message;
         message.type = Message::Type::RequestVote;
+        message.term = shared->persistentStateCache.currentTerm;
         message.requestVote.candidateId = shared->serverConfiguration.selfInstanceId;
-        message.requestVote.term = shared->persistentStateCache.currentTerm;
         message.requestVote.lastLogIndex = shared->lastIndex;
         if (shared->lastIndex > 0) {
             message.requestVote.lastLogTerm = shared->logKeeper->GetTerm(shared->lastIndex);
@@ -267,7 +267,7 @@ namespace Raft {
         Message message;
         if (instance.nextIndex <= shared->logKeeper->GetBaseIndex()) {
             message.type = Message::Type::InstallSnapshot;
-            message.installSnapshot.term = shared->persistentStateCache.currentTerm;
+            message.term = shared->persistentStateCache.currentTerm;
             message.installSnapshot.lastIncludedIndex = shared->logKeeper->GetBaseIndex();
             message.installSnapshot.lastIncludedTerm = shared->logKeeper->GetTerm(
                 message.installSnapshot.lastIncludedIndex
@@ -282,7 +282,7 @@ namespace Raft {
             );
         } else {
             message.type = Message::Type::AppendEntries;
-            message.appendEntries.term = shared->persistentStateCache.currentTerm;
+            message.term = shared->persistentStateCache.currentTerm;
             message.appendEntries.leaderCommit = shared->commitIndex;
             message.appendEntries.prevLogIndex = instance.nextIndex - 1;
             message.appendEntries.prevLogTerm = shared->logKeeper->GetTerm(
@@ -342,7 +342,7 @@ namespace Raft {
     void Server::Impl::QueueHeartBeatsToBeSent(double now) {
         Message message;
         message.type = Message::Type::AppendEntries;
-        message.appendEntries.term = shared->persistentStateCache.currentTerm;
+        message.term = shared->persistentStateCache.currentTerm;
         message.appendEntries.leaderCommit = shared->commitIndex;
         message.appendEntries.prevLogIndex = shared->lastIndex;
         message.appendEntries.prevLogTerm = shared->logKeeper->GetTerm(shared->lastIndex);
@@ -371,7 +371,7 @@ namespace Raft {
     ) {
         Message message;
         message.type = Message::Type::AppendEntries;
-        message.appendEntries.term = shared->persistentStateCache.currentTerm;
+        message.term = shared->persistentStateCache.currentTerm;
         message.appendEntries.leaderCommit = shared->commitIndex;
         message.appendEntries.prevLogIndex = shared->lastIndex - entries.size();
         message.appendEntries.prevLogTerm = shared->logKeeper->GetTerm(message.appendEntries.prevLogIndex);
@@ -762,7 +762,8 @@ namespace Raft {
 
     void Server::Impl::OnReceiveRequestVote(
         const Message::RequestVoteDetails& messageDetails,
-        int senderInstanceNumber
+        int senderInstanceNumber,
+        int senderTerm
     ) {
         const auto now = timeKeeper->GetCurrentTime();
         const auto termBeforeMessageProcessed = shared->persistentStateCache.currentTerm;
@@ -777,13 +778,13 @@ namespace Raft {
                 1,
                 "Ignoring vote for server %d for term %d (we were in term %d; vote requested before minimum election timeout)",
                 senderInstanceNumber,
-                messageDetails.term,
+                senderTerm,
                 termBeforeMessageProcessed
             );
             return;
         }
-        if (messageDetails.term > shared->persistentStateCache.currentTerm) {
-            UpdateCurrentTerm(messageDetails.term);
+        if (senderTerm > shared->persistentStateCache.currentTerm) {
+            UpdateCurrentTerm(senderTerm);
             RevertToFollower();
             QueueElectionStateChangeAnnouncement();
         }
@@ -792,22 +793,22 @@ namespace Raft {
                 1,
                 "Ignoring vote for server %d for term %d (we were in term %d, but non-voting member)",
                 senderInstanceNumber,
-                messageDetails.term,
+                senderTerm,
                 termBeforeMessageProcessed
             );
             return;
         }
         Message response;
         response.type = Message::Type::RequestVoteResults;
-        response.requestVoteResults.term = shared->persistentStateCache.currentTerm;
+        response.term = shared->persistentStateCache.currentTerm;
         const auto lastIndex = shared->lastIndex;
         const auto lastTerm = shared->logKeeper->GetTerm(shared->lastIndex);
-        if (shared->persistentStateCache.currentTerm > messageDetails.term) {
+        if (shared->persistentStateCache.currentTerm > senderTerm) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
                 "Rejecting vote for server %d (old term %d < %d)",
                 senderInstanceNumber,
-                messageDetails.term,
+                senderTerm,
                 shared->persistentStateCache.currentTerm
             );
             response.requestVoteResults.voteGranted = false;
@@ -820,7 +821,7 @@ namespace Raft {
                 "Rejecting vote for server %d (already voted for %u for term %d -- we were in term %d)",
                 senderInstanceNumber,
                 shared->persistentStateCache.votedFor,
-                messageDetails.term,
+                senderTerm,
                 termBeforeMessageProcessed
             );
             response.requestVoteResults.voteGranted = false;
@@ -846,7 +847,7 @@ namespace Raft {
                 1,
                 "Voting for server %d for term %d (we were in term %d)",
                 senderInstanceNumber,
-                messageDetails.term,
+                senderTerm,
                 termBeforeMessageProcessed
             );
             response.requestVoteResults.voteGranted = true;
@@ -859,37 +860,38 @@ namespace Raft {
 
     void Server::Impl::OnReceiveRequestVoteResults(
         const Message::RequestVoteResultsDetails& messageDetails,
-        int senderInstanceNumber
+        int senderInstanceNumber,
+        int senderTerm
     ) {
         if (shared->electionState != ElectionState::Candidate) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
                 "Stale vote from server %d in term %d ignored",
                 senderInstanceNumber,
-                messageDetails.term
+                senderTerm
             );
             return;
         }
-        if (messageDetails.term > shared->persistentStateCache.currentTerm) {
+        if (senderTerm > shared->persistentStateCache.currentTerm) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
                 "Vote result from server %d in term %d when in term %d; reverted to follower",
                 senderInstanceNumber,
-                messageDetails.term,
+                senderTerm,
                 shared->persistentStateCache.currentTerm
             );
-            UpdateCurrentTerm(messageDetails.term);
+            UpdateCurrentTerm(senderTerm);
             RevertToFollower();
             QueueElectionStateChangeAnnouncement();
             return;
         }
         auto& instance = shared->instances[senderInstanceNumber];
-        if (messageDetails.term < shared->persistentStateCache.currentTerm) {
+        if (senderTerm < shared->persistentStateCache.currentTerm) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 1,
                 "Stale vote from server %d in term %d ignored",
                 senderInstanceNumber,
-                messageDetails.term
+                senderTerm
             );
             return;
         }
@@ -950,7 +952,7 @@ namespace Raft {
                     1,
                     "Repeat vote from server %d in term %d ignored",
                     senderInstanceNumber,
-                    messageDetails.term
+                    senderTerm
                 );
             }
         } else {
@@ -967,7 +969,8 @@ namespace Raft {
     void Server::Impl::OnReceiveAppendEntries(
         const Message::AppendEntriesDetails& messageDetails,
         std::vector< LogEntry >&& entries,
-        int senderInstanceNumber
+        int senderInstanceNumber,
+        int senderTerm
     ) {
 #ifdef EXTRA_DIAGNOSTICS
         if (entries.empty()) {
@@ -977,7 +980,7 @@ namespace Raft {
                 messageDetails.prevLogIndex,
                 messageDetails.prevLogTerm,
                 senderInstanceNumber,
-                messageDetails.term,
+                senderTerm,
                 shared->persistentStateCache.currentTerm
             );
         } else {
@@ -988,7 +991,7 @@ namespace Raft {
                 messageDetails.prevLogIndex,
                 messageDetails.prevLogTerm,
                 senderInstanceNumber,
-                messageDetails.term,
+                senderTerm,
                 shared->persistentStateCache.currentTerm
             );
             for (size_t i = 0; i < entries.size(); ++i) {
@@ -1015,13 +1018,13 @@ namespace Raft {
 #endif /* EXTRA_DIAGNOSTICS */
         Message response;
         response.type = Message::Type::AppendEntriesResults;
-        response.appendEntriesResults.term = shared->persistentStateCache.currentTerm;
-        if (shared->persistentStateCache.currentTerm > messageDetails.term) {
+        response.term = shared->persistentStateCache.currentTerm;
+        if (shared->persistentStateCache.currentTerm > senderTerm) {
             response.appendEntriesResults.success = false;
             response.appendEntriesResults.matchIndex = 0;
         } else if (
             (shared->electionState == ElectionState::Leader)
-            && (shared->persistentStateCache.currentTerm == messageDetails.term)
+            && (shared->persistentStateCache.currentTerm == senderTerm)
         ) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                 SystemAbstractions::DiagnosticsSender::Levels::ERROR,
@@ -1030,19 +1033,19 @@ namespace Raft {
                 messageDetails.prevLogIndex,
                 messageDetails.prevLogTerm,
                 senderInstanceNumber,
-                messageDetails.term
+                senderTerm
             );
             return;
         } else {
             bool electionStateChanged = (shared->electionState != ElectionState::Follower);
             if (
                 (shared->electionState != ElectionState::Leader)
-                || (shared->persistentStateCache.currentTerm < messageDetails.term)
+                || (shared->persistentStateCache.currentTerm < senderTerm)
             ) {
-                if (shared->persistentStateCache.currentTerm < messageDetails.term) {
+                if (shared->persistentStateCache.currentTerm < senderTerm) {
                     electionStateChanged = true;
                 }
-                UpdateCurrentTerm(messageDetails.term);
+                UpdateCurrentTerm(senderTerm);
                 if (!shared->thisTermLeaderAnnounced) {
                     shared->thisTermLeaderAnnounced = true;
                     shared->leaderId = senderInstanceNumber;
@@ -1123,7 +1126,8 @@ namespace Raft {
 
     void Server::Impl::OnReceiveAppendEntriesResults(
         const Message::AppendEntriesResultsDetails& messageDetails,
-        int senderInstanceNumber
+        int senderInstanceNumber,
+        int senderTerm
     ) {
         auto& instance = shared->instances[senderInstanceNumber];
         if (instance.awaitingResponse) {
@@ -1134,7 +1138,7 @@ namespace Raft {
             1,
             "Received AppendEntriesResults(%s, term %d, match %zu, next %zu) from server %d (we are %s in term %d)",
             (messageDetails.success ? "success" : "failure"),
-            messageDetails.term,
+            senderTerm,
             messageDetails.matchIndex,
             instance.nextIndex,
             senderInstanceNumber,
@@ -1142,8 +1146,8 @@ namespace Raft {
             shared->persistentStateCache.currentTerm
         );
 #endif /* EXTRA_DIAGNOSTICS */
-        if (messageDetails.term > shared->persistentStateCache.currentTerm) {
-            UpdateCurrentTerm(messageDetails.term);
+        if (senderTerm > shared->persistentStateCache.currentTerm) {
+            UpdateCurrentTerm(senderTerm);
             RevertToFollower();
             QueueElectionStateChangeAnnouncement();
         }
@@ -1246,7 +1250,8 @@ namespace Raft {
     void Server::Impl::OnReceiveInstallSnapshot(
         const Message::InstallSnapshotDetails& messageDetails,
         Json::Value&& snapshot,
-        int senderInstanceNumber
+        int senderInstanceNumber,
+        int senderTerm
     ) {
         shared->diagnosticsSender.SendDiagnosticInformationFormatted(
             3,
@@ -1254,19 +1259,19 @@ namespace Raft {
             messageDetails.lastIncludedIndex,
             messageDetails.lastIncludedTerm,
             senderInstanceNumber,
-            messageDetails.term,
+            senderTerm,
             shared->persistentStateCache.currentTerm
         );
         Message response;
         response.type = Message::Type::InstallSnapshotResults;
-        response.installSnapshotResults.term = shared->persistentStateCache.currentTerm;
-        if (shared->persistentStateCache.currentTerm <= messageDetails.term) {
+        response.term = shared->persistentStateCache.currentTerm;
+        if (shared->persistentStateCache.currentTerm <= senderTerm) {
             bool electionStateChanged = (shared->electionState != ElectionState::Follower);
             if (shared->electionState != ElectionState::Leader) {
-                if (shared->persistentStateCache.currentTerm < messageDetails.term) {
+                if (shared->persistentStateCache.currentTerm < senderTerm) {
                     electionStateChanged = true;
                 }
-                UpdateCurrentTerm(messageDetails.term);
+                UpdateCurrentTerm(senderTerm);
                 if (!shared->thisTermLeaderAnnounced) {
                     shared->thisTermLeaderAnnounced = true;
                     shared->leaderId = senderInstanceNumber;
@@ -1301,7 +1306,8 @@ namespace Raft {
 
     void Server::Impl::OnReceiveInstallSnapshotResults(
         const Message::InstallSnapshotResultsDetails& messageDetails,
-        int senderInstanceNumber
+        int senderInstanceNumber,
+        int senderTerm
     ) {
         auto& instance = shared->instances[senderInstanceNumber];
         if (instance.awaitingResponse) {
@@ -1310,13 +1316,13 @@ namespace Raft {
         shared->diagnosticsSender.SendDiagnosticInformationFormatted(
             1,
             "Received InstallSnapshotResults(term %d) from server %d (we are %s in term %d)",
-            messageDetails.term,
+            senderTerm,
             senderInstanceNumber,
             ElectionStateToString(shared->electionState).c_str(),
             shared->persistentStateCache.currentTerm
         );
-        if (messageDetails.term > shared->persistentStateCache.currentTerm) {
-            UpdateCurrentTerm(messageDetails.term);
+        if (senderTerm > shared->persistentStateCache.currentTerm) {
+            UpdateCurrentTerm(senderTerm);
             RevertToFollower();
             QueueElectionStateChangeAnnouncement();
         }

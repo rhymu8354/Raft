@@ -194,25 +194,35 @@ namespace Raft {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         switch (message.type) {
             case Message::Type::RequestVote: {
-                impl_->OnReceiveRequestVote(message.requestVote, senderInstanceNumber);
+                impl_->OnReceiveRequestVote(
+                    message.requestVote,
+                    senderInstanceNumber,
+                    message.term
+                );
             } break;
 
             case Message::Type::RequestVoteResults: {
-                impl_->OnReceiveRequestVoteResults(message.requestVoteResults, senderInstanceNumber);
+                impl_->OnReceiveRequestVoteResults(
+                    message.requestVoteResults,
+                    senderInstanceNumber,
+                    message.term
+                );
             } break;
 
             case Message::Type::AppendEntries: {
                 impl_->OnReceiveAppendEntries(
                     message.appendEntries,
                     std::move(message.log),
-                    senderInstanceNumber
+                    senderInstanceNumber,
+                    message.term
                 );
             } break;
 
             case Message::Type::AppendEntriesResults: {
                 impl_->OnReceiveAppendEntriesResults(
                     message.appendEntriesResults,
-                    senderInstanceNumber
+                    senderInstanceNumber,
+                    message.term
                 );
             } break;
 
@@ -220,14 +230,16 @@ namespace Raft {
                 impl_->OnReceiveInstallSnapshot(
                     message.installSnapshot,
                     std::move(message.snapshot),
-                    senderInstanceNumber
+                    senderInstanceNumber,
+                    message.term
                 );
             } break;
 
             case Message::Type::InstallSnapshotResults: {
                 impl_->OnReceiveInstallSnapshotResults(
                     message.installSnapshotResults,
-                    senderInstanceNumber
+                    senderInstanceNumber,
+                    message.term
                 );
             } break;
 

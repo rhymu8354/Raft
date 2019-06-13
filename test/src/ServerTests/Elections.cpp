@@ -227,7 +227,7 @@ namespace ServerTests {
         // Assert
         EXPECT_EQ(4, messagesSent.size());
         for (const auto messageInfo: messagesSent) {
-            EXPECT_EQ(1, messageInfo.message.requestVote.term);
+            EXPECT_EQ(1, messageInfo.message.term);
         }
     }
 
@@ -296,7 +296,7 @@ namespace ServerTests {
         );
         EXPECT_EQ(
             1,
-            messagesSent[0].message.requestVote.term
+            messagesSent[0].message.term
         );
     }
 
@@ -356,7 +356,7 @@ namespace ServerTests {
                 Raft::Message::Type::RequestVote,
                 messageInfo.message.type
             );
-            EXPECT_EQ(2, messageInfo.message.requestVote.term);
+            EXPECT_EQ(2, messageInfo.message.term);
         }
     }
 
@@ -385,7 +385,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(0, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(0, messagesSent[0].message.term);
         EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 
@@ -404,7 +404,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(3, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(3, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 
@@ -425,7 +425,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(3, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(3, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 
@@ -445,7 +445,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(3, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(3, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 
@@ -464,7 +464,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(1, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 
@@ -483,7 +483,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(1, messagesSent[0].message.term);
         EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 
@@ -514,7 +514,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(2, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 
@@ -532,7 +532,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(2, messagesSent[0].message.term);
         EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 
@@ -567,7 +567,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(2, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 
@@ -588,7 +588,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(2, messagesSent[0].message.term);
         EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
         EXPECT_EQ(
             Raft::IServer::ElectionState::Follower,
@@ -612,7 +612,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(3, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(3, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
         EXPECT_EQ(
             Raft::IServer::ElectionState::Follower,
@@ -635,7 +635,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(2, messagesSent[0].message.term);
         EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
         EXPECT_EQ(
             Raft::IServer::ElectionState::Follower,
@@ -658,7 +658,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(2, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(2, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
         EXPECT_EQ(
             Raft::IServer::ElectionState::Follower,
@@ -984,7 +984,7 @@ namespace ServerTests {
             message.type = Raft::Message::Type::RequestVoteResults;
             switch (instance) {
                 case 2: {
-                    message.requestVoteResults.term = 1;
+                    message.term = 1;
                     message.requestVoteResults.voteGranted = true;
                 } break;
 
@@ -992,17 +992,17 @@ namespace ServerTests {
                 } break;
 
                 case 6: {
-                    message.requestVoteResults.term = 2;
+                    message.term = 2;
                     message.requestVoteResults.voteGranted = true;
                 } break;
 
                 case 7: {
-                    message.requestVoteResults.term = 2;
+                    message.term = 2;
                     message.requestVoteResults.voteGranted = false;
                 } break;
 
                 case 11: {
-                    message.requestVoteResults.term = 2;
+                    message.term = 2;
                     message.requestVoteResults.voteGranted = false;
                 } break;
             }
@@ -1027,7 +1027,7 @@ namespace ServerTests {
             message.type = Raft::Message::Type::RequestVoteResults;
             switch (instance) {
                 case 2: {
-                    message.requestVoteResults.term = 1;
+                    message.term = 1;
                     message.requestVoteResults.voteGranted = false;
                 } break;
 
@@ -1035,17 +1035,17 @@ namespace ServerTests {
                 } break;
 
                 case 6: {
-                    message.requestVoteResults.term = 2;
+                    message.term = 2;
                     message.requestVoteResults.voteGranted = true;
                 } break;
 
                 case 7: {
-                    message.requestVoteResults.term = 2;
+                    message.term = 2;
                     message.requestVoteResults.voteGranted = false;
                 } break;
 
                 case 11: {
-                    message.requestVoteResults.term = 2;
+                    message.term = 2;
                     message.requestVoteResults.voteGranted = false;
                 } break;
             }
@@ -1063,7 +1063,7 @@ namespace ServerTests {
         ASSERT_EQ(1, messagesSent.size());
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::RequestVote, messagesSent[0].message.type);
-        EXPECT_EQ(2, messagesSent[0].message.requestVote.term);
+        EXPECT_EQ(2, messagesSent[0].message.term);
         EXPECT_EQ(5, messagesSent[0].message.requestVote.candidateId);
     }
 
@@ -1110,7 +1110,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(1, messagesSent[0].message.term);
         EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 
@@ -1133,7 +1133,7 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(1, messagesSent[0].message.requestVoteResults.term);
+        EXPECT_EQ(1, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 

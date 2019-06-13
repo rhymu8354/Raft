@@ -173,7 +173,7 @@ namespace ServerTests {
         if (instance != serverConfiguration.selfInstanceId) {
             Raft::Message message;
             message.type = Raft::Message::Type::RequestVoteResults;
-            message.requestVoteResults.term = term;
+            message.term = term;
             message.requestVoteResults.voteGranted = granted;
             server.ReceiveMessage(message.Serialize(), instance);
             server.WaitForAtLeastOneWorkerLoop();
@@ -209,7 +209,7 @@ namespace ServerTests {
     ) {
         Raft::Message message;
         message.type = Raft::Message::Type::RequestVote;
-        message.requestVote.term = term;
+        message.term = term;
         message.requestVote.candidateId = instance;
         message.requestVote.lastLogTerm = lastLogTerm;
         message.requestVote.lastLogIndex = lastLogIndex;
@@ -224,7 +224,7 @@ namespace ServerTests {
     ) {
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntries;
-        message.appendEntries.term = term;
+        message.term = term;
         message.appendEntries.leaderCommit = leaderCommit;
         message.appendEntries.prevLogIndex = mockLog->baseIndex + mockLog->entries.size();
         message.appendEntries.prevLogTerm = (
@@ -258,7 +258,7 @@ namespace ServerTests {
     ) {
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntries;
-        message.appendEntries.term = term;
+        message.term = term;
         message.appendEntries.leaderCommit = leaderCommit;
         message.appendEntries.prevLogIndex = prevLogIndex;
         if (prevLogIndex <= mockLog->baseIndex) {
@@ -312,7 +312,7 @@ namespace ServerTests {
     ) {
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntriesResults;
-        message.appendEntriesResults.term = term;
+        message.term = term;
         message.appendEntriesResults.success = success;
         message.appendEntriesResults.matchIndex = matchIndex;
         server.ReceiveMessage(message.Serialize(), instance);
@@ -604,7 +604,7 @@ namespace ServerTests {
             );
             EXPECT_EQ(
                 1,
-                messageSent.message.requestVote.term
+                messageSent.message.term
             );
         }
     }

@@ -71,7 +71,7 @@ namespace ServerTests {
                     entries,
                     messageSent.message.log
                 );
-                EXPECT_EQ(3, messageSent.message.appendEntries.term);
+                EXPECT_EQ(3, messageSent.message.term);
                 EXPECT_EQ(1, messageSent.message.appendEntries.leaderCommit);
                 EXPECT_EQ(1, messageSent.message.appendEntries.prevLogIndex);
                 EXPECT_EQ(1, messageSent.message.appendEntries.prevLogTerm);
@@ -102,7 +102,7 @@ namespace ServerTests {
         // Assert
         for (const auto& messageSent: messagesSent) {
             if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
-                EXPECT_EQ(3, messageSent.message.appendEntries.term);
+                EXPECT_EQ(3, messageSent.message.term);
                 EXPECT_EQ(100, messageSent.message.appendEntries.prevLogIndex);
                 EXPECT_EQ(2, messageSent.message.appendEntries.prevLogTerm);
             }
@@ -543,7 +543,7 @@ namespace ServerTests {
         ASSERT_EQ(1, messagesSent.size());
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
-        EXPECT_EQ(8, messagesSent[0].message.appendEntriesResults.term);
+        EXPECT_EQ(8, messagesSent[0].message.term);
         EXPECT_TRUE(messagesSent[0].message.appendEntriesResults.success);
         EXPECT_EQ(2, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
@@ -561,7 +561,7 @@ namespace ServerTests {
         messagesSent.clear();
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntries;
-        message.appendEntries.term = 8;
+        message.term = 8;
         message.appendEntries.leaderCommit = 1;
         message.appendEntries.prevLogIndex = 1;
         message.appendEntries.prevLogTerm = 7;
@@ -575,7 +575,7 @@ namespace ServerTests {
         ASSERT_EQ(1, messagesSent.size());
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
-        EXPECT_EQ(8, messagesSent[0].message.appendEntriesResults.term);
+        EXPECT_EQ(8, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
         EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
@@ -592,7 +592,7 @@ namespace ServerTests {
         messagesSent.clear();
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntries;
-        message.appendEntries.term = 8;
+        message.term = 8;
         message.appendEntries.leaderCommit = 1;
         message.appendEntries.prevLogIndex = 1;
         message.appendEntries.prevLogTerm = 7;
@@ -605,7 +605,7 @@ namespace ServerTests {
         ASSERT_EQ(1, messagesSent.size());
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
-        EXPECT_EQ(8, messagesSent[0].message.appendEntriesResults.term);
+        EXPECT_EQ(8, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
         EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
@@ -679,7 +679,7 @@ namespace ServerTests {
         );
         EXPECT_EQ(
             term,
-            messagesSent[0].message.appendEntriesResults.term
+            messagesSent[0].message.term
         );
         EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
     }
@@ -1003,7 +1003,7 @@ namespace ServerTests {
         ASSERT_EQ(1, messagesSent.size());
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
-        EXPECT_EQ(8, messagesSent[0].message.appendEntriesResults.term);
+        EXPECT_EQ(8, messagesSent[0].message.term);
         EXPECT_TRUE(messagesSent[0].message.appendEntriesResults.success);
         EXPECT_EQ(102, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
@@ -1046,7 +1046,7 @@ namespace ServerTests {
         ASSERT_EQ(1, messagesSent.size());
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
-        EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.term);
+        EXPECT_EQ(0, messagesSent[0].message.term);
         EXPECT_TRUE(messagesSent[0].message.appendEntriesResults.success);
         EXPECT_EQ(101, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
@@ -1064,7 +1064,7 @@ namespace ServerTests {
         messagesSent.clear();
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntries;
-        message.appendEntries.term = 8;
+        message.term = 8;
         message.appendEntries.leaderCommit = 100;
         message.appendEntries.prevLogIndex = 101;
         message.appendEntries.prevLogTerm = 8;
@@ -1077,7 +1077,7 @@ namespace ServerTests {
         ASSERT_EQ(1, messagesSent.size());
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
-        EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.term);
+        EXPECT_EQ(0, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
         EXPECT_EQ(100, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
@@ -1119,7 +1119,7 @@ namespace ServerTests {
         messagesSent.clear();
         Raft::Message message;
         message.type = Raft::Message::Type::InstallSnapshotResults;
-        message.installSnapshotResults.term = 8;
+        message.term = 8;
         message.installSnapshotResults.matchIndex = 100;
         server.ReceiveMessage(message.Serialize(), 2);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
@@ -1159,7 +1159,7 @@ namespace ServerTests {
         messagesSent.clear();
         Raft::Message message;
         message.type = Raft::Message::Type::InstallSnapshotResults;
-        message.installSnapshotResults.term = 8;
+        message.term = 8;
         message.installSnapshotResults.matchIndex = 100;
         server.ReceiveMessage(message.Serialize(), 2);
         server.WaitForAtLeastOneWorkerLoop();
@@ -1194,7 +1194,7 @@ namespace ServerTests {
         // Act
         Raft::Message message;
         message.type = Raft::Message::Type::InstallSnapshot;
-        message.installSnapshot.term = term;
+        message.term = term;
         message.installSnapshot.lastIncludedIndex = 100;
         message.installSnapshot.lastIncludedTerm = 3;
         message.snapshot = Json::Object({
@@ -1207,7 +1207,7 @@ namespace ServerTests {
         ASSERT_EQ(1, messagesSent.size());
         EXPECT_EQ(leaderId, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::InstallSnapshotResults, messagesSent[0].message.type);
-        EXPECT_EQ(4, messagesSent[0].message.installSnapshotResults.term);
+        EXPECT_EQ(4, messagesSent[0].message.term);
         EXPECT_EQ(100, messagesSent[0].message.installSnapshotResults.matchIndex);
         EXPECT_EQ(message.snapshot, snapshotInstalled);
         EXPECT_EQ(message.installSnapshot.lastIncludedIndex, lastIncludedIndexInSnapshot);
@@ -1230,7 +1230,7 @@ namespace ServerTests {
         // Act
         Raft::Message message;
         message.type = Raft::Message::Type::InstallSnapshot;
-        message.installSnapshot.term = term;
+        message.term = term;
         message.installSnapshot.lastIncludedIndex = 100;
         message.installSnapshot.lastIncludedTerm = 3;
         message.snapshot = Json::Object({
@@ -1240,7 +1240,7 @@ namespace ServerTests {
         server.WaitForAtLeastOneWorkerLoop();
         messagesSent.clear();
         message.type = Raft::Message::Type::AppendEntries;
-        message.appendEntries.term = term;
+        message.term = term;
         message.appendEntries.leaderCommit = 100;
         message.appendEntries.prevLogIndex = 100;
         message.appendEntries.prevLogTerm = 3;
@@ -1273,7 +1273,7 @@ namespace ServerTests {
         // Act
         Raft::Message message;
         message.type = Raft::Message::Type::InstallSnapshot;
-        message.installSnapshot.term = term;
+        message.term = term;
         message.installSnapshot.lastIncludedIndex = 0;
         message.installSnapshot.lastIncludedTerm = 0;
         message.snapshot = Json::Object({

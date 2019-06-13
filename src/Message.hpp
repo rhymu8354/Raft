@@ -80,11 +80,6 @@ namespace Raft {
          */
         struct RequestVoteDetails {
             /**
-             * This is the term of the new election.
-             */
-            int term = 0;
-
-            /**
              * This is the instance ID of the candidate requesting the vote.
              */
             int candidateId = 0;
@@ -107,11 +102,6 @@ namespace Raft {
          */
         struct RequestVoteResultsDetails {
             /**
-             * This is the current term in effect at the sender.
-             */
-            int term = 0;
-
-            /**
              * This is true if the sender granted their vote to the candidate.
              */
             bool voteGranted = false;
@@ -121,11 +111,6 @@ namespace Raft {
          * This holds message properties for AppendEntries type messages.
          */
         struct AppendEntriesDetails {
-            /**
-             * This is the current term in effect at the sender.
-             */
-            int term = 0;
-
             /**
              * This is the index of the last log entry that the leader knows
              * has been successfully replicated to a majority of servers in the
@@ -152,11 +137,6 @@ namespace Raft {
          */
         struct AppendEntriesResultsDetails {
             /**
-             * This is the current term in effect at the sender.
-             */
-            int term = 0;
-
-            /**
              * This indicates whether or not the server accepted the last
              * AppendEntries message.
              */
@@ -173,11 +153,6 @@ namespace Raft {
          * This holds message properties for InstallSnapshot type messages.
          */
         struct InstallSnapshotDetails {
-            /**
-             * This is the current term in effect at the sender.
-             */
-            int term = 0;
-
             /**
              * This is the index of the last log entry that was used to
              * assemble the snapshot.
@@ -197,11 +172,6 @@ namespace Raft {
          */
         struct InstallSnapshotResultsDetails {
             /**
-             * This is the current term in effect at the sender.
-             */
-            int term = 0;
-
-            /**
              * This is the index of the last log entry which the follower
              * has determined matches what the leader has.
              */
@@ -214,6 +184,11 @@ namespace Raft {
          * This indicates for what purpose the message is being sent.
          */
         Type type = Type::Unknown;
+
+        /**
+         * This is the current term in effect at the sender.
+         */
+        int term = 0;
 
         /**
          * This holds properties specific to each type of message.

@@ -524,10 +524,14 @@ namespace Raft {
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
+         *
+         * @param[in] senderTerm
+         *     This is the current term in effect at the sender.
          */
         void OnReceiveRequestVote(
             const Message::RequestVoteDetails& messageDetails,
-            int senderInstanceNumber
+            int senderInstanceNumber,
+            int senderTerm
         );
 
         /**
@@ -540,10 +544,14 @@ namespace Raft {
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
+         *
+         * @param[in] senderTerm
+         *     This is the current term in effect at the sender.
          */
         void OnReceiveRequestVoteResults(
             const Message::RequestVoteResultsDetails& messageDetails,
-            int senderInstanceNumber
+            int senderInstanceNumber,
+            int senderTerm
         );
 
         /**
@@ -559,11 +567,15 @@ namespace Raft {
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
+         *
+         * @param[in] senderTerm
+         *     This is the current term in effect at the sender.
          */
         void OnReceiveAppendEntries(
             const Message::AppendEntriesDetails& messageDetails,
             std::vector< LogEntry >&& entries,
-            int senderInstanceNumber
+            int senderInstanceNumber,
+            int senderTerm
         );
 
         /**
@@ -576,10 +588,14 @@ namespace Raft {
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
+         *
+         * @param[in] senderTerm
+         *     This is the current term in effect at the sender.
          */
         void OnReceiveAppendEntriesResults(
             const Message::AppendEntriesResultsDetails& messageDetails,
-            int senderInstanceNumber
+            int senderInstanceNumber,
+            int senderTerm
         );
 
         /**
@@ -596,11 +612,15 @@ namespace Raft {
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
+         *
+         * @param[in] senderTerm
+         *     This is the current term in effect at the sender.
          */
         void OnReceiveInstallSnapshot(
             const Message::InstallSnapshotDetails& messageDetails,
             Json::Value&& snapshot,
-            int senderInstanceNumber
+            int senderInstanceNumber,
+            int senderTerm
         );
 
         /**
@@ -613,10 +633,14 @@ namespace Raft {
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
+         *
+         * @param[in] senderTerm
+         *     This is the current term in effect at the sender.
          */
         void OnReceiveInstallSnapshotResults(
             const Message::InstallSnapshotResultsDetails& messageDetails,
-            int senderInstanceNumber
+            int senderInstanceNumber,
+            int senderTerm
         );
 
         /**

@@ -38,13 +38,13 @@ namespace Raft {
             return;
         }
         type = (Message::Type)(int)serializedType;
+        Serialization::SerializedInteger intField;
+        if (!intField.Deserialize(&buffer)) {
+            return;
+        }
+        term = intField;
         switch (type) {
             case Message::Type::RequestVote: {
-                Serialization::SerializedInteger intField;
-                if (!intField.Deserialize(&buffer)) {
-                    return;
-                }
-                requestVote.term = intField;
                 if (!intField.Deserialize(&buffer)) {
                     return;
                 }
@@ -60,11 +60,6 @@ namespace Raft {
             } break;
 
             case Message::Type::RequestVoteResults: {
-                Serialization::SerializedInteger intField;
-                if (!intField.Deserialize(&buffer)) {
-                    return;
-                }
-                requestVoteResults.term = intField;
                 Serialization::SerializedBoolean boolField;
                 if (!boolField.Deserialize(&buffer)) {
                     return;
@@ -73,11 +68,6 @@ namespace Raft {
             } break;
 
             case Message::Type::AppendEntries: {
-                Serialization::SerializedInteger intField;
-                if (!intField.Deserialize(&buffer)) {
-                    return;
-                }
-                appendEntries.term = intField;
                 if (!intField.Deserialize(&buffer)) {
                     return;
                 }
@@ -105,11 +95,6 @@ namespace Raft {
             } break;
 
             case Message::Type::AppendEntriesResults: {
-                Serialization::SerializedInteger intField;
-                if (!intField.Deserialize(&buffer)) {
-                    return;
-                }
-                appendEntriesResults.term = intField;
                 Serialization::SerializedBoolean boolField;
                 if (!boolField.Deserialize(&buffer)) {
                     return;
@@ -122,11 +107,6 @@ namespace Raft {
             } break;
 
             case Message::Type::InstallSnapshot: {
-                Serialization::SerializedInteger intField;
-                if (!intField.Deserialize(&buffer)) {
-                    return;
-                }
-                installSnapshot.term = intField;
                 if (!intField.Deserialize(&buffer)) {
                     return;
                 }
@@ -143,11 +123,6 @@ namespace Raft {
             } break;
 
             case Message::Type::InstallSnapshotResults: {
-                Serialization::SerializedInteger intField;
-                if (!intField.Deserialize(&buffer)) {
-                    return;
-                }
-                installSnapshotResults.term = intField;
                 if (!intField.Deserialize(&buffer)) {
                     return;
                 }
@@ -168,12 +143,12 @@ namespace Raft {
         if (!serializedType.Serialize(&buffer)) {
             return "";
         }
+        Serialization::SerializedInteger intField(term);
+        if (!intField.Serialize(&buffer)) {
+            return "";
+        }
         switch (type) {
             case Message::Type::RequestVote: {
-                Serialization::SerializedInteger intField(requestVote.term);
-                if (!intField.Serialize(&buffer)) {
-                    return "";
-                }
                 intField = requestVote.candidateId;
                 if (!intField.Serialize(&buffer)) {
                     return "";
@@ -189,10 +164,6 @@ namespace Raft {
             } break;
 
             case Message::Type::RequestVoteResults: {
-                Serialization::SerializedInteger intField(requestVoteResults.term);
-                if (!intField.Serialize(&buffer)) {
-                    return "";
-                }
                 Serialization::SerializedInteger boolField(requestVoteResults.voteGranted);
                 if (!boolField.Serialize(&buffer)) {
                     return "";
@@ -200,10 +171,6 @@ namespace Raft {
             } break;
 
             case Message::Type::AppendEntries: {
-                Serialization::SerializedInteger intField(appendEntries.term);
-                if (!intField.Serialize(&buffer)) {
-                    return "";
-                }
                 intField = (int)appendEntries.leaderCommit;
                 if (!intField.Serialize(&buffer)) {
                     return "";
@@ -228,10 +195,6 @@ namespace Raft {
             } break;
 
             case Message::Type::AppendEntriesResults: {
-                Serialization::SerializedInteger intField(appendEntriesResults.term);
-                if (!intField.Serialize(&buffer)) {
-                    return "";
-                }
                 Serialization::SerializedInteger boolField(appendEntriesResults.success);
                 if (!boolField.Serialize(&buffer)) {
                     return "";
@@ -243,10 +206,6 @@ namespace Raft {
             } break;
 
             case Message::Type::InstallSnapshot: {
-                Serialization::SerializedInteger intField(installSnapshot.term);
-                if (!intField.Serialize(&buffer)) {
-                    return "";
-                }
                 intField = (int)installSnapshot.lastIncludedIndex;
                 if (!intField.Serialize(&buffer)) {
                     return "";
@@ -262,10 +221,6 @@ namespace Raft {
             } break;
 
             case Message::Type::InstallSnapshotResults: {
-                Serialization::SerializedInteger intField(installSnapshotResults.term);
-                if (!intField.Serialize(&buffer)) {
-                    return "";
-                }
                 intField = (int)installSnapshotResults.matchIndex;
                 if (!intField.Serialize(&buffer)) {
                     return "";
