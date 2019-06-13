@@ -13,37 +13,15 @@
 #include <Json/Value.hpp>
 #include <Raft/LogEntry.hpp>
 
-TEST(MessageTests, SerializeRequestVote) {
+TEST(MessageTests, RequestVote) {
     // Arrange
-    Raft::Message message;
-    message.type = Raft::Message::Type::RequestVote;
-    message.requestVote.term = 42;
-    message.requestVote.candidateId = 5;
-    message.requestVote.lastLogIndex = 99;
-    message.requestVote.lastLogTerm = 7;
-
-    // Act
-    EXPECT_EQ(
-        Json::Object({
-            {"type", "RequestVote"},
-            {"term", 42},
-            {"candidateId", 5},
-            {"lastLogIndex", 99},
-            {"lastLogTerm", 7},
-        }),
-        Json::Value::FromEncoding(message.Serialize())
-    );
-}
-
-TEST(MessageTests, DeserializeRequestVote) {
-    // Arrange
-    const auto serializedMessage = Json::Object({
-        {"type", "RequestVote"},
-        {"term", 42},
-        {"candidateId", 5},
-        {"lastLogIndex", 11},
-        {"lastLogTerm", 3},
-    }).ToEncoding();
+    Raft::Message messageIn;
+    messageIn.type = Raft::Message::Type::RequestVote;
+    messageIn.requestVote.term = 42;
+    messageIn.requestVote.candidateId = 5;
+    messageIn.requestVote.lastLogIndex = 11;
+    messageIn.requestVote.lastLogTerm = 3;
+    const auto serializedMessage = messageIn.Serialize();
 
     // Act
     Raft::Message message(serializedMessage);
@@ -56,31 +34,13 @@ TEST(MessageTests, DeserializeRequestVote) {
     EXPECT_EQ(3, message.requestVote.lastLogTerm);
 }
 
-TEST(MessageTests, SerializeRequestVoteResponse) {
+TEST(MessageTests, RequestVoteResults) {
     // Arrange
-    Raft::Message message;
-    message.type = Raft::Message::Type::RequestVoteResults;
-    message.requestVoteResults.term = 16;
-    message.requestVoteResults.voteGranted = true;
-
-    // Act
-    EXPECT_EQ(
-        Json::Object({
-            {"type", "RequestVoteResults"},
-            {"term", 16},
-            {"voteGranted", true}
-        }),
-        Json::Value::FromEncoding(message.Serialize())
-    );
-}
-
-TEST(MessageTests, DeserializeRequestVoteResults) {
-    // Arrange
-    const auto serializedMessage = Json::Object({
-        {"type", "RequestVoteResults"},
-        {"term", 16},
-        {"voteGranted", true}
-    }).ToEncoding();
+    Raft::Message messageIn;
+    messageIn.type = Raft::Message::Type::RequestVoteResults;
+    messageIn.requestVoteResults.term = 16;
+    messageIn.requestVoteResults.voteGranted = true;
+    const auto serializedMessage = messageIn.Serialize();
 
     // Act
     Raft::Message message(serializedMessage);
@@ -91,39 +51,15 @@ TEST(MessageTests, DeserializeRequestVoteResults) {
     EXPECT_TRUE(message.requestVoteResults.voteGranted);
 }
 
-TEST(MessageTests, SerializeHeartBeat) {
+TEST(MessageTests, HeartBeat) {
     // Arrange
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 8;
-    message.appendEntries.leaderCommit = 85;
-    message.appendEntries.prevLogIndex = 2;
-    message.appendEntries.prevLogTerm = 7;
-
-    // Act
-    EXPECT_EQ(
-        Json::Object({
-            {"type", "AppendEntries"},
-            {"term", 8},
-            {"leaderCommit", 85},
-            {"prevLogIndex", 2},
-            {"prevLogTerm", 7},
-            {"log", Json::Array({})},
-        }),
-        Json::Value::FromEncoding(message.Serialize())
-    );
-}
-
-TEST(MessageTests, DeserializeHeartBeat) {
-    // Arrange
-    const auto serializedMessage = Json::Object({
-        {"type", "AppendEntries"},
-        {"term", 8},
-        {"leaderCommit", 18},
-        {"prevLogIndex", 6},
-        {"prevLogTerm", 1},
-        {"log", Json::Array({})},
-    }).ToEncoding();
+    Raft::Message messageIn;
+    messageIn.type = Raft::Message::Type::AppendEntries;
+    messageIn.appendEntries.term = 8;
+    messageIn.appendEntries.leaderCommit = 18;
+    messageIn.appendEntries.prevLogIndex = 6;
+    messageIn.appendEntries.prevLogTerm = 1;
+    const auto serializedMessage = messageIn.Serialize();
 
     // Act
     Raft::Message message(serializedMessage);
@@ -136,81 +72,25 @@ TEST(MessageTests, DeserializeHeartBeat) {
     EXPECT_EQ(1, message.appendEntries.prevLogTerm);
 }
 
-TEST(MessageTests, SerializeAppendEntriesWithContent) {
+TEST(MessageTests, AppendEntriesWithContent) {
     // Arrange
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntries;
-    message.appendEntries.term = 8;
-    message.appendEntries.leaderCommit = 77;
-    message.appendEntries.prevLogIndex = 2;
-    message.appendEntries.prevLogTerm = 7;
+    Raft::Message messageIn;
+    messageIn.type = Raft::Message::Type::AppendEntries;
+    messageIn.appendEntries.term = 8;
+    messageIn.appendEntries.leaderCommit = 33;
+    messageIn.appendEntries.prevLogIndex = 5;
+    messageIn.appendEntries.prevLogTerm = 6;
     Raft::LogEntry firstEntry;
     firstEntry.term = 7;
-    message.log.push_back(std::move(firstEntry));
+    messageIn.log.push_back(std::move(firstEntry));
     Raft::LogEntry secondEntry;
     secondEntry.term = 8;
     auto command = std::make_shared< Raft::SingleConfigurationCommand >();
     command->oldConfiguration.instanceIds = {2, 5, 6, 7, 11};
     command->configuration.instanceIds = {2, 5, 6, 7, 12};
     secondEntry.command = std::move(command);
-    message.log.push_back(std::move(secondEntry));
-
-    // Act
-    EXPECT_EQ(
-        Json::Object({
-            {"type", "AppendEntries"},
-            {"term", 8},
-            {"leaderCommit", 77},
-            {"prevLogIndex", 2},
-            {"prevLogTerm", 7},
-            {"log", Json::Array({
-                Json::Object({
-                    {"term", 7},
-                }),
-                Json::Object({
-                    {"term", 8},
-                    {"type", "SingleConfiguration"},
-                    {"command", Json::Object({
-                        {"oldConfiguration", Json::Object({
-                            {"instanceIds", Json::Array({2, 5, 6, 7, 11})},
-                        })},
-                        {"configuration", Json::Object({
-                            {"instanceIds", Json::Array({2, 5, 6, 7, 12})},
-                        })},
-                    })},
-                }),
-            })},
-        }),
-        Json::Value::FromEncoding(message.Serialize())
-    );
-}
-
-TEST(MessageTests, DeserializeAppendEntriesWithContent) {
-    // Arrange
-    const auto serializedMessage = Json::Object({
-        {"type", "AppendEntries"},
-        {"term", 8},
-        {"leaderCommit", 33},
-        {"prevLogIndex", 5},
-        {"prevLogTerm", 6},
-        {"log", Json::Array({
-            Json::Object({
-                {"term", 7},
-            }),
-            Json::Object({
-                {"term", 8},
-                {"type", "SingleConfiguration"},
-                {"command", Json::Object({
-                    {"oldConfiguration", Json::Object({
-                        {"instanceIds", Json::Array({2, 5, 6, 7, 11})},
-                    })},
-                    {"configuration", Json::Object({
-                        {"instanceIds", Json::Array({2, 5, 6, 7, 12})},
-                    })},
-                })},
-            }),
-        })},
-    }).ToEncoding();
+    messageIn.log.push_back(std::move(secondEntry));
+    const auto serializedMessage = messageIn.Serialize();
 
     // Act
     Raft::Message message(serializedMessage);
@@ -238,20 +118,9 @@ TEST(MessageTests, DeserializeAppendEntriesWithContent) {
     );
 }
 
-TEST(MessageTests, SerializeUnknown) {
-    // Arrange
-    Raft::Message message;
-
-    // Act
-    EXPECT_EQ(
-        Json::Object({}),
-        Json::Value::FromEncoding(message.Serialize())
-    );
-}
-
 TEST(MessageTests, DeserializeGarbage) {
     // Arrange
-    const auto serializedMessage = "admLUL PogChamp";
+    const auto serializedMessage = "PogChamp";
 
     // Act
     Raft::Message message(serializedMessage);
@@ -260,34 +129,14 @@ TEST(MessageTests, DeserializeGarbage) {
     EXPECT_EQ(Raft::Message::Type::Unknown, message.type);
 }
 
-TEST(MessageTests, SerializeAppendEntriesResults) {
+TEST(MessageTests, AppendEntriesResults) {
     // Arrange
-    Raft::Message message;
-    message.type = Raft::Message::Type::AppendEntriesResults;
-    message.appendEntriesResults.term = 8;
-    message.appendEntriesResults.success = true;
-    message.appendEntriesResults.matchIndex = 5;
-
-    // Act
-    EXPECT_EQ(
-        Json::Object({
-            {"type", "AppendEntriesResults"},
-            {"term", 8},
-            {"matchIndex", 5},
-            {"success", true},
-        }),
-        Json::Value::FromEncoding(message.Serialize())
-    );
-}
-
-TEST(MessageTests, DeserializeAppendEntriesResults) {
-    // Arrange
-    const auto serializedMessage = Json::Object({
-        {"type", "AppendEntriesResults"},
-        {"term", 5},
-        {"matchIndex", 10},
-        {"success", false},
-    }).ToEncoding();
+    Raft::Message messageIn;
+    messageIn.type = Raft::Message::Type::AppendEntriesResults;
+    messageIn.appendEntriesResults.term = 5;
+    messageIn.appendEntriesResults.success = false;
+    messageIn.appendEntriesResults.matchIndex = 10;
+    const auto serializedMessage = messageIn.Serialize();
 
     // Act
     Raft::Message message(serializedMessage);
@@ -299,42 +148,17 @@ TEST(MessageTests, DeserializeAppendEntriesResults) {
     EXPECT_EQ(10, message.appendEntriesResults.matchIndex);
 }
 
-TEST(MessageTests, SerializeInstallSnapshot) {
+TEST(MessageTests, InstallSnapshot) {
     // Arrange
-    Raft::Message message;
-    message.type = Raft::Message::Type::InstallSnapshot;
-    message.installSnapshot.term = 8;
-    message.installSnapshot.lastIncludedIndex = 2;
-    message.installSnapshot.lastIncludedTerm = 7;
-    message.snapshot = Json::Object({
+    Raft::Message messageIn;
+    messageIn.type = Raft::Message::Type::InstallSnapshot;
+    messageIn.installSnapshot.term = 8;
+    messageIn.installSnapshot.lastIncludedIndex = 2;
+    messageIn.installSnapshot.lastIncludedTerm = 7;
+    messageIn.snapshot = Json::Object({
         {"foo", "bar"},
     });
-
-    // Act
-    EXPECT_EQ(
-        Json::Object({
-            {"type", "InstallSnapshot"},
-            {"term", 8},
-            {"lastIncludedIndex", 2},
-            {"lastIncludedTerm", 7},
-            {"snapshot", message.snapshot},
-        }),
-        Json::Value::FromEncoding(message.Serialize())
-    );
-}
-
-TEST(MessageTests, DeserializeInstallSnapshot) {
-    // Arrange
-    const Json::Value snapshot = Json::Object({
-        {"foo", "bar"},
-    });
-    const auto serializedMessage = Json::Object({
-        {"type", "InstallSnapshot"},
-        {"term", 8},
-        {"lastIncludedIndex", 2},
-        {"lastIncludedTerm", 7},
-        {"snapshot", snapshot},
-    }).ToEncoding();
+    const auto serializedMessage = messageIn.Serialize();
 
     // Act
     Raft::Message message(serializedMessage);
@@ -344,34 +168,16 @@ TEST(MessageTests, DeserializeInstallSnapshot) {
     EXPECT_EQ(8, message.installSnapshot.term);
     EXPECT_EQ(2, message.installSnapshot.lastIncludedIndex);
     EXPECT_EQ(7, message.installSnapshot.lastIncludedTerm);
-    EXPECT_EQ(snapshot, message.snapshot);
+    EXPECT_EQ(messageIn.snapshot, message.snapshot);
 }
 
-TEST(MessageTests, SerializeInstallSnapshotResults) {
+TEST(MessageTests, InstallSnapshotResults) {
     // Arrange
-    Raft::Message message;
-    message.type = Raft::Message::Type::InstallSnapshotResults;
-    message.installSnapshotResults.term = 8;
-    message.installSnapshotResults.matchIndex = 100;
-
-    // Act
-    EXPECT_EQ(
-        Json::Object({
-            {"type", "InstallSnapshotResults"},
-            {"term", 8},
-            {"matchIndex", 100},
-        }),
-        Json::Value::FromEncoding(message.Serialize())
-    );
-}
-
-TEST(MessageTests, DeserializeInstallSnapshotResults) {
-    // Arrange
-    const auto serializedMessage = Json::Object({
-        {"type", "InstallSnapshotResults"},
-        {"term", 8},
-        {"matchIndex", 100},
-    }).ToEncoding();
+    Raft::Message messageIn;
+    messageIn.type = Raft::Message::Type::InstallSnapshotResults;
+    messageIn.installSnapshotResults.term = 8;
+    messageIn.installSnapshotResults.matchIndex = 100;
+    const auto serializedMessage = messageIn.Serialize();
 
     // Act
     Raft::Message message(serializedMessage);

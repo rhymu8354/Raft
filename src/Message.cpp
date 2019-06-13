@@ -12,6 +12,7 @@
 #include <Serialization/SerializedBoolean.hpp>
 #include <Serialization/SerializedInteger.hpp>
 #include <Serialization/SerializedString.hpp>
+#include <Serialization/SerializedUnsignedInteger.hpp>
 #include <Serialization/SerializedVector.hpp>
 #include <SystemAbstractions/StringFile.hpp>
 
@@ -25,7 +26,7 @@ namespace Raft {
 
     Message::Message(const std::string& serialization) {
         SystemAbstractions::StringFile buffer(serialization);
-        Serialization::SerializedInteger version;
+        Serialization::SerializedUnsignedInteger version;
         if (!version.Deserialize(&buffer)) {
             return;
         }
