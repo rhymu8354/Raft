@@ -450,7 +450,7 @@ namespace ServerTests {
         server.AppendLogEntries({testEntry});
         server.WaitForAtLeastOneWorkerLoop();
         messagesSent.clear();
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout + 0.001;
         server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
@@ -472,6 +472,46 @@ namespace ServerTests {
                 EXPECT_TRUE(appendEntriesReceivedPerInstance[instanceNumber]);
             }
         }
+    }
+
+    TEST_F(ServerTests_Replication, RetransmitUnacknowledgedInstallSnapshot) {
+        // Arrange
+        mockLog->baseIndex = 100;
+        mockLog->commitIndex = 100;
+        mockLog->baseTerm = 7;
+        mockLog->snapshot = Json::Object({
+            {"foo", "bar"}
+        });
+        BecomeLeader(8);
+        ReceiveAppendEntriesResults(2, 8, 0, false);
+
+        // Act
+        messagesSent.clear();
+        mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout + 0.001;
+        server.WaitForAtLeastOneWorkerLoop();
+        bool installSnapshotRetransmitSentAtRpcTimeout = false;
+        for (const auto& messageSent: messagesSent) {
+            if (
+                (messageSent.message.type == Raft::Message::Type::InstallSnapshot)
+            ) {
+                installSnapshotRetransmitSentAtRpcTimeout = true;
+            }
+        }
+        messagesSent.clear();
+        mockTimeKeeper->currentTime += serverConfiguration.installSnapshotTimeout + 0.001;
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        bool installSnapshotRetransmitSentAtInstallSnapshotTimeout = false;
+        for (const auto& messageSent: messagesSent) {
+            if (
+                (messageSent.message.type == Raft::Message::Type::InstallSnapshot)
+            ) {
+                installSnapshotRetransmitSentAtInstallSnapshotTimeout = true;
+            }
+        }
+        EXPECT_FALSE(installSnapshotRetransmitSentAtRpcTimeout);
+        EXPECT_TRUE(installSnapshotRetransmitSentAtInstallSnapshotTimeout);
     }
 
     TEST_F(ServerTests_Replication, IgnoreDuplicateAppendEntriesResults) {
@@ -1291,6 +1331,36 @@ namespace ServerTests {
         EXPECT_EQ(1, mockLog->commitIndex);
         EXPECT_EQ(0, mockLog->baseTerm);
         EXPECT_EQ(originalSnapshot, mockLog->snapshot);
+    }
+
+    TEST_F(ServerTests_Replication, AppendEntriesShouldNotSendMessageToFollowerStillProcessingInstallSnapshot) {
+        // Arrange
+        mockLog->baseIndex = 100;
+        mockLog->commitIndex = 100;
+        mockLog->baseTerm = 7;
+        mockLog->snapshot = Json::Object({
+            {"foo", "bar"}
+        });
+        AppendNoOpEntry(8);
+        BecomeLeader(8, false);
+        while (!InstallSnapshotSent()) {
+            ReceiveAppendEntriesResults(2, 8, 0, false);
+        }
+
+        // Act
+        messagesSent.clear();
+        Raft::LogEntry testEntry;
+        testEntry.term = 8;
+        server.AppendLogEntries({testEntry});
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        for (const auto& messageSent: messagesSent) {
+            EXPECT_FALSE(
+                (messageSent.receiverInstanceNumber == 2)
+                && (messageSent.message.type == Raft::Message::Type::AppendEntries)
+            );
+        }
     }
 
 }

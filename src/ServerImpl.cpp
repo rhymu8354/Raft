@@ -91,11 +91,13 @@ namespace Raft {
     void Server::Impl::QueueMessageToBeSent(
         std::string message,
         int instanceNumber,
-        double now
+        double now,
+        double timeout
     ) {
         auto& instance = shared->instances[instanceNumber];
         instance.timeLastRequestSent = now;
         instance.lastRequest = message;
+        instance.timeout = timeout;
         const auto messageToBeSent = std::make_shared< SendMessageEvent >();
         messageToBeSent->serializedMessage = std::move(message);
         messageToBeSent->receiverInstanceNumber = instanceNumber;
@@ -108,14 +110,19 @@ namespace Raft {
         int instanceNumber,
         double now
     ) {
+        double timeout = shared->serverConfiguration.rpcTimeout;
         if (
             (message.type == Message::Type::RequestVote)
             || (message.type == Message::Type::AppendEntries)
+            || (message.type == Message::Type::InstallSnapshot)
         ) {
             auto& instance = shared->instances[instanceNumber];
             instance.awaitingResponse = true;
+            if (message.type == Message::Type::InstallSnapshot) {
+                timeout = shared->serverConfiguration.installSnapshotTimeout;
+            }
         }
-        QueueMessageToBeSent(message.Serialize(), instanceNumber, now);
+        QueueMessageToBeSent(message.Serialize(), instanceNumber, now, timeout);
     }
 
     void Server::Impl::QueueLeadershipChangeAnnouncement(
@@ -433,7 +440,7 @@ namespace Raft {
             const auto& instance = shared->instances[instanceId];
             if (
                 instance.awaitingResponse
-                && (now - instance.timeLastRequestSent >= shared->serverConfiguration.rpcTimeout)
+                && (now - instance.timeLastRequestSent >= instance.timeout)
             ) {
                 QueueMessageToBeSent(
                     instance.lastRequest,

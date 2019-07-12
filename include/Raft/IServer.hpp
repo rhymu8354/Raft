@@ -102,6 +102,12 @@ namespace Raft {
              * RPC request, before retransmitting the request.
              */
             double rpcTimeout = 0.015;
+
+            /**
+             * This is the maximum amount of time to wait for a response to an
+             * InstallSnapshot request, before retransmitting the request.
+             */
+            double installSnapshotTimeout = 10.0;
         };
 
         /**

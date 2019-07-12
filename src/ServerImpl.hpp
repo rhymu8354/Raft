@@ -121,11 +121,16 @@ namespace Raft {
          *
          * @param[in] now
          *     This is the current time, according to the time keeper.
+         *
+         * @param[in] timeout
+         *     This is the amount of time that can elapse without a response
+         *     before a retransmission is prompted.
          */
         void QueueMessageToBeSent(
             std::string message,
             int instanceNumber,
-            double now
+            double now,
+            double timeout
         );
 
         /**

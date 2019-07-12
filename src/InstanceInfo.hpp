@@ -31,6 +31,12 @@ namespace Raft {
         double timeLastRequestSent = 0.0;
 
         /**
+         * This is the amount of time that can elapse without a response
+         * before a retransmission is prompted.
+         */
+        double timeout = 0.0;
+
+        /**
          * This is the last request sent to the instance.
          */
         std::string lastRequest;
