@@ -180,6 +180,7 @@ namespace ServerTests {
         size_t lastIncludedIndexInSnapshot = 0;
         int lastIncludedTermInSnapshot = 0;
         bool caughtUp = false;
+        std::function< void() > onSnapshotInstalled;
 
         // Methods
 

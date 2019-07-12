@@ -1341,4 +1341,33 @@ namespace ServerTests {
         EXPECT_TRUE(electionStateChanges.empty());
     }
 
+    TEST_F(ServerTests_Elections, NoElectionTimeoutWhileReceivingSnapshot) {
+        // Arrange
+        constexpr int leaderId = 2;
+        constexpr int term = 5;
+        MobilizeServer();
+        ReceiveAppendEntriesFromMockLeader(leaderId, term);
+        onSnapshotInstalled = [this]{
+            mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout + 0.001;
+        };
+
+        // Act
+        Raft::Message message;
+        message.type = Raft::Message::Type::InstallSnapshot;
+        message.term = term;
+        message.installSnapshot.lastIncludedIndex = 100;
+        message.installSnapshot.lastIncludedTerm = 3;
+        message.snapshot = Json::Object({
+            {"foo", "bar"},
+        });
+        server.ReceiveMessage(message.Serialize(), leaderId);
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        EXPECT_EQ(
+            Raft::IServer::ElectionState::Follower,
+            server.GetElectionState()
+        );
+    }
+
 }

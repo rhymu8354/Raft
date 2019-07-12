@@ -428,6 +428,9 @@ namespace ServerTests {
                         snapshotInstalled = event.snapshot;
                         lastIncludedIndexInSnapshot = event.lastIncludedIndex;
                         lastIncludedTermInSnapshot = event.lastIncludedTerm;
+                        if (onSnapshotInstalled != nullptr) {
+                            onSnapshotInstalled();
+                        }
                     } break;
 
                     case Raft::IServer::Event::Type::CaughtUp: {
