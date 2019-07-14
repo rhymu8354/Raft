@@ -1347,7 +1347,7 @@ namespace ServerTests {
         constexpr int term = 5;
         MobilizeServer();
         ReceiveAppendEntriesFromMockLeader(leaderId, term);
-        onSnapshotInstalled = [this]{
+        mockLog->onSnapshotInstalled = [this]{
             mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout + 0.001;
         };
 
@@ -1361,6 +1361,7 @@ namespace ServerTests {
             {"foo", "bar"},
         });
         server.ReceiveMessage(message.Serialize(), leaderId);
+        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout - 0.001;
         server.WaitForAtLeastOneWorkerLoop();
 
         // Assert

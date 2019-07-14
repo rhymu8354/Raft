@@ -69,6 +69,9 @@ namespace ServerTests {
         baseIndex = lastIncludedIndex;
         commitIndex = lastIncludedIndex;
         baseTerm = lastIncludedTerm;
+        if (onSnapshotInstalled != nullptr) {
+            onSnapshotInstalled();
+        }
     }
 
     size_t MockLog::GetLastIndex() {
@@ -428,9 +431,6 @@ namespace ServerTests {
                         snapshotInstalled = event.snapshot;
                         lastIncludedIndexInSnapshot = event.lastIncludedIndex;
                         lastIncludedTermInSnapshot = event.lastIncludedTerm;
-                        if (onSnapshotInstalled != nullptr) {
-                            onSnapshotInstalled();
-                        }
                     } break;
 
                     case Raft::IServer::Event::Type::CaughtUp: {

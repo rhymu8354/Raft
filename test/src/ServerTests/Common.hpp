@@ -74,6 +74,7 @@ namespace ServerTests {
         size_t commitCount = 0;
         Json::Value snapshot;
         std::vector< std::function< void() > > destructionDelegates;
+        std::function< void() > onSnapshotInstalled;
 
         // Lifecycle
 
@@ -180,7 +181,6 @@ namespace ServerTests {
         size_t lastIncludedIndexInSnapshot = 0;
         int lastIncludedTermInSnapshot = 0;
         bool caughtUp = false;
-        std::function< void() > onSnapshotInstalled;
 
         // Methods
 

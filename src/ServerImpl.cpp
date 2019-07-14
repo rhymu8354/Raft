@@ -1306,6 +1306,7 @@ namespace Raft {
                 );
             }
             response.installSnapshotResults.matchIndex = shared->lastIndex;
+            ResetElectionTimer();
         }
         const auto now = timeKeeper->GetCurrentTime();
         QueueMessageToBeSent(response, senderInstanceNumber, now);
