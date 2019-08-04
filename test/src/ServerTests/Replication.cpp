@@ -620,7 +620,7 @@ namespace ServerTests {
         EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
-    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesFailurePreviousNotFound) {
+    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesFailurePreviousNotFoundNoEntries) {
         // Arrange
         Raft::LogEntry nextEntry;
         nextEntry.term = 8;
@@ -648,6 +648,60 @@ namespace ServerTests {
         EXPECT_EQ(8, messagesSent[0].message.term);
         EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
         EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.matchIndex);
+    }
+
+    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesFailurePreviousNotFoundButHaveOlderEntry) {
+        // Arrange
+        AppendNoOpEntry(7);
+        MobilizeServer();
+
+        // Act
+        messagesSent.clear();
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntries;
+        message.term = 8;
+        message.appendEntries.leaderCommit = 0;
+        message.appendEntries.prevLogIndex = 2;
+        message.appendEntries.prevLogTerm = 8;
+        server.ReceiveMessage(message.Serialize(), 2);
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        ASSERT_EQ(1, mockLog->entries.size());
+        EXPECT_EQ(7, mockLog->entries[0].term);
+        ASSERT_EQ(1, messagesSent.size());
+        EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
+        EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
+        EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
+        EXPECT_EQ(1, messagesSent[0].message.appendEntriesResults.matchIndex);
+    }
+
+    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesFailureMismatchingTermPreviousIndex) {
+        // Arrange
+        AppendNoOpEntry(7);
+        AppendNoOpEntry(7);
+        MobilizeServer();
+
+        // Act
+        messagesSent.clear();
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntries;
+        message.term = 8;
+        message.appendEntries.leaderCommit = 0;
+        message.appendEntries.prevLogIndex = 2;
+        message.appendEntries.prevLogTerm = 8;
+        server.ReceiveMessage(message.Serialize(), 2);
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        ASSERT_EQ(2, mockLog->entries.size());
+        EXPECT_EQ(7, mockLog->entries[0].term);
+        EXPECT_EQ(7, mockLog->entries[0].term);
+        ASSERT_EQ(1, messagesSent.size());
+        EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
+        EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
+        EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
+        EXPECT_EQ(1, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
     TEST_F(ServerTests_Replication, PersistentStateUpdateForNewTermWhenReceiveAppendEntriesFromNewerTermLeader) {

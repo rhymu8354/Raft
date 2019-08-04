@@ -1087,7 +1087,9 @@ namespace Raft {
                     != messageDetails.prevLogTerm
                 )
             ) {
+                response.appendEntriesResults.success = false;
                 if (messageDetails.prevLogIndex > shared->lastIndex) {
+                    response.appendEntriesResults.matchIndex = shared->lastIndex;
                     shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                         3,
                         "Mismatch in received AppendEntries (%zu > %zu)",
@@ -1095,6 +1097,7 @@ namespace Raft {
                         shared->lastIndex
                     );
                 } else {
+                    response.appendEntriesResults.matchIndex = messageDetails.prevLogIndex - 1;
                     shared->diagnosticsSender.SendDiagnosticInformationFormatted(
                         3,
                         "Mismatch in received AppendEntries (%zu <= %zu but %d != %d)",
@@ -1104,8 +1107,6 @@ namespace Raft {
                         messageDetails.prevLogTerm
                     );
                 }
-                response.appendEntriesResults.success = false;
-                response.appendEntriesResults.matchIndex = shared->logKeeper->GetBaseIndex();
             } else {
                 response.appendEntriesResults.success = true;
                 size_t nextIndex = messageDetails.prevLogIndex + 1;
