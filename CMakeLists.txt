@@ -7,10 +7,6 @@ set(This Raft)
 
 option(RAFT_EXTRA_DIAGNOSTICS "Report extra diagnostics (significant performance hit)" OFF)
 
-if(RAFT_EXTRA_DIAGNOSTICS)
-    target_compile_definitions(${This} PRIVATE EXTRA_DIAGNOSTICS)
-endif(RAFT_EXTRA_DIAGNOSTICS)
-
 set(Headers
     include/Raft/ClusterConfiguration.hpp
     include/Raft/Command.hpp
@@ -40,6 +36,10 @@ add_library(${This} STATIC ${Sources} ${Headers})
 set_target_properties(${This} PROPERTIES
     FOLDER Libraries
 )
+
+if(RAFT_EXTRA_DIAGNOSTICS)
+    target_compile_definitions(${This} PRIVATE EXTRA_DIAGNOSTICS)
+endif(RAFT_EXTRA_DIAGNOSTICS)
 
 target_include_directories(${This} PUBLIC include)
 
