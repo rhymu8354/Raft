@@ -442,6 +442,13 @@ namespace Raft {
                 instance.awaitingResponse
                 && (now - instance.timeLastRequestSent >= instance.timeout)
             ) {
+#ifdef EXTRA_DIAGNOSTICS
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    0,
+                    "Retransmitting last message to server %d",
+                    instanceId
+                );
+#endif
                 QueueMessageToBeSent(
                     instance.lastRequest,
                     instanceId,
