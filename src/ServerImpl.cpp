@@ -1175,7 +1175,16 @@ namespace Raft {
         }
         instance.awaitingResponse = false;
         instance.matchIndex = messageDetails.matchIndex;
-        instance.nextIndex = messageDetails.matchIndex + 1;
+        if (instance.matchIndex > shared->lastIndex) {
+            shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                3,
+                "Received AppendEntriesResults with match index %zu which is beyond our last index %zu",
+                instance.matchIndex,
+                shared->lastIndex
+            );
+            instance.matchIndex = shared->lastIndex;
+        }
+        instance.nextIndex = instance.matchIndex + 1;
         if (instance.nextIndex <= shared->lastIndex) {
             AttemptLogReplication(senderInstanceNumber);
         }

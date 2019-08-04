@@ -400,6 +400,21 @@ namespace ServerTests {
         EXPECT_TRUE(sendEntrySent);
     }
 
+    TEST_F(ServerTests_Replication, FollowerMatchIndexBeyondWhatLeaderHas) {
+        // Arrange
+        AppendNoOpEntry(2);
+        BecomeLeader(8);
+        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Act
+        messagesSent.clear();
+        ReceiveAppendEntriesResults(2, 8, 2, false);
+
+        // Assert
+        EXPECT_EQ(1, server.GetMatchIndex(2));
+    }
+
     TEST_F(ServerTests_Replication, NoHeartBeatShouldBeSentWhilePreviousAppendEntriesUnacknowledged) {
         // Arrange
         BecomeLeader();
