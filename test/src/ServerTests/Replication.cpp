@@ -475,6 +475,7 @@ namespace ServerTests {
         }
         for (const auto& messageSent: messagesSent) {
             if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+                EXPECT_EQ(3, messageSent.message.seq);
                 appendEntriesReceivedPerInstance[messageSent.receiverInstanceNumber] = true;
                 ASSERT_EQ(1, messageSent.message.log.size());
                 EXPECT_EQ(3, messageSent.message.log[0].term);
@@ -497,11 +498,17 @@ namespace ServerTests {
         mockLog->snapshot = Json::Object({
             {"foo", "bar"}
         });
-        BecomeLeader(8);
-        ReceiveAppendEntriesResults(2, 8, 0, false);
+        BecomeLeader(8, false);
+        for (auto instance: clusterConfiguration.instanceIds) {
+            if (instance == 2) {
+                ReceiveAppendEntriesResults(2, 8, 0, false);
+            } else if (instance != serverConfiguration.selfInstanceId) {
+                ReceiveAppendEntriesResults(instance, 8, mockLog->baseIndex + mockLog->entries.size());
+            }
+        }
+        messagesSent.clear();
 
         // Act
-        messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout + 0.001;
         server.WaitForAtLeastOneWorkerLoop();
         bool installSnapshotRetransmitSentAtRpcTimeout = false;
@@ -531,21 +538,20 @@ namespace ServerTests {
 
     TEST_F(ServerTests_Replication, IgnoreDuplicateAppendEntriesResults) {
         // Arrange
-        Raft::LogEntry testEntry;
-        testEntry.term = 3;
-        BecomeLeader(3);
-
-        // Act
-        server.AppendLogEntries({testEntry});
-        server.WaitForAtLeastOneWorkerLoop();
-        messagesSent.clear();
+        AppendNoOpEntry(3);
+        AppendNoOpEntry(7);
+        AppendNoOpEntry(8);
+        BecomeLeader(8);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
         server.WaitForAtLeastOneWorkerLoop();
-        ReceiveAppendEntriesResults(2, 3, 1);
-        ReceiveAppendEntriesResults(2, 3, 1);
+
+        // Act
+        ReceiveAppendEntriesResults(2, 8, 1, false, 1);
+        messagesSent.clear();
+        ReceiveAppendEntriesResults(2, 8, 1, false, 1);
 
         // Assert
-        EXPECT_EQ(1, server.GetMatchIndex(2));
+        ASSERT_TRUE(messagesSent.empty());
     }
 
     TEST_F(ServerTests_Replication, ReinitializeVolatileLeaderStateAfterElection) {
@@ -589,7 +595,16 @@ namespace ServerTests {
 
         // Act
         messagesSent.clear();
-        ReceiveAppendEntriesFromMockLeader(2, 8, 1, 0, {newConflictingEntry, nextEntry}, false);
+        Raft::Message message;
+        message.type = Raft::Message::Type::AppendEntries;
+        message.term = 8;
+        message.seq = 42;
+        message.appendEntries.leaderCommit = 1;
+        message.appendEntries.prevLogIndex = 0;
+        message.appendEntries.prevLogTerm = mockLog->baseTerm;
+        message.log = {newConflictingEntry, nextEntry};
+        server.ReceiveMessage(message.Serialize(), 2);
+        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         ASSERT_EQ(2, mockLog->entries.size());
@@ -599,6 +614,7 @@ namespace ServerTests {
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
         EXPECT_EQ(8, messagesSent[0].message.term);
+        EXPECT_EQ(42, messagesSent[0].message.seq);
         EXPECT_TRUE(messagesSent[0].message.appendEntriesResults.success);
         EXPECT_EQ(2, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
@@ -1326,6 +1342,7 @@ namespace ServerTests {
         Raft::Message message;
         message.type = Raft::Message::Type::InstallSnapshot;
         message.term = term;
+        message.seq = 77;
         message.installSnapshot.lastIncludedIndex = 100;
         message.installSnapshot.lastIncludedTerm = 3;
         message.snapshot = Json::Object({
@@ -1339,6 +1356,7 @@ namespace ServerTests {
         EXPECT_EQ(leaderId, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::InstallSnapshotResults, messagesSent[0].message.type);
         EXPECT_EQ(4, messagesSent[0].message.term);
+        EXPECT_EQ(77, messagesSent[0].message.seq);
         EXPECT_EQ(100, messagesSent[0].message.installSnapshotResults.matchIndex);
         EXPECT_EQ(message.snapshot, snapshotInstalled);
         EXPECT_EQ(message.installSnapshot.lastIncludedIndex, lastIncludedIndexInSnapshot);

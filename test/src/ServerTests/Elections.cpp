@@ -124,6 +124,7 @@ namespace ServerTests {
                 Raft::Message::Type::RequestVote,
                 messageInfo.message.type
             );
+            EXPECT_EQ(1, messageInfo.message.seq);
             (void)instances.erase(messageInfo.receiverInstanceNumber);
         }
         EXPECT_EQ(
@@ -377,7 +378,15 @@ namespace ServerTests {
         MobilizeServer();
 
         // Act
-        RequestVote(2, 0, 0);
+        Raft::Message message;
+        message.type = Raft::Message::Type::RequestVote;
+        message.term = 42;
+        message.seq = 7;
+        message.requestVote.candidateId = 2;
+        message.requestVote.lastLogTerm = 41;
+        message.requestVote.lastLogIndex = 0;
+        server.ReceiveMessage(message.Serialize(), 2);
+        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         ASSERT_EQ(1, messagesSent.size());
@@ -385,7 +394,8 @@ namespace ServerTests {
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
         );
-        EXPECT_EQ(0, messagesSent[0].message.term);
+        EXPECT_EQ(42, messagesSent[0].message.term);
+        EXPECT_EQ(7, messagesSent[0].message.seq);
         EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
     }
 

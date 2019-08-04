@@ -25,6 +25,12 @@ namespace Raft {
         bool awaitingResponse = false;
 
         /**
+         * This is the serial number of the last RPC call message sent
+         * to this instance.
+         */
+        int lastSerialNumber = 0;
+
+        /**
          * This is the time, according to the time keeper, that a request was
          * last sent to the instance.
          */

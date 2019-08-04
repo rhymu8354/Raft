@@ -311,11 +311,13 @@ namespace ServerTests {
         int instance,
         int term,
         size_t matchIndex,
-        bool success
+        bool success,
+        int seq
     ) {
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntriesResults;
         message.term = term;
+        message.seq = seq;
         message.appendEntriesResults.success = success;
         message.appendEntriesResults.matchIndex = matchIndex;
         server.ReceiveMessage(message.Serialize(), instance);

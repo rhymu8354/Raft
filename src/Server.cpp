@@ -209,51 +209,43 @@ namespace Raft {
         switch (message.type) {
             case Message::Type::RequestVote: {
                 impl_->OnReceiveRequestVote(
-                    message.requestVote,
-                    senderInstanceNumber,
-                    message.term
+                    std::move(message),
+                    senderInstanceNumber
                 );
             } break;
 
             case Message::Type::RequestVoteResults: {
                 impl_->OnReceiveRequestVoteResults(
-                    message.requestVoteResults,
-                    senderInstanceNumber,
-                    message.term
+                    std::move(message),
+                    senderInstanceNumber
                 );
             } break;
 
             case Message::Type::AppendEntries: {
                 impl_->OnReceiveAppendEntries(
-                    message.appendEntries,
-                    std::move(message.log),
-                    senderInstanceNumber,
-                    message.term
+                    std::move(message),
+                    senderInstanceNumber
                 );
             } break;
 
             case Message::Type::AppendEntriesResults: {
                 impl_->OnReceiveAppendEntriesResults(
-                    message.appendEntriesResults,
-                    senderInstanceNumber,
-                    message.term
+                    std::move(message),
+                    senderInstanceNumber
                 );
             } break;
 
             case Message::Type::InstallSnapshot: {
                 impl_->OnReceiveInstallSnapshot(
-                    message.installSnapshot,
-                    std::move(message.snapshot),
-                    senderInstanceNumber,
-                    message.term
+                    std::move(message),
+                    senderInstanceNumber
                 );
             } break;
 
             case Message::Type::InstallSnapshotResults: {
                 impl_->OnReceiveInstallSnapshotResults(
-                    message.installSnapshotResults,
-                    senderInstanceNumber,
-                    message.term
+                    std::move(message),
+                    senderInstanceNumber
                 );
             } break;
 

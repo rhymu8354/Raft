@@ -110,8 +110,8 @@ namespace Raft {
         void ResetElectionTimer();
 
         /**
-         * This method queues the given message to be sent later to the
-         * instance with the given unique identifier.
+         * This method queues the given serialized message to be sent later
+         * to the instance with the given unique identifier.
          *
          * @param[in] message
          *     This is the message to send.
@@ -126,19 +126,20 @@ namespace Raft {
          *     This is the amount of time that can elapse without a response
          *     before a retransmission is prompted.
          */
-        void QueueMessageToBeSent(
-            std::string message,
+        void QueueSerializedMessageToBeSent(
+            const std::string& message,
             int instanceNumber,
             double now,
             double timeout
         );
 
         /**
-         * This method queues the given message to be sent later to the
-         * instance with the given unique identifier.
+         * This method serializes and queues the given message to be sent
+         * later to the instance with the given unique identifier.
          *
-         * @param[in] message
-         *     This is the message to send.
+         * @param[in,out] message
+         *     This is the message to send.  The message's sequence number
+         *     is set to match the sequence number used for the recipient.
          *
          * @param[in] instanceNumber
          *     This is the unique identifier of the recipient of the message.
@@ -146,8 +147,8 @@ namespace Raft {
          * @param[in] now
          *     This is the current time, according to the time keeper.
          */
-        void QueueMessageToBeSent(
-            const Message& message,
+        void SerializeAndQueueMessageToBeSent(
+            Message& message,
             int instanceNumber,
             double now
         );
@@ -524,19 +525,15 @@ namespace Raft {
          * for another server in the cluster.
          *
          * @param[in] message
-         *     This contains the details of the message received.
+         *     This is the message received.
          *
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
-         *
-         * @param[in] senderTerm
-         *     This is the current term in effect at the sender.
          */
         void OnReceiveRequestVote(
-            const Message::RequestVoteDetails& messageDetails,
-            int senderInstanceNumber,
-            int senderTerm
+            Message&& message,
+            int senderInstanceNumber
         );
 
         /**
@@ -544,19 +541,15 @@ namespace Raft {
          * a vote request.
          *
          * @param[in] message
-         *     This contains the details of the message received.
+         *     This is the message received.
          *
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
-         *
-         * @param[in] senderTerm
-         *     This is the current term in effect at the sender.
          */
         void OnReceiveRequestVoteResults(
-            const Message::RequestVoteResultsDetails& messageDetails,
-            int senderInstanceNumber,
-            int senderTerm
+            Message&& message,
+            int senderInstanceNumber
         );
 
         /**
@@ -564,23 +557,15 @@ namespace Raft {
          * message from the cluster leader.
          *
          * @param[in] message
-         *     This contains the details of the message received.
-         *
-         * @param[in] entries
-         *     These are the log entries that came with the message.
+         *     This is the message received.
          *
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
-         *
-         * @param[in] senderTerm
-         *     This is the current term in effect at the sender.
          */
         void OnReceiveAppendEntries(
-            const Message::AppendEntriesDetails& messageDetails,
-            std::vector< LogEntry >&& entries,
-            int senderInstanceNumber,
-            int senderTerm
+            Message&& message,
+            int senderInstanceNumber
         );
 
         /**
@@ -588,19 +573,15 @@ namespace Raft {
          * message.
          *
          * @param[in] message
-         *     This contains the details of the message received.
+         *     This is the message received.
          *
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
-         *
-         * @param[in] senderTerm
-         *     This is the current term in effect at the sender.
          */
         void OnReceiveAppendEntriesResults(
-            const Message::AppendEntriesResultsDetails& messageDetails,
-            int senderInstanceNumber,
-            int senderTerm
+            Message&& message,
+            int senderInstanceNumber
         );
 
         /**
@@ -608,24 +589,15 @@ namespace Raft {
          * InstallSnapshot message from the cluster leader.
          *
          * @param[in] message
-         *     This contains the details of the message received.
-         *
-         * @param[in] snapshot
-         *     This is a condensed form of all the information the server needs
-         *     to reconstruct its state as built from a series of log entries.
+         *     This is the message received.
          *
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
-         *
-         * @param[in] senderTerm
-         *     This is the current term in effect at the sender.
          */
         void OnReceiveInstallSnapshot(
-            const Message::InstallSnapshotDetails& messageDetails,
-            Json::Value&& snapshot,
-            int senderInstanceNumber,
-            int senderTerm
+            Message&& message,
+            int senderInstanceNumber
         );
 
         /**
@@ -633,19 +605,15 @@ namespace Raft {
          * InstallSnapshotResults message from the cluster leader.
          *
          * @param[in] message
-         *     This contains the details of the message received.
+         *     This is the message received.
          *
          * @param[in] senderInstanceNumber
          *     This is the unique identifier of the server that sent the
          *     message.
-         *
-         * @param[in] senderTerm
-         *     This is the current term in effect at the sender.
          */
         void OnReceiveInstallSnapshotResults(
-            const Message::InstallSnapshotResultsDetails& messageDetails,
-            int senderInstanceNumber,
-            int senderTerm
+            Message&& message,
+            int senderInstanceNumber
         );
 
         /**

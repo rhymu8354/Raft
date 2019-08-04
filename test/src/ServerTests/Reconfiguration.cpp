@@ -533,7 +533,7 @@ namespace ServerTests {
         entry.term = term;
         entry.command = std::move(command);
         mockLog->entries = {entry};
-        BecomeLeader(term);
+        BecomeLeader(term, false);
 
         // Act
         for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {

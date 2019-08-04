@@ -244,7 +244,8 @@ namespace ServerTests {
             int instance,
             int term,
             size_t matchIndex,
-            bool success = true
+            bool success = true,
+            int seq = 0
         );
         void WaitForElectionTimeout();
         void BecomeLeader(
