@@ -588,6 +588,28 @@ namespace ServerTests {
         EXPECT_EQ(2, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
+    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesAllOld) {
+        // Arrange
+        AppendNoOpEntry(6);
+        AppendNoOpEntry(7);
+        Raft::LogEntry oldEntry;
+        oldEntry.term = 6;
+        MobilizeServer();
+
+        // Act
+        ReceiveAppendEntriesFromMockLeader(2, 8, 0, 0, {oldEntry}, false);
+
+        // Assert
+        ASSERT_EQ(2, mockLog->entries.size());
+        EXPECT_EQ(6, mockLog->entries[0].term);
+        EXPECT_EQ(7, mockLog->entries[1].term);
+        ASSERT_EQ(1, messagesSent.size());
+        EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
+        EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
+        EXPECT_TRUE(messagesSent[0].message.appendEntriesResults.success);
+        EXPECT_EQ(1, messagesSent[0].message.appendEntriesResults.matchIndex);
+    }
+
     TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesFailureOldTerm) {
         // Arrange
         Raft::LogEntry oldConflictingEntry, nextEntry;

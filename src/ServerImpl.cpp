@@ -1133,7 +1133,10 @@ namespace Raft {
                     shared->logKeeper->Append(entriesToAdd);
                 }
                 SetLastIndex(shared->logKeeper->GetLastIndex());
-                response.appendEntriesResults.matchIndex = shared->lastIndex;
+                response.appendEntriesResults.matchIndex = std::min(
+                    shared->lastIndex,
+                    messageDetails.prevLogIndex + entries.size()
+                );
             }
         }
         const auto now = timeKeeper->GetCurrentTime();
