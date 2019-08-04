@@ -195,11 +195,6 @@ namespace Raft {
         const std::string& serializedMessage,
         int senderInstanceNumber
     ) {
-        impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-            3,
-            "begin handling received message of %zu bytes",
-            serializedMessage.length()
-        );
         std::unique_lock< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         if (senderInstanceNumber == impl_->shared->leaderId) {
             impl_->shared->processingMessageFromLeader = true;
@@ -265,11 +260,6 @@ namespace Raft {
             default: {
             } break;
         }
-        impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
-            3,
-            "finished handling received message of %zu bytes",
-            serializedMessage.length()
-        );
         if (senderInstanceNumber == impl_->shared->leaderId) {
             impl_->shared->processingMessageFromLeader = false;
         }
