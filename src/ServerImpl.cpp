@@ -1056,6 +1056,7 @@ namespace Raft {
                 if (!shared->thisTermLeaderAnnounced) {
                     shared->thisTermLeaderAnnounced = true;
                     shared->leaderId = senderInstanceNumber;
+                    shared->processingMessageFromLeader = true;
                     QueueLeadershipChangeAnnouncement(
                         senderInstanceNumber,
                         shared->persistentStateCache.currentTerm
@@ -1282,6 +1283,7 @@ namespace Raft {
                 if (!shared->thisTermLeaderAnnounced) {
                     shared->thisTermLeaderAnnounced = true;
                     shared->leaderId = senderInstanceNumber;
+                    shared->processingMessageFromLeader = true;
                     QueueLeadershipChangeAnnouncement(
                         senderInstanceNumber,
                         shared->persistentStateCache.currentTerm
@@ -1476,6 +1478,7 @@ namespace Raft {
         } else {
             if (
                 shared->isVotingMember
+                && !shared->processingMessageFromLeader
                 && (
                     timeSinceLastLeaderMessage
                     >= shared->currentElectionTimeout

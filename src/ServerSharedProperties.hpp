@@ -118,6 +118,12 @@ namespace Raft {
         std::shared_ptr< std::promise< void > > workerLoopCompletion;
 
         /**
+         * This is the function to call whenever a message is received
+         * by the server.
+         */
+        std::function< void() > onReceiveMessageCallback;
+
+        /**
          * This is the maximum amount of time to wait, between messages from
          * the cluster leader, before calling a new election.
          */
@@ -146,6 +152,12 @@ namespace Raft {
          * known.
          */
         bool thisTermLeaderAnnounced = false;
+
+        /**
+         * This flag indicates whether or not the server is currently
+         * processing a message received from the cluster leader.
+         */
+        bool processingMessageFromLeader = false;
 
         /**
          * This is the unique identifier of the cluster leader, if known.

@@ -9,6 +9,7 @@
  * © 2018 by Richard Walters
  */
 
+#include <functional>
 #include <memory>
 #include <Raft/IServer.hpp>
 #include <Raft/TimeKeeper.hpp>
@@ -190,10 +191,14 @@ namespace Raft {
         double GetElectionTimeout() const;
 
         /**
-         * This method puts the server back into the state it was in when
-         * first mobilized.
+         * Set a function to be called whenever a message has been received
+         * by the server.
+         *
+         * @param[in] callback
+         *     This is the function to call whenever a message has been
+         *     received by the server.
          */
-        void Reset();
+        void SetOnReceiveMessageCallback(std::function< void() > callback);
 
         // IServer
     public:

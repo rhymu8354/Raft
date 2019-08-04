@@ -130,6 +130,11 @@ namespace Raft {
         return impl_->shared->currentElectionTimeout;
     }
 
+    void Server::SetOnReceiveMessageCallback(std::function< void() > callback) {
+        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        impl_->shared->onReceiveMessageCallback = callback;
+    }
+
     auto Server::SubscribeToEvents(EventDelegate eventDelegate) -> EventsUnsubscribeDelegate {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         const auto eventSubscriberId = impl_->shared->nextEventSubscriberId++;
@@ -190,8 +195,22 @@ namespace Raft {
         const std::string& serializedMessage,
         int senderInstanceNumber
     ) {
+        impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+            3,
+            "begin handling received message of %zu bytes",
+            serializedMessage.length()
+        );
+        std::unique_lock< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        if (senderInstanceNumber == impl_->shared->leaderId) {
+            impl_->shared->processingMessageFromLeader = true;
+        }
+        decltype(impl_->shared->onReceiveMessageCallback) callback(impl_->shared->onReceiveMessageCallback);
+        lock.unlock();
+        if (callback) {
+            callback();
+        }
         Message message(serializedMessage);
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        lock.lock();
         switch (message.type) {
             case Message::Type::RequestVote: {
                 impl_->OnReceiveRequestVote(
@@ -245,6 +264,14 @@ namespace Raft {
 
             default: {
             } break;
+        }
+        impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+            3,
+            "finished handling received message of %zu bytes",
+            serializedMessage.length()
+        );
+        if (senderInstanceNumber == impl_->shared->leaderId) {
+            impl_->shared->processingMessageFromLeader = false;
         }
     }
 

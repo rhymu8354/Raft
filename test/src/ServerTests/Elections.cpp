@@ -1347,9 +1347,11 @@ namespace ServerTests {
         constexpr int term = 5;
         MobilizeServer();
         ReceiveAppendEntriesFromMockLeader(leaderId, term);
-        mockLog->onSnapshotInstalled = [this]{
+        const auto advanceTime = [this]{
             mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout + 0.001;
+            server.WaitForAtLeastOneWorkerLoop();
         };
+        server.SetOnReceiveMessageCallback(advanceTime);
 
         // Act
         Raft::Message message;
