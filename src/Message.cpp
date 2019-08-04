@@ -18,7 +18,7 @@
 
 namespace {
 
-    constexpr int CURRENT_SERIALIZATION_VERSION = 1;
+    constexpr int CURRENT_SERIALIZATION_VERSION = 2;
 
 }
 
@@ -43,6 +43,12 @@ namespace Raft {
             return;
         }
         term = intField;
+        if (version >= 2) {
+            if (!intField.Deserialize(&buffer)) {
+                return;
+            }
+            seq = intField;
+        }
         switch (type) {
             case Message::Type::RequestVote: {
                 if (!intField.Deserialize(&buffer)) {
@@ -139,11 +145,15 @@ namespace Raft {
         if (!version.Serialize(&buffer)) {
             return "";
         }
-        Serialization::SerializedInteger serializedType((int)type);
-        if (!serializedType.Serialize(&buffer)) {
+        Serialization::SerializedInteger intField((int)type);
+        if (!intField.Serialize(&buffer)) {
             return "";
         }
-        Serialization::SerializedInteger intField(term);
+        intField = term;
+        if (!intField.Serialize(&buffer)) {
+            return "";
+        }
+        intField = seq;
         if (!intField.Serialize(&buffer)) {
             return "";
         }

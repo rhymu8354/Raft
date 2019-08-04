@@ -18,6 +18,7 @@ TEST(MessageTests, RequestVote) {
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::RequestVote;
     messageIn.term = 42;
+    messageIn.seq = 7;
     messageIn.requestVote.candidateId = 5;
     messageIn.requestVote.lastLogIndex = 11;
     messageIn.requestVote.lastLogTerm = 3;
@@ -29,6 +30,34 @@ TEST(MessageTests, RequestVote) {
     // Act
     EXPECT_EQ(Raft::Message::Type::RequestVote, message.type);
     EXPECT_EQ(42, message.term);
+    EXPECT_EQ(7, message.seq);
+    EXPECT_EQ(5, message.requestVote.candidateId);
+    EXPECT_EQ(11, message.requestVote.lastLogIndex);
+    EXPECT_EQ(3, message.requestVote.lastLogTerm);
+}
+
+TEST(MessageTests, DeserializeRequestVoteV1) {
+    // Arrange
+    const std::vector< char > serializedMessageBytes({
+        0x01, // version (1)
+        0x01, // type (RequestVote)
+        42, // term
+        5, // candidate ID
+        11, // last log index
+        3, // last log term
+    });
+    const std::string serializedMessage(
+        serializedMessageBytes.begin(),
+        serializedMessageBytes.end()
+    );
+
+    // Act
+    Raft::Message message(serializedMessage);
+
+    // Act
+    EXPECT_EQ(Raft::Message::Type::RequestVote, message.type);
+    EXPECT_EQ(42, message.term);
+    EXPECT_EQ(0, message.seq);
     EXPECT_EQ(5, message.requestVote.candidateId);
     EXPECT_EQ(11, message.requestVote.lastLogIndex);
     EXPECT_EQ(3, message.requestVote.lastLogTerm);
@@ -39,6 +68,7 @@ TEST(MessageTests, RequestVoteResults) {
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::RequestVoteResults;
     messageIn.term = 16;
+    messageIn.seq = 8;
     messageIn.requestVoteResults.voteGranted = true;
     const auto serializedMessage = messageIn.Serialize();
 
@@ -48,6 +78,7 @@ TEST(MessageTests, RequestVoteResults) {
     // Act
     EXPECT_EQ(Raft::Message::Type::RequestVoteResults, message.type);
     EXPECT_EQ(16, message.term);
+    EXPECT_EQ(8, message.seq);
     EXPECT_TRUE(message.requestVoteResults.voteGranted);
 }
 
@@ -56,6 +87,7 @@ TEST(MessageTests, HeartBeat) {
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::AppendEntries;
     messageIn.term = 8;
+    messageIn.seq = 7;
     messageIn.appendEntries.leaderCommit = 18;
     messageIn.appendEntries.prevLogIndex = 6;
     messageIn.appendEntries.prevLogTerm = 1;
@@ -67,6 +99,7 @@ TEST(MessageTests, HeartBeat) {
     // Act
     EXPECT_EQ(Raft::Message::Type::AppendEntries, message.type);
     EXPECT_EQ(8, message.term);
+    EXPECT_EQ(7, message.seq);
     EXPECT_EQ(18, message.appendEntries.leaderCommit);
     EXPECT_EQ(6, message.appendEntries.prevLogIndex);
     EXPECT_EQ(1, message.appendEntries.prevLogTerm);
@@ -77,6 +110,7 @@ TEST(MessageTests, AppendEntriesWithContent) {
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::AppendEntries;
     messageIn.term = 8;
+    messageIn.seq = 9;
     messageIn.appendEntries.leaderCommit = 33;
     messageIn.appendEntries.prevLogIndex = 5;
     messageIn.appendEntries.prevLogTerm = 6;
@@ -98,6 +132,7 @@ TEST(MessageTests, AppendEntriesWithContent) {
     // Act
     EXPECT_EQ(Raft::Message::Type::AppendEntries, message.type);
     EXPECT_EQ(8, message.term);
+    EXPECT_EQ(9, message.seq);
     EXPECT_EQ(33, message.appendEntries.leaderCommit);
     EXPECT_EQ(5, message.appendEntries.prevLogIndex);
     EXPECT_EQ(6, message.appendEntries.prevLogTerm);
@@ -134,6 +169,7 @@ TEST(MessageTests, AppendEntriesResults) {
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::AppendEntriesResults;
     messageIn.term = 5;
+    messageIn.seq = 4;
     messageIn.appendEntriesResults.success = false;
     messageIn.appendEntriesResults.matchIndex = 10;
     const auto serializedMessage = messageIn.Serialize();
@@ -144,6 +180,7 @@ TEST(MessageTests, AppendEntriesResults) {
     // Act
     EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, message.type);
     EXPECT_EQ(5, message.term);
+    EXPECT_EQ(4, message.seq);
     EXPECT_FALSE(message.appendEntriesResults.success);
     EXPECT_EQ(10, message.appendEntriesResults.matchIndex);
 }
@@ -153,6 +190,7 @@ TEST(MessageTests, InstallSnapshot) {
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::InstallSnapshot;
     messageIn.term = 8;
+    messageIn.seq = 2;
     messageIn.installSnapshot.lastIncludedIndex = 2;
     messageIn.installSnapshot.lastIncludedTerm = 7;
     messageIn.snapshot = Json::Object({
@@ -166,6 +204,7 @@ TEST(MessageTests, InstallSnapshot) {
     // Act
     EXPECT_EQ(Raft::Message::Type::InstallSnapshot, message.type);
     EXPECT_EQ(8, message.term);
+    EXPECT_EQ(2, message.seq);
     EXPECT_EQ(2, message.installSnapshot.lastIncludedIndex);
     EXPECT_EQ(7, message.installSnapshot.lastIncludedTerm);
     EXPECT_EQ(messageIn.snapshot, message.snapshot);
@@ -176,6 +215,7 @@ TEST(MessageTests, InstallSnapshotResults) {
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::InstallSnapshotResults;
     messageIn.term = 8;
+    messageIn.seq = 17;
     messageIn.installSnapshotResults.matchIndex = 100;
     const auto serializedMessage = messageIn.Serialize();
 
@@ -185,5 +225,6 @@ TEST(MessageTests, InstallSnapshotResults) {
     // Act
     EXPECT_EQ(Raft::Message::Type::InstallSnapshotResults, message.type);
     EXPECT_EQ(8, message.term);
+    EXPECT_EQ(17, message.seq);
     EXPECT_EQ(100, message.installSnapshotResults.matchIndex);
 }

@@ -191,6 +191,12 @@ namespace Raft {
         int term = 0;
 
         /**
+         * This is the sequence number used to match responses with
+         * their original requests.
+         */
+        int seq = 0;
+
+        /**
          * This holds properties specific to each type of message.
          */
         union {
