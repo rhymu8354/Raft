@@ -1503,7 +1503,10 @@ namespace Raft {
         std::future< void >& workerAskedToStop
     ) {
         const auto rpcTimeoutMilliseconds = (int)(
-            shared->serverConfiguration.rpcTimeout * 1000.0
+            std::min(
+                shared->serverConfiguration.rpcTimeout,
+                shared->serverConfiguration.heartbeatInterval
+            ) * 1000.0
         );
         (void)workerAskedToStopOrWakeUp.wait_for(
             lock,
