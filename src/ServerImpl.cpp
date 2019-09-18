@@ -101,8 +101,7 @@ namespace Raft {
         const auto messageToBeSent = std::make_shared< SendMessageEvent >();
         messageToBeSent->serializedMessage = std::move(message);
         messageToBeSent->receiverInstanceNumber = instanceNumber;
-        shared->eventQueue.push(messageToBeSent);
-        workerAskedToStopOrWakeUp.notify_one();
+        AddToEventQueue(std::move(messageToBeSent));
     }
 
     void Server::Impl::SerializeAndQueueMessageToBeSent(
@@ -125,6 +124,16 @@ namespace Raft {
             if (message.type == Message::Type::InstallSnapshot) {
                 timeout = shared->serverConfiguration.installSnapshotTimeout;
             }
+            if (now + timeout < nextWakeupTime) {
+#ifdef EXTRA_DIAGNOSTICS
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    0,
+                    "Setting retransmission timeout for server %d",
+                    instanceNumber
+                );
+#endif /* EXTRA_DIAGNOSTICS */
+                timeoutWorkerWakeCondition.notify_one();
+            }
         }
         QueueSerializedMessageToBeSent(message.Serialize(), instanceNumber, now, timeout);
     }
@@ -142,8 +151,7 @@ namespace Raft {
         const auto leadershipChangeEvent = std::make_shared< LeadershipChangeEvent >();
         leadershipChangeEvent->leaderId = leaderId;
         leadershipChangeEvent->term = term;
-        shared->eventQueue.push(leadershipChangeEvent);
-        workerAskedToStopOrWakeUp.notify_one();
+        AddToEventQueue(std::move(leadershipChangeEvent));
     }
 
     void Server::Impl::QueueElectionStateChangeAnnouncement() {
@@ -152,8 +160,7 @@ namespace Raft {
         electionStateEvent->electionState = shared->electionState;
         electionStateEvent->didVote = shared->persistentStateCache.votedThisTerm;
         electionStateEvent->votedFor = shared->persistentStateCache.votedFor;
-        shared->eventQueue.push(electionStateEvent);
-        workerAskedToStopOrWakeUp.notify_one();
+        AddToEventQueue(std::move(electionStateEvent));
     }
 
     void Server::Impl::QueueConfigAppliedAnnouncement(
@@ -161,8 +168,7 @@ namespace Raft {
     ) {
         const auto applyConfigurationEvent = std::make_shared< ApplyConfigurationEvent >();
         applyConfigurationEvent->newConfig = newConfiguration;
-        shared->eventQueue.push(applyConfigurationEvent);
-        workerAskedToStopOrWakeUp.notify_one();
+        AddToEventQueue(std::move(applyConfigurationEvent));
     }
 
     void Server::Impl::QueueConfigCommittedAnnouncement(
@@ -172,14 +178,12 @@ namespace Raft {
         const auto commitConfigurationEvent = std::make_shared< CommitConfigurationEvent >();
         commitConfigurationEvent->newConfig = newConfiguration;
         commitConfigurationEvent->logIndex = logIndex;
-        shared->eventQueue.push(commitConfigurationEvent);
-        workerAskedToStopOrWakeUp.notify_one();
+        AddToEventQueue(std::move(commitConfigurationEvent));
     }
 
     void Server::Impl::QueueCaughtUpAnnouncement() {
         const auto caughtUpEvent = std::make_shared< CaughtUpEvent >();
-        shared->eventQueue.push(caughtUpEvent);
-        workerAskedToStopOrWakeUp.notify_one();
+        AddToEventQueue(std::move(caughtUpEvent));
     }
 
     void Server::Impl::QueueSnapshotAnnouncement(
@@ -191,8 +195,7 @@ namespace Raft {
         snapshotInstalledEvent->snapshot = std::move(snapshot);
         snapshotInstalledEvent->lastIncludedIndex = lastIncludedIndex;
         snapshotInstalledEvent->lastIncludedTerm = lastIncludedTerm;
-        shared->eventQueue.push(snapshotInstalledEvent);
-        workerAskedToStopOrWakeUp.notify_one();
+        AddToEventQueue(std::move(snapshotInstalledEvent));
     }
 
     void Server::Impl::ResetRetransmissionState() {
@@ -463,19 +466,24 @@ namespace Raft {
         }
     }
 
-    void Server::Impl::ProcessEventQueue(
-        std::unique_lock< decltype(shared->mutex) >& lock
+    void Server::Impl::AddToEventQueue(
+        std::shared_ptr< Raft::IServer::Event >&& event
     ) {
-        decltype(shared->eventQueue) eventQueue;
-        eventQueue.swap(shared->eventQueue);
+        std::lock_guard< decltype(eventQueueMutex) > lock(eventQueueMutex);
+        shared->eventQueue.Add(std::move(event));
+        eventQueueWorkerWakeCondition.notify_one();
+    }
+
+    void Server::Impl::ProcessEventQueue(
+        std::unique_lock< decltype(eventQueueMutex) >& lock
+    ) {
         auto eventSubscribers = shared->eventSubscribers;
         lock.unlock();
-        while (!eventQueue.empty()) {
-            const auto event = eventQueue.front();
+        while (!shared->eventQueue.IsEmpty()) {
+            const auto event = shared->eventQueue.Remove();
             for (auto eventSubscriber: eventSubscribers) {
                 eventSubscriber.second(*event);
             }
-            eventQueue.pop();
         }
         lock.lock();
     }
@@ -491,9 +499,18 @@ namespace Raft {
     }
 
     void Server::Impl::RevertToFollower() {
-        ResetRetransmissionState();
-        shared->electionState = IServer::ElectionState::Follower;
-        shared->configChangePending = false;
+        if (shared->electionState != IServer::ElectionState::Follower) {
+            shared->electionState = IServer::ElectionState::Follower;
+            shared->configChangePending = false;
+            ResetRetransmissionState();
+#ifdef EXTRA_DIAGNOSTICS
+            shared->diagnosticsSender.SendDiagnosticInformationString(
+                2,
+                "Reverted to follower"
+            );
+#endif /* EXTRA_DIAGNOSTICS */
+            timeoutWorkerWakeCondition.notify_one();
+        }
         ResetElectionTimer();
     }
 
@@ -777,6 +794,11 @@ namespace Raft {
         if (shared->electionState == ElectionState::Leader) {
             StartConfigChangeIfNewServersHaveCaughtUp();
         }
+        shared->diagnosticsSender.SendDiagnosticInformationString(
+            3,
+            "Cluster configuration changed"
+        );
+        timeoutWorkerWakeCondition.notify_one();
     }
 
     void Server::Impl::OnReceiveRequestVote(
@@ -1498,33 +1520,113 @@ namespace Raft {
         StartConfigChangeIfNewServersHaveCaughtUp();
     }
 
-    void Server::Impl::WaitForWork(
+    void Server::Impl::WaitForTimeoutWork(
         std::unique_lock< decltype(shared->mutex) >& lock,
         std::future< void >& workerAskedToStop
     ) {
-        const auto rpcTimeoutMilliseconds = (int)(
-            std::min(
-                shared->serverConfiguration.rpcTimeout,
-                shared->serverConfiguration.heartbeatInterval
-            ) * 1000.0
-        );
-        (void)workerAskedToStopOrWakeUp.wait_for(
-            lock,
-            std::chrono::milliseconds(rpcTimeoutMilliseconds),
-            [this, &workerAskedToStop]{
-                return (
-                    (
-                        workerAskedToStop.wait_for(std::chrono::seconds(0))
-                        == std::future_status::ready
-                    )
-                    || (shared->workerLoopCompletion != nullptr)
-                    || !shared->eventQueue.empty()
+        const auto predicate = [this, &workerAskedToStop]{
+            return (
+                (
+                    workerAskedToStop.wait_for(std::chrono::seconds(0))
+                    == std::future_status::ready
+                )
+                || (shared->workerLoopCompletion != nullptr)
+            );
+        };
+        while (!predicate()) {
+            nextWakeupTime = std::numeric_limits< double >::max();
+            if (shared->electionState == IServer::ElectionState::Leader) {
+                const auto nextHeartbeatTimeout = (
+                    shared->timeOfLastLeaderMessage
+                    + shared->serverConfiguration.heartbeatInterval
                 );
+                nextWakeupTime = std::min(nextWakeupTime, nextHeartbeatTimeout);
+#ifdef EXTRA_DIAGNOSTICS
+                shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                    0,
+                    "Next heartbeat timeout is in %lf",
+                    nextHeartbeatTimeout - timeKeeper->GetCurrentTime()
+                );
+#endif /* EXTRA_DIAGNOSTICS */
+                for (auto instanceId: GetInstanceIds()) {
+                    const auto& instance = shared->instances[instanceId];
+                    if (instance.awaitingResponse) {
+                        const auto nextRetransmissionTimeout = (
+                            instance.timeLastRequestSent
+                            + instance.timeout
+                        );
+#ifdef EXTRA_DIAGNOSTICS
+                        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                            0,
+                            "Next retransmission timeout for server %d is in %lf",
+                            instanceId,
+                            nextRetransmissionTimeout - timeKeeper->GetCurrentTime()
+                        );
+#endif /* EXTRA_DIAGNOSTICS */
+                        nextWakeupTime = std::min(nextWakeupTime, nextRetransmissionTimeout);
+                    }
+                }
+            } else {
+                if (
+                    shared->isVotingMember
+                    && !shared->processingMessageFromLeader
+                ) {
+                    const auto nextElectionTimeout = (
+                        shared->timeOfLastLeaderMessage
+                        + shared->currentElectionTimeout
+                    );
+#ifdef EXTRA_DIAGNOSTICS
+                    shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        "Next election timeout is in %lf",
+                        nextElectionTimeout - timeKeeper->GetCurrentTime()
+                    );
+#endif /* EXTRA_DIAGNOSTICS */
+                    nextWakeupTime = std::min(nextWakeupTime, nextElectionTimeout);
+                }
             }
-        );
+            if (nextWakeupTime == std::numeric_limits< double >::max()) {
+                (void)timeoutWorkerWakeCondition.wait(
+                    lock,
+                    predicate
+                );
+            } else {
+                const auto sleepTimeMilliseconds = (int)ceil(
+                    (nextWakeupTime - timeKeeper->GetCurrentTime())
+                    * 1000.0
+                );
+                if (sleepTimeMilliseconds > 0) {
+#ifdef EXTRA_DIAGNOSTICS
+                    shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+                        0,
+                        "Waiting for next timeout in %d milliseconds",
+                        sleepTimeMilliseconds
+                    );
+#endif /* EXTRA_DIAGNOSTICS */
+                    const auto now = std::chrono::system_clock::now();
+                    if (
+                        timeoutWorkerWakeCondition.wait_until(
+                            lock,
+                            now + std::chrono::milliseconds(sleepTimeMilliseconds)
+                        )
+                        == std::cv_status::timeout
+                    ) {
+                        break;
+                    }
+                } else {
+#ifdef EXTRA_DIAGNOSTICS
+                    shared->diagnosticsSender.SendDiagnosticInformationString(
+                        0,
+                        "Next timeout is now!"
+                    );
+#endif /* EXTRA_DIAGNOSTICS */
+                    break;
+                }
+            }
+        }
     }
 
-    void Server::Impl::WorkerLoopBody(
+    void Server::Impl::TimeoutWorkerLoopBody(
         std::unique_lock< decltype(shared->mutex) >& lock
     ) {
         const auto now = timeKeeper->GetCurrentTime();
@@ -1554,26 +1656,25 @@ namespace Raft {
             }
         }
         QueueRetransmissionsToBeSent(now);
-        ProcessEventQueue(lock);
     }
 
-    void Server::Impl::Worker() {
+    void Server::Impl::TimeoutWorker() {
         std::unique_lock< decltype(shared->mutex) > lock(shared->mutex);
         shared->diagnosticsSender.SendDiagnosticInformationString(
             0,
-            "Worker thread started"
+            "Timeout worker thread started"
         );
         ResetElectionTimer();
-        auto workerAskedToStop = stopWorker.get_future();
+        auto workerAskedToStop = stopTimeoutWorker.get_future();
         while (
             workerAskedToStop.wait_for(std::chrono::seconds(0))
             != std::future_status::ready
         ) {
-            WaitForWork(lock, workerAskedToStop);
+            WaitForTimeoutWork(lock, workerAskedToStop);
             const auto signalWorkerLoopCompleted = (
                 shared->workerLoopCompletion != nullptr
             );
-            WorkerLoopBody(lock);
+            TimeoutWorkerLoopBody(lock);
             if (signalWorkerLoopCompleted) {
                 shared->workerLoopCompletion->set_value();
                 shared->workerLoopCompletion = nullptr;
@@ -1585,7 +1686,31 @@ namespace Raft {
         }
         shared->diagnosticsSender.SendDiagnosticInformationString(
             0,
-            "Worker thread stopping"
+            "Timeout worker thread stopping"
+        );
+    }
+
+    void Server::Impl::EventQueueWorker() {
+        std::unique_lock< decltype(eventQueueMutex) > lock(eventQueueMutex);
+        shared->diagnosticsSender.SendDiagnosticInformationString(
+            0,
+            "Event queue worker thread started"
+        );
+        while (!stopEventQueueWorker) {
+            eventQueueWorkerWakeCondition.wait(
+                lock,
+                [this]{
+                    return (
+                        stopEventQueueWorker
+                        || !shared->eventQueue.IsEmpty()
+                    );
+                }
+            );
+            ProcessEventQueue(lock);
+        }
+        shared->diagnosticsSender.SendDiagnosticInformationString(
+            0,
+            "Event queue worker thread stopping"
         );
     }
 

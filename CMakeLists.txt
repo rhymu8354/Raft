@@ -44,6 +44,7 @@ endif(RAFT_EXTRA_DIAGNOSTICS)
 target_include_directories(${This} PUBLIC include)
 
 target_link_libraries(${This} PUBLIC
+    AsyncData
     Json
     Serialization
     SystemAbstractions

@@ -45,22 +45,49 @@ namespace Raft {
         std::shared_ptr< TimeKeeper > timeKeeper;
 
         /**
-         * This thread performs any background tasks required of the
-         * server, such as starting an election if no message is received
-         * from the cluster leader before the next timeout.
+         * This thread performs any jobs needed when anything times out,
+         * such as the election timer, retransmission timers, etc.
          */
-        std::thread worker;
+        std::thread timeoutWorker;
 
         /**
-         * This is set when the worker thread should stop.
+         * This is set when the timeout worker thread should stop.
          */
-        std::promise< void > stopWorker;
+        std::promise< void > stopTimeoutWorker;
 
         /**
-         * This is notified whenever the thread is asked to stop or to
-         * wake up.
+         * This is notified whenever the timeout worker thread is asked to stop
+         * or to wake up.
          */
-        std::condition_variable_any workerAskedToStopOrWakeUp;
+        std::condition_variable_any timeoutWorkerWakeCondition;
+
+        /**
+         * This is the time, according to the server's timekeeper, when
+         * the the timeout worker thread is due to wake up next.
+         */
+        double nextWakeupTime = std::numeric_limits< double >::max();
+
+        /**
+         * This thread publishes any events in the event queue.
+         */
+        std::thread eventQueueWorker;
+
+        /**
+         * This is notified whenever the event queue is no longer empty,
+         * and when the event queue worker thread should stop.
+         */
+        std::condition_variable eventQueueWorkerWakeCondition;
+
+        /**
+         * This is used to synchronize access to the event queue worker thread.
+         */
+        std::mutex eventQueueMutex;
+
+        /**
+         * This indicates whether or not the event queue worker thread should
+         * stop.
+         */
+        bool stopEventQueueWorker = false;
 
         // Methods
 
@@ -383,6 +410,8 @@ namespace Raft {
             std::unique_lock< decltype(shared->mutex) >& lock
         );
 
+        void AddToEventQueue(std::shared_ptr< Raft::IServer::Event >&& event);
+
         /**
          * Empty out the event queue, processing each event in order.
          *
@@ -391,7 +420,7 @@ namespace Raft {
          *     properties of the server.
          */
         void ProcessEventQueue(
-            std::unique_lock< decltype(shared->mutex) >& lock
+            std::unique_lock< decltype(eventQueueMutex) >& lock
         );
 
         /**
@@ -628,7 +657,7 @@ namespace Raft {
          *     This is the receiving end of the promise made by the overall
          *     class to tell the worker thread to stop.
          */
-        void WaitForWork(
+        void WaitForTimeoutWork(
             std::unique_lock< decltype(shared->mutex) >& lock,
             std::future< void >& workerAskedToStop
         );
@@ -640,7 +669,7 @@ namespace Raft {
          *     This is the object used to manage the shared properties mutex in
          *     the worker thread.
          */
-        void WorkerLoopBody(
+        void TimeoutWorkerLoopBody(
             std::unique_lock< decltype(shared->mutex) >& lock
         );
 
@@ -649,7 +678,13 @@ namespace Raft {
          * the Server, such as starting an election if no message is received
          * from the cluster leader before the next timeout.
          */
-        void Worker();
+        void TimeoutWorker();
+
+        /**
+         * This runs in a thread which publishes any events pushed into
+         * the event queue.
+         */
+        void EventQueueWorker();
     };
 
 }

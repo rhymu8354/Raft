@@ -14,6 +14,7 @@
 #include "Message.hpp"
 
 #include <algorithm>
+#include <AsyncData/MultiProducerSingleConsumerQueue.hpp>
 #include <future>
 #include <map>
 #include <mutex>
@@ -109,7 +110,9 @@ namespace Raft {
          * This holds events to be published by the server in its worker
          * thread.
          */
-        std::queue< std::shared_ptr< Raft::IServer::Event > > eventQueue;
+        AsyncData::MultiProducerSingleConsumerQueue<
+            std::shared_ptr< Raft::IServer::Event >
+        > eventQueue;
 
         /**
          * If this is not nullptr, then the worker thread should set the result

@@ -67,7 +67,7 @@ namespace Raft {
         std::unique_lock< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
         impl_->shared->workerLoopCompletion = std::make_shared< std::promise< void > >();
         auto workerLoopWasCompleted = impl_->shared->workerLoopCompletion->get_future();
-        impl_->workerAskedToStopOrWakeUp.notify_one();
+        impl_->timeoutWorkerWakeCondition.notify_one();
         lock.unlock();
         workerLoopWasCompleted.wait();
     }
@@ -157,7 +157,7 @@ namespace Raft {
         const ServerConfiguration& serverConfiguration
     ) {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        if (impl_->worker.joinable()) {
+        if (impl_->timeoutWorker.joinable()) {
             return;
         }
         impl_->shared->logKeeper = logKeeper;
@@ -174,19 +174,30 @@ namespace Raft {
         impl_->shared->lastIndex = 0;
         impl_->SetLastIndex(logKeeper->GetLastIndex());
         ResetStatistics();
-        impl_->stopWorker = std::promise< void >();
-        impl_->worker = std::thread(&Impl::Worker, impl_.get());
+        impl_->stopTimeoutWorker = std::promise< void >();
+        impl_->timeoutWorker = std::thread(&Impl::TimeoutWorker, impl_.get());
+        impl_->eventQueueWorker = std::thread(&Impl::EventQueueWorker, impl_.get());
     }
 
     void Server::Demobilize() {
-        std::unique_lock< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        if (!impl_->worker.joinable()) {
-            return;
+        {
+            std::unique_lock< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+            if (impl_->timeoutWorker.joinable()) {
+                impl_->stopTimeoutWorker.set_value();
+                impl_->timeoutWorkerWakeCondition.notify_one();
+                lock.unlock();
+                impl_->timeoutWorker.join();
+            }
         }
-        impl_->stopWorker.set_value();
-        impl_->workerAskedToStopOrWakeUp.notify_one();
-        lock.unlock();
-        impl_->worker.join();
+        {
+            std::unique_lock< decltype(impl_->eventQueueMutex) > lock(impl_->eventQueueMutex);
+            if (impl_->eventQueueWorker.joinable()) {
+                impl_->stopEventQueueWorker = true;
+                impl_->eventQueueWorkerWakeCondition.notify_one();
+                lock.unlock();
+                impl_->eventQueueWorker.join();
+            }
+        }
         impl_->shared->persistentStateKeeper = nullptr;
         impl_->shared->logKeeper = nullptr;
     }
