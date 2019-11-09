@@ -22,7 +22,6 @@
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
 #include <stddef.h>
-#include <SystemAbstractions/StringExtensions.hpp>
 #include <vector>
 
 namespace ServerTests {

@@ -24,6 +24,7 @@ target_link_libraries(${This} PUBLIC
     gtest_main
     Json
     Raft
+    StringExtensions
     SystemAbstractions
 )
 

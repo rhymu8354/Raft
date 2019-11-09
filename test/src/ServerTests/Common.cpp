@@ -18,7 +18,7 @@
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
 #include <stddef.h>
-#include <SystemAbstractions/StringExtensions.hpp>
+#include <StringExtensions/StringExtensions.hpp>
 #include <vector>
 
 namespace ServerTests {
@@ -363,7 +363,7 @@ namespace ServerTests {
                 std::string message
             ){
                 diagnosticMessages.push_back(
-                    SystemAbstractions::sprintf(
+                    StringExtensions::sprintf(
                         "%s[%zu]: %s",
                         senderName.c_str(),
                         level,
