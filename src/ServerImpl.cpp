@@ -20,11 +20,28 @@
 #include <Raft/Server.hpp>
 #include <Raft/TimeKeeper.hpp>
 #include <random>
+#include <set>
 #include <sstream>
 #include <SystemAbstractions/CryptoRandom.hpp>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
 #include <thread>
 #include <time.h>
+
+namespace {
+
+    /**
+     * This is the maximum number of broadcast time samples to measure
+     * before dropping old measurements.
+     */
+    constexpr size_t NUM_BROADCAST_TIME_SAMPLES = 1024;
+
+    /**
+     * This is the maximum number of time between leader messages samples to
+     * measure before dropping old measurements.
+     */
+    constexpr size_t NUM_TIME_BETWEEN_LEADER_MESSAGES_SAMPLES = 1024;
+
+}
 
 namespace Raft {
 
@@ -48,6 +65,34 @@ namespace Raft {
         shared->broadcastTimeMeasurements[shared->nextBroadcastTimeMeasurementIndex] = measurement;
         if (++shared->nextBroadcastTimeMeasurementIndex == shared->broadcastTimeMeasurements.size()) {
             shared->nextBroadcastTimeMeasurementIndex = 0;
+        }
+    }
+
+    void Server::Impl::MeasureTimeBetweenLeaderMessages() {
+        const auto now = timeKeeper->GetCurrentTime();
+        const auto lastTime = shared->timeLastMessageReceivedFromLeader;
+        shared->timeLastMessageReceivedFromLeader = now;
+        if (lastTime == 0.0) {
+            return;
+        }
+        const auto measurement = (uintmax_t)(ceil((now - lastTime) * 1000000.0));
+        if (shared->numTimeBetweenLeaderMessagesMeasurements == 0) {
+            shared->minTimeBetweenLeaderMessages = measurement;
+            shared->maxTimeBetweenLeaderMessages = measurement;
+            ++shared->numTimeBetweenLeaderMessagesMeasurements;
+        } else {
+            shared->minTimeBetweenLeaderMessages = std::min(shared->minTimeBetweenLeaderMessages, measurement);
+            shared->maxTimeBetweenLeaderMessages = std::max(shared->maxTimeBetweenLeaderMessages, measurement);
+            if (shared->numTimeBetweenLeaderMessagesMeasurements == shared->timeBetweenLeaderMessagesMeasurements.size()) {
+                shared->timeBetweenLeaderMessagesMeasurementsSum -= shared->timeBetweenLeaderMessagesMeasurements[shared->nextTimeBetweenLeaderMessagesMeasurementIndex];
+            } else {
+                ++shared->numTimeBetweenLeaderMessagesMeasurements;
+            }
+        }
+        shared->timeBetweenLeaderMessagesMeasurementsSum += measurement;
+        shared->timeBetweenLeaderMessagesMeasurements[shared->nextTimeBetweenLeaderMessagesMeasurementIndex] = measurement;
+        if (++shared->nextTimeBetweenLeaderMessagesMeasurementIndex == shared->timeBetweenLeaderMessagesMeasurements.size()) {
+            shared->nextTimeBetweenLeaderMessagesMeasurementIndex = 0;
         }
     }
 
@@ -86,6 +131,19 @@ namespace Raft {
             shared->serverConfiguration.minimumElectionTimeout,
             shared->serverConfiguration.maximumElectionTimeout
         )(shared->rng);
+    }
+
+    void Server::Impl::ResetStatistics() {
+        shared->broadcastTimeMeasurements.resize(NUM_BROADCAST_TIME_SAMPLES);
+        shared->numBroadcastTimeMeasurements = 0;
+        shared->broadcastTimeMeasurementsSum = 0;
+        shared->minBroadcastTime = 0;
+        shared->maxBroadcastTime = 0;
+        shared->timeBetweenLeaderMessagesMeasurements.resize(NUM_TIME_BETWEEN_LEADER_MESSAGES_SAMPLES);
+        shared->numTimeBetweenLeaderMessagesMeasurements = 0;
+        shared->timeBetweenLeaderMessagesMeasurementsSum = 0;
+        shared->minTimeBetweenLeaderMessages = 0;
+        shared->maxTimeBetweenLeaderMessages = 0;
     }
 
     void Server::Impl::QueueSerializedMessageToBeSent(
@@ -492,6 +550,12 @@ namespace Raft {
         if (shared->persistentStateCache.currentTerm == newTerm) {
             return;
         }
+        shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+            1,
+            "Updating term (was %d, now %d)",
+            shared->persistentStateCache.currentTerm,
+            newTerm
+        );
         shared->thisTermLeaderAnnounced = false;
         shared->persistentStateCache.currentTerm = newTerm;
         shared->persistentStateCache.votedThisTerm = false;
@@ -500,6 +564,7 @@ namespace Raft {
 
     void Server::Impl::RevertToFollower() {
         if (shared->electionState != IServer::ElectionState::Follower) {
+            ResetStatistics();
             shared->electionState = IServer::ElectionState::Follower;
             shared->configChangePending = false;
             ResetRetransmissionState();
@@ -826,7 +891,6 @@ namespace Raft {
         if (message.term > shared->persistentStateCache.currentTerm) {
             UpdateCurrentTerm(message.term);
             RevertToFollower();
-            QueueElectionStateChangeAnnouncement();
         }
         if (!shared->isVotingMember) {
             shared->diagnosticsSender.SendDiagnosticInformationFormatted(
@@ -836,6 +900,7 @@ namespace Raft {
                 message.term,
                 termBeforeMessageProcessed
             );
+            QueueElectionStateChangeAnnouncement();
             return;
         }
         Message response;
@@ -896,6 +961,7 @@ namespace Raft {
             shared->persistentStateCache.votedFor = senderInstanceNumber;
             shared->persistentStateKeeper->Save(shared->persistentStateCache);
         }
+        QueueElectionStateChangeAnnouncement();
         SerializeAndQueueMessageToBeSent(response, senderInstanceNumber, now);
     }
 
@@ -1102,6 +1168,7 @@ namespace Raft {
                 }
             }
             RevertToFollower();
+            MeasureTimeBetweenLeaderMessages();
             if (electionStateChanged) {
                 QueueElectionStateChangeAnnouncement();
             }

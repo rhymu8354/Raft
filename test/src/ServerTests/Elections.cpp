@@ -372,7 +372,7 @@ namespace ServerTests {
         EXPECT_NE(electionTimeout, server.GetElectionTimeout());
     }
 
-    TEST_F(ServerTests_Elections, ReceiveVoteRequestWhenSameTermNoVotePending) {
+    TEST_F(ServerTests_Elections, Receive_Vote_Request_When_No_Vote_Pending) {
         // Arrange
         MobilizeServer();
 
@@ -396,6 +396,17 @@ namespace ServerTests {
         EXPECT_EQ(42, messagesSent[0].message.term);
         EXPECT_EQ(7, messagesSent[0].message.seq);
         EXPECT_TRUE(messagesSent[0].message.requestVoteResults.voteGranted);
+        EXPECT_EQ(
+            std::vector< Json::Value >({
+                Json::Object({
+                    {"term", 42},
+                    {"electionState", "follower"},
+                    {"didVote", true},
+                    {"votedFor", 2},
+                }),
+            }),
+            electionStateChanges
+        );
     }
 
     TEST_F(ServerTests_Elections, ReceiveVoteRequestWhenOurLogIsGreaterTermNoSnapshot) {

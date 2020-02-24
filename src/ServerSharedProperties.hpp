@@ -251,6 +251,52 @@ namespace Raft {
         std::vector< uintmax_t > broadcastTimeMeasurements;
 
         /**
+         * This is the number of measurements of time between receipts of
+         * leader messages that have been taken since the server started or
+         * statistics were reset.
+         */
+        size_t numTimeBetweenLeaderMessagesMeasurements = 0;
+
+        /**
+         * This is the next index to set in the measurements of time between
+         * receipts of leader messages memory.
+         */
+        size_t nextTimeBetweenLeaderMessagesMeasurementIndex = 0;
+
+        /**
+         * This is the sum of all measurements of time between receipts of
+         * leader messages that have been made, in microseconds.
+         */
+        uintmax_t timeBetweenLeaderMessagesMeasurementsSum = 0;
+
+        /**
+         * This is the minimum measurement of time between receipts of leader
+         * messages, in microseconds, since the server started or statistics
+         * were reset.
+         */
+        uintmax_t minTimeBetweenLeaderMessages = 0;
+
+        /**
+         * This is the maximum measurement of time between receipts of leader
+         * messages, in microseconds, since the server started or statistics
+         * were reset.
+         */
+        uintmax_t maxTimeBetweenLeaderMessages = 0;
+
+        /**
+         * This holds onto the measurements of time between receipts of leader
+         * messages that have been made.  The measurements are stored in units
+         * of microseconds.
+         */
+        std::vector< uintmax_t > timeBetweenLeaderMessagesMeasurements;
+
+        /**
+         * This is the time, according to the configured time keeper,
+         * when the last message was received from the leader of the cluster.
+         */
+        double timeLastMessageReceivedFromLeader = 0.0;
+
+        /**
          * This is the initial "last index" of the leader, used to determine
          * when the server has "caught up" to the rest of the cluster.
          */

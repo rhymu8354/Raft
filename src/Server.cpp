@@ -26,16 +26,6 @@
 #include <thread>
 #include <time.h>
 
-namespace {
-
-    /**
-     * This is the maximum number of broadcast time samples to measure
-     * before dropping old measurements.
-     */
-    constexpr size_t NUM_BROADCAST_TIME_SAMPLES = 1024;
-
-}
-
 namespace Raft {
 
     Server::~Server() noexcept = default;
@@ -173,7 +163,7 @@ namespace Raft {
         impl_->shared->commitIndex = logKeeper->GetBaseIndex();
         impl_->shared->lastIndex = 0;
         impl_->SetLastIndex(logKeeper->GetLastIndex());
-        ResetStatistics();
+        impl_->ResetStatistics();
         impl_->stopTimeoutWorker = std::promise< void >();
         impl_->timeoutWorker = std::thread(&Impl::TimeoutWorker, impl_.get());
         impl_->eventQueueWorker = std::thread(&Impl::EventQueueWorker, impl_.get());
@@ -302,26 +292,38 @@ namespace Raft {
 
     void Server::ResetStatistics() {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->shared->broadcastTimeMeasurements.resize(NUM_BROADCAST_TIME_SAMPLES);
-        impl_->shared->numBroadcastTimeMeasurements = 0;
-        impl_->shared->broadcastTimeMeasurementsSum = 0;
-        impl_->shared->minBroadcastTime = 0;
-        impl_->shared->maxBroadcastTime = 0;
+        impl_->ResetStatistics();
     }
 
     Json::Value Server::GetStatistics() {
         std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        return Json::Object({
-            {"minBroadcastTime", (double)impl_->shared->minBroadcastTime / 1000000.0},
-            {
-                "avgBroadcastTime", (
-                    (impl_->shared->numBroadcastTimeMeasurements == 0)
-                    ? 0.0
-                    : (double)impl_->shared->broadcastTimeMeasurementsSum / (double)impl_->shared->numBroadcastTimeMeasurements / 1000000.0
-                )
-            },
-            {"maxBroadcastTime", (double)impl_->shared->maxBroadcastTime / 1000000.0},
-        });
+        if (impl_->shared->electionState == ElectionState::Leader) {
+            return Json::Object({
+                {"minBroadcastTime", (double)impl_->shared->minBroadcastTime / 1000000.0},
+                {
+                    "avgBroadcastTime", (
+                        (impl_->shared->numBroadcastTimeMeasurements == 0)
+                        ? 0.0
+                        : (double)impl_->shared->broadcastTimeMeasurementsSum / (double)impl_->shared->numBroadcastTimeMeasurements / 1000000.0
+                    )
+                },
+                {"maxBroadcastTime", (double)impl_->shared->maxBroadcastTime / 1000000.0},
+            });
+        } else {
+            const auto now = impl_->timeKeeper->GetCurrentTime();
+            return Json::Object({
+                {"minTimeBetweenLeaderMessages", (double)impl_->shared->minTimeBetweenLeaderMessages / 1000000.0},
+                {
+                    "avgTimeBetweenLeaderMessages", (
+                        (impl_->shared->numTimeBetweenLeaderMessagesMeasurements == 0)
+                        ? 0.0
+                        : (double)impl_->shared->timeBetweenLeaderMessagesMeasurementsSum / (double)impl_->shared->numTimeBetweenLeaderMessagesMeasurements / 1000000.0
+                    )
+                },
+                {"maxTimeBetweenLeaderMessages", (double)impl_->shared->maxTimeBetweenLeaderMessages / 1000000.0},
+                {"timeSinceLastLeaderMessage", now - impl_->shared->timeLastMessageReceivedFromLeader},
+            });
+        }
     }
 
 }

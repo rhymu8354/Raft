@@ -1010,14 +1010,22 @@ namespace ServerTests {
         EXPECT_FALSE(mockLog->invalidEntryIndexed);
     }
 
-    TEST_F(ServerTests_Replication, MeasureBroadcastTime) {
+    TEST_F(ServerTests_Replication, Measure_Broadcast_Time) {
         // Arrange
+        //
+        // Server IDs:  {2, 5, 6, 7, 11}
+        // Leader:          ^
         BecomeLeader(1);
         server.ResetStatistics();
         mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
         server.WaitForAtLeastOneWorkerLoop();
 
         // Act
+        // first instance (2):  0.001 seconds
+        // second instance (5): (leader - no measurement)
+        // third instance (6):  0.002 seconds
+        // fourth instance (7): 0.003 seconds
+        // fifth instance (11): 0.004 seconds
         for (auto instance: clusterConfiguration.instanceIds) {
             if (instance != serverConfiguration.selfInstanceId) {
                 mockTimeKeeper->currentTime += 0.001;
@@ -1030,6 +1038,38 @@ namespace ServerTests {
         EXPECT_NEAR(0.001, (double)stats["minBroadcastTime"], 0.0001);
         EXPECT_NEAR(0.0025, (double)stats["avgBroadcastTime"], 0.0001);
         EXPECT_NEAR(0.004, (double)stats["maxBroadcastTime"], 0.0001);
+    }
+
+    TEST_F(ServerTests_Replication, Measure_Time_Between_Messages) {
+        // Arrange
+        //
+        // Server IDs:  {2, 5, 6, 7, 11}
+        // Leader:       ^
+        // Us:              ^
+        constexpr int leaderId = 2;
+        constexpr int term = 5;
+        MobilizeServer();
+        mockTimeKeeper->currentTime = 42.0;
+        ReceiveAppendEntriesFromMockLeader(leaderId, term);
+
+        // Act
+        mockTimeKeeper->currentTime += 0.001;
+        ReceiveAppendEntriesFromMockLeader(leaderId, term);
+        mockTimeKeeper->currentTime += 0.002;
+        ReceiveAppendEntriesFromMockLeader(leaderId, term);
+        mockTimeKeeper->currentTime += 0.003;
+        ReceiveAppendEntriesFromMockLeader(leaderId, term);
+        mockTimeKeeper->currentTime += 0.004;
+        ReceiveAppendEntriesFromMockLeader(leaderId, term);
+        mockTimeKeeper->currentTime += 0.005;
+        server.WaitForAtLeastOneWorkerLoop();
+
+        // Assert
+        const auto stats = server.GetStatistics();
+        EXPECT_NEAR(0.001, (double)stats["minTimeBetweenLeaderMessages"], 0.0001);
+        EXPECT_NEAR(0.0025, (double)stats["avgTimeBetweenLeaderMessages"], 0.0001);
+        EXPECT_NEAR(0.004, (double)stats["maxTimeBetweenLeaderMessages"], 0.0001);
+        EXPECT_NEAR(0.005, (double)stats["timeSinceLastLeaderMessage"], 0.0001);
     }
 
     TEST_F(ServerTests_Replication, LeaderDeclareCaughtUpOnceCommitIndexReachesInitialLeaderLastIndex) {

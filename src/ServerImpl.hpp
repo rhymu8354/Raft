@@ -103,6 +103,13 @@ namespace Raft {
         void MeasureBroadcastTime(double sendTime);
 
         /**
+         * Update time between leader messages statistics by adding the next
+         * measurement, which is the difference between the current time and
+         * the time when the server last received a message from the leader.
+         */
+        void MeasureTimeBetweenLeaderMessages();
+
+        /**
          * Return the set of identifiers for the instances currently involved
          * with the cluster.
          *
@@ -135,6 +142,8 @@ namespace Raft {
          * picks a new election timeout.
          */
         void ResetElectionTimer();
+
+        void ResetStatistics();
 
         /**
          * This method queues the given serialized message to be sent later
