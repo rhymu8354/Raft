@@ -1,12 +1,11 @@
-#ifndef RAFT_CLUSTER_CONFIGURATION_HPP
-#define RAFT_CLUSTER_CONFIGURATION_HPP
+#pragma once
 
 /**
  * @file ClusterConfiguration.hpp
  *
  * This module declares the Raft::ClusterConfiguration structure.
  *
- * © 2018 by Richard Walters
+ * © 2018-2020 by Richard Walters
  */
 
 #include <set>
@@ -25,5 +24,3 @@ namespace Raft {
     };
 
 }
-
-#endif /* RAFT_CLUSTER_CONFIGURATION_HPP */

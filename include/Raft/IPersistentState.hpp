@@ -1,12 +1,11 @@
-#ifndef RAFT_I_PERSISTENT_STATE_HPP
-#define RAFT_I_PERSISTENT_STATE_HPP
+#pragma once
 
 /**
  * @file IPersistentState.hpp
  *
  * This module declares the Raft::IPersistentState interface.
  *
- * © 2018 by Richard Walters
+ * © 2018-2020 by Richard Walters
  */
 
 namespace Raft {
@@ -69,5 +68,3 @@ namespace Raft {
     };
 
 }
-
-#endif /* RAFT_I_PERSISTENT_STATE_HPP */

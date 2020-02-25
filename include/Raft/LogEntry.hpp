@@ -1,12 +1,11 @@
-#ifndef RAFT_LOG_ENTRY_HPP
-#define RAFT_LOG_ENTRY_HPP
+#pragma once
 
 /**
  * @file LogEntry.hpp
  *
  * This module declares the Raft::LogEntry structure.
  *
- * © 2018 by Richard Walters
+ * © 2018-2020 by Richard Walters
  */
 
 #include "ClusterConfiguration.hpp"
@@ -177,5 +176,3 @@ namespace Raft {
     };
 
 }
-
-#endif /* RAFT_LOG_ENTRY_HPP */

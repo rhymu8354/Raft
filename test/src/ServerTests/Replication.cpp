@@ -4,7 +4,7 @@
  * This module contains the unit tests of the Raft::Server class that have
  * to do with replicating server state across the entire cluster.
  *
- * © 2019 by Richard Walters
+ * © 2019-2020 by Richard Walters
  */
 
 #include "Common.hpp"
@@ -20,7 +20,6 @@
 #include <Raft/IPersistentState.hpp>
 #include <Raft/LogEntry.hpp>
 #include <Raft/Server.hpp>
-#include <Raft/TimeKeeper.hpp>
 #include <stddef.h>
 #include <vector>
 
@@ -51,7 +50,6 @@ namespace ServerTests {
         // Act
         EXPECT_EQ(1, server.GetLastIndex());
         server.AppendLogEntries(entries);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_EQ(3, server.GetLastIndex());
@@ -96,7 +94,6 @@ namespace ServerTests {
 
         // Act
         server.AppendLogEntries({entry});
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         for (const auto& messageSent: messagesSent) {
@@ -149,7 +146,6 @@ namespace ServerTests {
 
         // Act
         server.AppendLogEntries(entries);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_EQ(0, server.GetCommitIndex());
@@ -163,7 +159,6 @@ namespace ServerTests {
         Raft::LogEntry secondEntry;
         secondEntry.term = 7;
         server.AppendLogEntries({firstEntry});
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Act
         for (auto instance: clusterConfiguration.instanceIds) {
@@ -173,7 +168,6 @@ namespace ServerTests {
             }
         }
         server.AppendLogEntries({secondEntry});
-        server.WaitForAtLeastOneWorkerLoop();
         size_t successfulResponseCount = 0;
         size_t responseCount = 0;
         for (auto instance: clusterConfiguration.instanceIds) {
@@ -239,7 +233,6 @@ namespace ServerTests {
 
         // Act
         server.AppendLogEntries(entries);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_TRUE(messagesSent.empty());
@@ -265,7 +258,7 @@ namespace ServerTests {
 
         // Act
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         for (const auto& messageSent: messagesSent) {
@@ -284,7 +277,7 @@ namespace ServerTests {
         AppendNoOpEntry(8);
         BecomeLeader(8);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Act
         messagesSent.clear();
@@ -308,7 +301,7 @@ namespace ServerTests {
         AppendNoOpEntry(3);
         BecomeLeader(8);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Act
         messagesSent.clear();
@@ -328,7 +321,7 @@ namespace ServerTests {
         AppendNoOpEntry(3);
         BecomeLeader(8);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Act
         messagesSent.clear();
@@ -349,12 +342,11 @@ namespace ServerTests {
         testEntry.term = 2;
         BecomeLeader(8);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Act
         messagesSent.clear();
         server.AppendLogEntries({testEntry});
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         for (const auto& messageSent: messagesSent) {
@@ -372,13 +364,12 @@ namespace ServerTests {
         AppendNoOpEntry(2);
         BecomeLeader(8);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
         ReceiveAppendEntriesResults(2, 8, 0, false);
 
         // Act
         messagesSent.clear();
         server.AppendLogEntries({secondEntry});
-        server.WaitForAtLeastOneWorkerLoop();
         ReceiveAppendEntriesResults(2, 8, 1, true);
 
         // Assert
@@ -404,7 +395,7 @@ namespace ServerTests {
         AppendNoOpEntry(2);
         BecomeLeader(8);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Act
         messagesSent.clear();
@@ -424,7 +415,7 @@ namespace ServerTests {
 
         // Act
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         for (const auto& messageSent: messagesSent) {
@@ -445,7 +436,6 @@ namespace ServerTests {
                 ReceiveAppendEntriesResults(instance, 1, 42);
             }
         }
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         for (const auto& messageSent: messagesSent) {
@@ -462,10 +452,9 @@ namespace ServerTests {
 
         // Act
         server.AppendLogEntries({testEntry});
-        server.WaitForAtLeastOneWorkerLoop();
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         std::map< int, bool > appendEntriesReceivedPerInstance;
@@ -509,7 +498,7 @@ namespace ServerTests {
 
         // Act
         mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
         bool installSnapshotRetransmitSentAtRpcTimeout = false;
         for (const auto& messageSent: messagesSent) {
             if (
@@ -520,7 +509,7 @@ namespace ServerTests {
         }
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.installSnapshotTimeout + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         bool installSnapshotRetransmitSentAtInstallSnapshotTimeout = false;
@@ -542,7 +531,7 @@ namespace ServerTests {
         AppendNoOpEntry(8);
         BecomeLeader(8);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Act
         ReceiveAppendEntriesResults(2, 8, 1, false, 1);
@@ -559,13 +548,12 @@ namespace ServerTests {
         Raft::LogEntry testEntry;
         testEntry.term = 7;
         server.AppendLogEntries({testEntry});
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
         for (auto instance: clusterConfiguration.instanceIds) {
             if (instance != serverConfiguration.selfInstanceId) {
                 ReceiveAppendEntriesResults(instance, 7, 1);
             }
         }
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Act
         ReceiveAppendEntriesFromMockLeader(2, 8, 1);
@@ -603,7 +591,6 @@ namespace ServerTests {
         message.appendEntries.prevLogTerm = mockLog->baseTerm;
         message.log = {newConflictingEntry, nextEntry};
         server.ReceiveMessage(message.Serialize(), 2);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         ASSERT_EQ(2, mockLog->entries.size());
@@ -659,7 +646,6 @@ namespace ServerTests {
         message.appendEntries.prevLogTerm = 7;
         message.log = {nextEntry};
         server.ReceiveMessage(message.Serialize(), 2);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         ASSERT_EQ(1, mockLog->entries.size());
@@ -690,7 +676,6 @@ namespace ServerTests {
         message.appendEntries.prevLogTerm = 7;
         message.log = {nextEntry};
         server.ReceiveMessage(message.Serialize(), 2);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         ASSERT_EQ(0, mockLog->entries.size());
@@ -716,7 +701,6 @@ namespace ServerTests {
         message.appendEntries.prevLogIndex = 2;
         message.appendEntries.prevLogTerm = 8;
         server.ReceiveMessage(message.Serialize(), 2);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         ASSERT_EQ(1, mockLog->entries.size());
@@ -743,7 +727,6 @@ namespace ServerTests {
         message.appendEntries.prevLogIndex = 2;
         message.appendEntries.prevLogTerm = 8;
         server.ReceiveMessage(message.Serialize(), 2);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         ASSERT_EQ(2, mockLog->entries.size());
@@ -839,7 +822,7 @@ namespace ServerTests {
         while (mockTimeKeeper->currentTime <= serverConfiguration.maximumElectionTimeout * 2) {
             ReceiveAppendEntriesFromMockLeader(2, 2);
             mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2;
-            server.WaitForAtLeastOneWorkerLoop();
+            scheduler->WakeUp();
         }
 
         // Assert
@@ -918,7 +901,7 @@ namespace ServerTests {
         constexpr int term = 7;
         BecomeLeader(term);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Act
         ReceiveAppendEntriesResults(2, term + 1, 0, false);
@@ -946,13 +929,13 @@ namespace ServerTests {
         entry.command = std::move(command);
         BecomeLeader(term);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Act
         server.AppendLogEntries({entry});
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         for (const auto messageInfo: messagesSent) {
@@ -998,7 +981,6 @@ namespace ServerTests {
         entry.command = std::move(command);
         mockLog->entries = {entry};
         MobilizeServer();
-        server.WaitForAtLeastOneWorkerLoop();
         server.Demobilize();
         mockLog = std::make_shared< MockLog >();
 
@@ -1018,7 +1000,7 @@ namespace ServerTests {
         BecomeLeader(1);
         server.ResetStatistics();
         mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Act
         // first instance (2):  0.001 seconds
@@ -1029,6 +1011,7 @@ namespace ServerTests {
         for (auto instance: clusterConfiguration.instanceIds) {
             if (instance != serverConfiguration.selfInstanceId) {
                 mockTimeKeeper->currentTime += 0.001;
+                scheduler->WakeUp();
                 ReceiveAppendEntriesResults(instance, 1, 1);
             }
         }
@@ -1050,19 +1033,24 @@ namespace ServerTests {
         constexpr int term = 5;
         MobilizeServer();
         mockTimeKeeper->currentTime = 42.0;
+        scheduler->WakeUp();
         ReceiveAppendEntriesFromMockLeader(leaderId, term);
 
         // Act
         mockTimeKeeper->currentTime += 0.001;
+        scheduler->WakeUp();
         ReceiveAppendEntriesFromMockLeader(leaderId, term);
         mockTimeKeeper->currentTime += 0.002;
+        scheduler->WakeUp();
         ReceiveAppendEntriesFromMockLeader(leaderId, term);
         mockTimeKeeper->currentTime += 0.003;
+        scheduler->WakeUp();
         ReceiveAppendEntriesFromMockLeader(leaderId, term);
         mockTimeKeeper->currentTime += 0.004;
+        scheduler->WakeUp();
         ReceiveAppendEntriesFromMockLeader(leaderId, term);
         mockTimeKeeper->currentTime += 0.005;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         const auto stats = server.GetStatistics();
@@ -1089,7 +1077,6 @@ namespace ServerTests {
                 }
             }
         }
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_TRUE(caughtUp);
@@ -1114,7 +1101,6 @@ namespace ServerTests {
                 }
             }
         }
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_FALSE(caughtUp);
@@ -1134,7 +1120,6 @@ namespace ServerTests {
         // Act
         EXPECT_FALSE(caughtUp);
         ReceiveAppendEntriesFromMockLeader(leaderId, newTerm, 1);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_TRUE(caughtUp);
@@ -1256,7 +1241,6 @@ namespace ServerTests {
         message.appendEntries.prevLogTerm = 8;
         message.log = {newEntry};
         server.ReceiveMessage(message.Serialize(), 2);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_EQ(0, mockLog->entries.size());
@@ -1309,7 +1293,7 @@ namespace ServerTests {
         message.installSnapshotResults.matchIndex = 100;
         server.ReceiveMessage(message.Serialize(), 2);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         bool expectedMessageFound = false;
@@ -1348,7 +1332,6 @@ namespace ServerTests {
         message.term = 8;
         message.installSnapshotResults.matchIndex = 100;
         server.ReceiveMessage(message.Serialize(), 2);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         bool expectedMessageFound = false;
@@ -1388,7 +1371,6 @@ namespace ServerTests {
             {"foo", "bar"},
         });
         server.ReceiveMessage(message.Serialize(), leaderId);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         ASSERT_EQ(1, messagesSent.size());
@@ -1425,7 +1407,6 @@ namespace ServerTests {
             {"foo", "bar"},
         });
         server.ReceiveMessage(message.Serialize(), leaderId);
-        server.WaitForAtLeastOneWorkerLoop();
         messagesSent.clear();
         message.type = Raft::Message::Type::AppendEntries;
         message.term = term;
@@ -1433,7 +1414,6 @@ namespace ServerTests {
         message.appendEntries.prevLogIndex = 100;
         message.appendEntries.prevLogTerm = 3;
         server.ReceiveMessage(message.Serialize(), leaderId);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         ASSERT_EQ(1, messagesSent.size());
@@ -1468,7 +1448,6 @@ namespace ServerTests {
             {"foo", "bar"},
         });
         server.ReceiveMessage(message.Serialize(), leaderId);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         ASSERT_EQ(1, messagesSent.size());
@@ -1500,7 +1479,6 @@ namespace ServerTests {
         Raft::LogEntry testEntry;
         testEntry.term = 8;
         server.AppendLogEntries({testEntry});
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         for (const auto& messageSent: messagesSent) {

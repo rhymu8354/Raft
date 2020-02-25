@@ -1,12 +1,11 @@
-#ifndef RAFT_I_SERVER_HPP
-#define RAFT_I_SERVER_HPP
+#pragma once
 
 /**
  * @file IServer.hpp
  *
  * This module declares the Raft::IServer interface.
  *
- * © 2018 by Richard Walters
+ * © 2018-2020 by Richard Walters
  */
 
 #include "ClusterConfiguration.hpp"
@@ -20,6 +19,7 @@
 #include <set>
 #include <stddef.h>
 #include <string>
+#include <Timekeeping/Scheduler.hpp>
 #include <vector>
 
 namespace Raft {
@@ -407,6 +407,10 @@ namespace Raft {
          *     This is the object which is responsible for keeping
          *     the server state variables which need to be persistent.
          *
+         * @param[in] scheduler
+         *     This is the object used to track time for the server
+         *     and to schedule functions to be called at specific times.
+         *
          * @param[in] clusterConfiguration
          *     This holds the configuration items for the cluster.
          *
@@ -416,6 +420,7 @@ namespace Raft {
         virtual void Mobilize(
             std::shared_ptr< ILog > logKeeper,
             std::shared_ptr< IPersistentState > persistentStateKeeper,
+            std::shared_ptr< Timekeeping::Scheduler > scheduler,
             const ClusterConfiguration& clusterConfiguration,
             const ServerConfiguration& serverConfiguration
         ) = 0;
@@ -509,5 +514,3 @@ namespace Raft {
     );
 
 }
-
-#endif /* RAFT_I_SERVER_HPP */

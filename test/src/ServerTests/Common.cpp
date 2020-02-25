@@ -4,7 +4,7 @@
  * This module provides the implementation of the base fixture used to test the
  * Raft::Server class.
  *
- * © 2019 by Richard Walters
+ * © 2019-2020 by Richard Walters
  */
 
 #include "Common.hpp"
@@ -16,7 +16,6 @@
 #include <Raft/IPersistentState.hpp>
 #include <Raft/LogEntry.hpp>
 #include <Raft/Server.hpp>
-#include <Raft/TimeKeeper.hpp>
 #include <stddef.h>
 #include <StringExtensions/StringExtensions.hpp>
 #include <vector>
@@ -137,29 +136,54 @@ namespace ServerTests {
         ++saveCount;
     }
 
+    bool Common::AwaitMessagesSent(size_t numMessages) {
+        std::unique_lock< decltype(mutex) > lock(mutex);
+        if (messagesSent.size() >= numMessages) {
+            return true;
+        }
+        messagesAwaitedSent = std::promise< void >();
+        numMessagesAwaiting = numMessages;
+        lock.unlock();
+        const auto result = (
+            messagesAwaitedSent.get_future().wait_for(
+                std::chrono::milliseconds(100)
+            ) == std::future_status::ready
+        );
+        lock.lock();
+        numMessagesAwaiting = 0;
+        return result;
+    }
+
     void Common::ServerSentMessage(
         const std::string& message,
         int receiverInstanceNumber
     ) {
+        std::lock_guard< decltype(mutex) > lock(mutex);
         MessageInfo messageInfo;
         messageInfo.message = message;
         messageInfo.receiverInstanceNumber = receiverInstanceNumber;
         messagesSent.push_back(std::move(messageInfo));
+        if (
+            (numMessagesAwaiting > 0)
+            && (messagesSent.size() == numMessagesAwaiting)
+        ) {
+            messagesAwaitedSent.set_value();
+        }
     }
 
     void Common::MobilizeServer() {
         server.Mobilize(
             mockLog,
             mockPersistentState,
+            scheduler,
             clusterConfiguration,
             serverConfiguration
         );
-        server.WaitForAtLeastOneWorkerLoop();
     }
 
     void Common::AdvanceTimeToJustBeforeElectionTimeout() {
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout - 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
     }
 
     void Common::AppendNoOpEntry(int term) {
@@ -179,7 +203,6 @@ namespace ServerTests {
             message.term = term;
             message.requestVoteResults.voteGranted = granted;
             server.ReceiveMessage(message.Serialize(), instance);
-            server.WaitForAtLeastOneWorkerLoop();
         }
     }
 
@@ -217,7 +240,6 @@ namespace ServerTests {
         message.requestVote.lastLogTerm = lastLogTerm;
         message.requestVote.lastLogIndex = lastLogIndex;
         server.ReceiveMessage(message.Serialize(), instance);
-        server.WaitForAtLeastOneWorkerLoop();
     }
 
     void Common::ReceiveAppendEntriesFromMockLeader(
@@ -225,6 +247,7 @@ namespace ServerTests {
         int term,
         size_t leaderCommit
     ) {
+        messagesSent.clear();
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntries;
         message.term = term;
@@ -236,7 +259,7 @@ namespace ServerTests {
             : term
         );
         server.ReceiveMessage(message.Serialize(), leaderId);
-        server.WaitForAtLeastOneWorkerLoop();
+        (void)AwaitMessagesSent(1);
         messagesSent.clear();
     }
 
@@ -271,7 +294,6 @@ namespace ServerTests {
         }
         message.log = entries;
         server.ReceiveMessage(message.Serialize(), leaderId);
-        server.WaitForAtLeastOneWorkerLoop();
         if (clearMessagesSent) {
             messagesSent.clear();
         }
@@ -321,12 +343,13 @@ namespace ServerTests {
         message.appendEntriesResults.success = success;
         message.appendEntriesResults.matchIndex = matchIndex;
         server.ReceiveMessage(message.Serialize(), instance);
-        server.WaitForAtLeastOneWorkerLoop();
     }
 
     void Common::WaitForElectionTimeout() {
+        messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
+        (void)AwaitMessagesSent(4);
     }
 
     void Common::BecomeLeader(
@@ -355,7 +378,7 @@ namespace ServerTests {
     }
 
     void Common::SetServerDelegates() {
-        server.SetTimeKeeper(mockTimeKeeper);
+        scheduler->SetClock(mockTimeKeeper);
         diagnosticsUnsubscribeDelegate = server.SubscribeToDiagnostics(
             [this](
                 std::string senderName,
@@ -523,7 +546,7 @@ namespace ServerTests {
         EXPECT_TRUE(persistentStateDestroyed);
     }
 
-    TEST_F(ServerTests, TimeKeeperReleasedOnDestruction) {
+    TEST_F(ServerTests, Scheduler_Released_On_Destruction) {
         // Arrange
         bool timeKeeperDestroyed = false;
         const auto onTimeKeeperDestroyed = [&timeKeeperDestroyed]{
@@ -531,6 +554,7 @@ namespace ServerTests {
         };
         mockTimeKeeper->RegisterDestructionDelegate(onTimeKeeperDestroyed);
         MobilizeServer();
+        scheduler = nullptr;
         mockTimeKeeper = nullptr;
 
         // Act
@@ -558,7 +582,7 @@ namespace ServerTests {
         // Act
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout - 0.0001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         EXPECT_EQ(0, messagesSent.size());
@@ -581,20 +605,20 @@ namespace ServerTests {
         // Act
         messagesSent.clear();
         mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout + serverConfiguration.rpcTimeout;
-        server.WaitForAtLeastOneWorkerLoop();
-        EXPECT_EQ(1, messagesSent.size());
+        scheduler->WakeUp();
+        EXPECT_TRUE(AwaitMessagesSent(1));
         mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout + serverConfiguration.rpcTimeout * 2 - 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
-        EXPECT_EQ(1, messagesSent.size());
+        scheduler->WakeUp();
+        EXPECT_FALSE(AwaitMessagesSent(2));
         mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout + serverConfiguration.rpcTimeout * 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
-        EXPECT_EQ(2, messagesSent.size());
+        scheduler->WakeUp();
+        EXPECT_TRUE(AwaitMessagesSent(2));
         mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout + serverConfiguration.rpcTimeout * 3 - 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
-        EXPECT_EQ(2, messagesSent.size());
+        scheduler->WakeUp();
+        EXPECT_FALSE(AwaitMessagesSent(3));
         mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout + serverConfiguration.rpcTimeout * 3 + 0.003;
-        server.WaitForAtLeastOneWorkerLoop();
-        EXPECT_EQ(3, messagesSent.size());
+        scheduler->WakeUp();
+        EXPECT_TRUE(AwaitMessagesSent(3));
 
         // Assert
         for (const auto& messageSent: messagesSent) {
@@ -681,7 +705,7 @@ namespace ServerTests {
         while (mockTimeKeeper->currentTime <= serverConfiguration.maximumElectionTimeout * 2) {
             ReceiveAppendEntriesFromMockLeader(2, 2);
             mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2;
-            server.WaitForAtLeastOneWorkerLoop();
+            scheduler->WakeUp();
             EXPECT_EQ(
                 Raft::Server::ElectionState::Follower,
                 server.GetElectionState()
@@ -709,20 +733,15 @@ namespace ServerTests {
         MobilizeServer();
 
         // Act
-        bool electionStarted = false;
         while (mockTimeKeeper->currentTime <= serverConfiguration.maximumElectionTimeout * 2) {
             Raft::Message message;
             ReceiveAppendEntriesFromMockLeader(2, 13);
             mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2;
-            server.WaitForAtLeastOneWorkerLoop();
-            if (!messagesSent.empty()) {
-                electionStarted = true;
-                break;
-            }
+            scheduler->WakeUp();
         }
 
         // Assert
-        ASSERT_TRUE(electionStarted);
+        EXPECT_TRUE(AwaitMessagesSent(1));
     }
 
 }

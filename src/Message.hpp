@@ -1,12 +1,11 @@
-#ifndef RAFT_MESSAGE_HPP
-#define RAFT_MESSAGE_HPP
+#pragma once
 
 /**
  * @file Message.hpp
  *
  * This module declares the Raft::Message structure.
  *
- * © 2018 by Richard Walters
+ * © 2018-2020 by Richard Walters
  */
 
 #include <memory>
@@ -248,5 +247,3 @@ namespace Raft {
     };
 
 }
-
-#endif /* RAFT_MESSAGE_HPP */

@@ -1,12 +1,11 @@
-#ifndef RAFT_COMMAND_HPP
-#define RAFT_COMMAND_HPP
+#pragma once
 
 /**
  * @file Command.hpp
  *
  * This module declares the Raft::Command structure.
  *
- * © 2018 by Richard Walters
+ * © 2018-2020 by Richard Walters
  */
 
 #include <Json/Value.hpp>
@@ -21,5 +20,3 @@ namespace Raft {
     };
 
 }
-
-#endif /* RAFT_COMMAND_HPP */

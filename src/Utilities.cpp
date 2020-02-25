@@ -4,7 +4,7 @@
  * This module contains the implementation of free functions used by other
  * parts of the library implementation.
  *
- * © 2019 by Richard Walters
+ * © 2019-2020 by Richard Walters
  */
 
 #include "Utilities.hpp"
@@ -17,7 +17,6 @@
 #include <Raft/LogEntry.hpp>
 #include <Raft/ILog.hpp>
 #include <Raft/Server.hpp>
-#include <Raft/TimeKeeper.hpp>
 #include <random>
 #include <sstream>
 #include <SystemAbstractions/CryptoRandom.hpp>

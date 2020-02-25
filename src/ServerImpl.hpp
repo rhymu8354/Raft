@@ -1,25 +1,30 @@
-#ifndef RAFT_SERVER_IMPL_HPP
-#define RAFT_SERVER_IMPL_HPP
+#pragma once
 
 /**
  * @file ServerImpl.hpp
  *
  * This module contains the implementation of the Raft::Server class.
  *
- * © 2018 by Richard Walters
+ * © 2018-2020 by Richard Walters
  */
 
 #include "InstanceInfo.hpp"
 #include "Message.hpp"
-#include "ServerSharedProperties.hpp"
 
+#include <algorithm>
+#include <AsyncData/MultiProducerSingleConsumerQueue.hpp>
 #include <condition_variable>
 #include <functional>
 #include <future>
+#include <memory>
+#include <mutex>
 #include <Raft/LogEntry.hpp>
 #include <Raft/ILog.hpp>
 #include <Raft/Server.hpp>
-#include <Raft/TimeKeeper.hpp>
+#include <random>
+#include <stdint.h>
+#include <SystemAbstractions/DiagnosticsSender.hpp>
+#include <Timekeeping/Scheduler.hpp>
 #include <thread>
 #include <vector>
 
@@ -29,43 +34,285 @@ namespace Raft {
      * This contains the private properties of a Server class instance
      * that don't live any longer than the Server class instance itself.
      */
-    struct Server::Impl {
+    struct Server::Impl
+        : std::enable_shared_from_this< Impl >
+    {
         // Properties
 
         /**
-         * This holds any properties of the Server that might live longer
-         * than the Server itself (e.g. due to being captured in
-         * callbacks).
+         * This is a helper object used to generate and publish
+         * diagnostic messages.
          */
-        std::shared_ptr< ServerSharedProperties > shared = std::make_shared< ServerSharedProperties >();
+        SystemAbstractions::DiagnosticsSender diagnosticsSender;
 
         /**
-         * This is the object used to track time for the server.
+         * This is used to synchronize access to the properties below.
          */
-        std::shared_ptr< TimeKeeper > timeKeeper;
+        std::recursive_mutex mutex;
+
+        bool mobilized = false;
+
+        size_t generation = 0;
 
         /**
-         * This thread performs any jobs needed when anything times out,
-         * such as the election timer, retransmission timers, etc.
+         * This is the next identifier to use for an event subscription.
          */
-        std::thread timeoutWorker;
+        int nextEventSubscriberId = 0;
 
         /**
-         * This is set when the timeout worker thread should stop.
+         * These are the current subscriptions to server events.
          */
-        std::promise< void > stopTimeoutWorker;
+        std::map< int, Raft::IServer::EventDelegate > eventSubscribers;
 
         /**
-         * This is notified whenever the timeout worker thread is asked to stop
-         * or to wake up.
+         * This holds all configuration items for the server cluster.
          */
-        std::condition_variable_any timeoutWorkerWakeCondition;
+        Raft::ClusterConfiguration clusterConfiguration;
 
         /**
-         * This is the time, according to the server's timekeeper, when
-         * the the timeout worker thread is due to wake up next.
+         * This holds all configuration items to be set for the server once
+         * the current configuration transition is complete.
          */
-        double nextWakeupTime = std::numeric_limits< double >::max();
+        Raft::ClusterConfiguration nextClusterConfiguration;
+
+        /**
+         * This indicates whether or not the cluster is transitioning from the
+         * current configuration to the next configuration.
+         */
+        std::unique_ptr< Raft::ClusterConfiguration > jointConfiguration;
+
+        /**
+         * This indicates whether or not a cluster configuration change is
+         * about to happen, once all new servers have "caught up" with the rest
+         * of the cluster.
+         */
+        bool configChangePending = false;
+
+        /**
+         * If the server is waiting for all new servers to have "caught up"
+         * with the rest of the cluster, this is the minimum matchIndex
+         * required to consider a server to have "caught up".
+         */
+        size_t newServerCatchUpIndex = 0;
+
+        /**
+         * This holds all configuration items for the server instance.
+         */
+        Raft::IServer::ServerConfiguration serverConfiguration;
+
+        /**
+         * This is a cache of the server's persistent state variables.
+         */
+        Raft::IPersistentState::Variables persistentStateCache;
+
+        /**
+         * This is a standard C++ Mersenne Twister pseudo-random number
+         * generator, used to pick election timeouts.
+         */
+        std::mt19937 rng;
+
+        /**
+         * This is the function to call whenever a message is received
+         * by the server.
+         */
+        std::function< void() > onReceiveMessageCallback;
+
+        /**
+         * This is the time, according to the time keeper, when the server
+         * either started or last received a message from the cluster leader.
+         */
+        double timeOfLastLeaderMessage = 0.0;
+
+        /**
+         * This is the scheduler token for the callback that happens
+         * when the election timer expires.
+         */
+        int electionTimeoutToken = 0;
+
+        /**
+         * This is the scheduler token for the callback that happens
+         * when the server should send out heartbeats.
+         */
+        int heartbeatTimeoutToken = 0;
+
+        /**
+         * This indicates whether the server is a currently a leader,
+         * candidate, or follower in the current election term of the cluster.
+         */
+        Raft::IServer::ElectionState electionState = Raft::IServer::ElectionState::Follower;
+
+        /**
+         * This indicates whether or not the leader of the current term is
+         * known.
+         */
+        bool thisTermLeaderAnnounced = false;
+
+        /**
+         * This flag indicates whether or not the server is currently
+         * processing a message received from the cluster leader.
+         */
+        bool processingMessageFromLeader = false;
+
+        /**
+         * This is the unique identifier of the cluster leader, if known.
+         */
+        int leaderId = 0;
+
+        /**
+         * During an election, this is the number of votes we have received
+         * for ourselves amongst the servers in the current configuration.
+         */
+        size_t votesForUsCurrentConfig = 0;
+
+        /**
+         * During an election, this is the number of votes we have received
+         * for ourselves amongst the servers in the next configuration.
+         */
+        size_t votesForUsNextConfig = 0;
+
+        /**
+         * This indicates whether or not the server is allowed to run for
+         * election to be leader of the cluster, or vote for another server to
+         * be leader.
+         */
+        bool isVotingMember = true;
+
+        /**
+         * This holds information this server tracks about the other servers.
+         */
+        std::map< int, InstanceInfo > instances;
+
+        /**
+         * This is the index of the last log entry known to have been appended
+         * to a majority of servers in the cluster.
+         */
+        size_t commitIndex = 0;
+
+        /**
+         * This is the index of the last entry appended to the log.
+         */
+        size_t lastIndex = 0;
+
+        /**
+         * This is the object which is responsible for keeping
+         * the actual log and making it persistent.
+         */
+        std::shared_ptr< Raft::ILog > logKeeper;
+
+        /**
+         * This is the object which is responsible for keeping
+         * the server state variables which need to be persistent.
+         */
+        std::shared_ptr< Raft::IPersistentState > persistentStateKeeper;
+
+        /**
+         * This is the number of broadcast time measurements that have
+         * been taken since the server started or statistics were reset.
+         */
+        size_t numBroadcastTimeMeasurements = 0;
+
+        /**
+         * This is the next index to set in the broadcast time measurement
+         * memory.
+         */
+        size_t nextBroadcastTimeMeasurementIndex = 0;
+
+        /**
+         * This is the sum of all broadcast time measurements that have been
+         * made, in microseconds.
+         */
+        uintmax_t broadcastTimeMeasurementsSum = 0;
+
+        /**
+         * This is the minimum measured broadcast time, in microseconds,
+         * since the server started or statistics were reset.
+         */
+        uintmax_t minBroadcastTime = 0;
+
+        /**
+         * This is the maximum measured broadcast time, in microseconds,
+         * since the server started or statistics were reset.
+         */
+        uintmax_t maxBroadcastTime = 0;
+
+        /**
+         * This holds onto the broadcast time measurements that have been made.
+         * The measurements are stored in units of microseconds.
+         */
+        std::vector< uintmax_t > broadcastTimeMeasurements;
+
+        /**
+         * This is the number of measurements of time between receipts of
+         * leader messages that have been taken since the server started or
+         * statistics were reset.
+         */
+        size_t numTimeBetweenLeaderMessagesMeasurements = 0;
+
+        /**
+         * This is the next index to set in the measurements of time between
+         * receipts of leader messages memory.
+         */
+        size_t nextTimeBetweenLeaderMessagesMeasurementIndex = 0;
+
+        /**
+         * This is the sum of all measurements of time between receipts of
+         * leader messages that have been made, in microseconds.
+         */
+        uintmax_t timeBetweenLeaderMessagesMeasurementsSum = 0;
+
+        /**
+         * This is the minimum measurement of time between receipts of leader
+         * messages, in microseconds, since the server started or statistics
+         * were reset.
+         */
+        uintmax_t minTimeBetweenLeaderMessages = 0;
+
+        /**
+         * This is the maximum measurement of time between receipts of leader
+         * messages, in microseconds, since the server started or statistics
+         * were reset.
+         */
+        uintmax_t maxTimeBetweenLeaderMessages = 0;
+
+        /**
+         * This holds onto the measurements of time between receipts of leader
+         * messages that have been made.  The measurements are stored in units
+         * of microseconds.
+         */
+        std::vector< uintmax_t > timeBetweenLeaderMessagesMeasurements;
+
+        /**
+         * This is the time, according to the configured time keeper,
+         * when the last message was received from the leader of the cluster.
+         */
+        double timeLastMessageReceivedFromLeader = 0.0;
+
+        /**
+         * This is the initial "last index" of the leader, used to determine
+         * when the server has "caught up" to the rest of the cluster.
+         */
+        size_t selfCatchUpIndex = 0;
+
+        /**
+         * This flag is set once the server has "caught up" to the rest of the
+         * cluster (the commit index has reached the initial "last index" of
+         * the leader).
+         */
+        bool caughtUp = false;
+
+        /**
+         * This is the object used to track time for the server
+         * and call back functions at specific times.
+         */
+        std::shared_ptr< Timekeeping::Scheduler > scheduler;
+
+        /**
+         * This holds events to be published by the server in its worker
+         * thread.
+         */
+        AsyncData::MultiProducerSingleConsumerQueue<
+            std::shared_ptr< Raft::IServer::Event >
+        > eventQueue;
 
         /**
          * This thread publishes any events in the event queue.
@@ -90,6 +337,11 @@ namespace Raft {
         bool stopEventQueueWorker = false;
 
         // Methods
+
+        /**
+         * This is the default constructor of the class.
+         */
+        Impl();
 
         /**
          * Update broadcast time statistics by adding the next measurement,
@@ -135,13 +387,17 @@ namespace Raft {
         void InitializeInstanceInfo(InstanceInfo& instance);
 
         /**
-         * This method is called whenever a message is received from the
-         * cluster leader, or when the server starts an election, or starts up
-         * initially.  It samples the current time from the time keeper and
-         * stores it in the timeOfLastLeaderMessage shared property.  It also
-         * picks a new election timeout.
+         * Set up a callback to trigger a new election if no message is
+         * received from the cluster leader within a reasonable time period.
          */
         void ResetElectionTimer();
+
+        /**
+         * Set up a callback to trigger sending a heartbeat message to all
+         * servers if no journal updates are made within a reasonable time
+         * period.
+         */
+        void ResetHeartbeatTimer();
 
         void ResetStatistics();
 
@@ -271,6 +527,8 @@ namespace Raft {
          */
         void ResetRetransmissionState();
 
+        void CancelRetransmission(InstanceInfo& instance);
+
         /**
          * This method sets the server up as a candidate in the current term
          * and records that it voted for itself and is awaiting votes from all
@@ -309,11 +567,8 @@ namespace Raft {
         /**
          * This method sends a heartbeat message to all other servers in the
          * server cluster.
-         *
-         * @param[in] now
-         *     This is the current time according to the time keeper.
          */
-        void QueueHeartBeatsToBeSent(double now);
+        void QueueHeartBeatsToBeSent();
 
         /**
          * This method sends an AppendEntries message to all other servers in
@@ -331,93 +586,13 @@ namespace Raft {
         );
 
         /**
-         * This method retransmits any RPC messages for which no response has
-         * yet been received.
+         * This method retransmits the last RPC message sent to the given
+         * instance if no response has yet been received.
          *
-         * @param[in] now
-         *     This is the current time according to the time keeper.
+         * @param[in] instanceId
+         *     This is the unique identifier of the recipient of the message.
          */
-        void QueueRetransmissionsToBeSent(double now);
-
-        /**
-         * This method is called in order to send any messages queued up to be
-         * sent to other servers.
-         *
-         * @param[in] lock
-         *     This is the object holding the mutex protecting the shared
-         *     properties of the server.
-         */
-        void SendQueuedMessages(
-            std::unique_lock< decltype(shared->mutex) >& lock
-        );
-
-        /**
-         * This method is called in order to send any queued leadership
-         * announcements.
-         *
-         * @param[in] lock
-         *     This is the object holding the mutex protecting the shared
-         *     properties of the server.
-         */
-        void SendQueuedLeadershipAnnouncements(
-            std::unique_lock< decltype(shared->mutex) >& lock
-        );
-
-        /**
-         * This method is called in order to send any queued election state
-         * change announcements.
-         *
-         * @param[in] lock
-         *     This is the object holding the mutex protecting the shared
-         *     properties of the server.
-         */
-        void SendQueuedElectionStateChangeAnnouncements(
-            std::unique_lock< decltype(shared->mutex) >& lock
-        );
-
-        /**
-         * Send any queued cluster configuration applied announcements.
-         *
-         * @param[in] lock
-         *     This is the object holding the mutex protecting the shared
-         *     properties of the server.
-         */
-        void SendQueuedConfigAppliedAnnouncements(
-            std::unique_lock< decltype(shared->mutex) >& lock
-        );
-
-        /**
-         * Send any queued cluster configuration committed announcements.
-         *
-         * @param[in] lock
-         *     This is the object holding the mutex protecting the shared
-         *     properties of the server.
-         */
-        void SendQueuedConfigCommittedAnnouncements(
-            std::unique_lock< decltype(shared->mutex) >& lock
-        );
-
-        /**
-         * Send "caught up" announcement if it's due.
-         *
-         * @param[in] lock
-         *     This is the object holding the mutex protecting the shared
-         *     properties of the server.
-         */
-        void SendCaughtUpAnnouncement(
-            std::unique_lock< decltype(shared->mutex) >& lock
-        );
-
-        /**
-         * Send any queued snapshot announcements.
-         *
-         * @param[in] lock
-         *     This is the object holding the mutex protecting the shared
-         *     properties of the server.
-         */
-        void SendQueuedSnapshotAnnouncements(
-            std::unique_lock< decltype(shared->mutex) >& lock
-        );
+        void QueueRetransmission(int instanceId);
 
         void AddToEventQueue(std::shared_ptr< Raft::IServer::Event >&& event);
 
@@ -455,23 +630,23 @@ namespace Raft {
         /**
          * Set a single cluster configuration.
          *
-         * @param[in] clusterConfiguration
+         * @param[in] newClusterConfiguration
          *     This is the configuration to set.
          */
-        void ApplyConfiguration(const ClusterConfiguration& clusterConfiguration);
+        void ApplyConfiguration(const ClusterConfiguration& newClusterConfiguration);
 
         /**
          * Set a joint cluster configuration.
          *
-         * @param[in] clusterConfiguration
+         * @param[in] newClusterConfiguration
          *     This is the current configuration to set.
          *
-         * @param[in] nextClusterConfiguration
+         * @param[in] newNextClusterConfiguration
          *     This is the next configuration to set.
          */
         void ApplyConfiguration(
-            const ClusterConfiguration& clusterConfiguration,
-            const ClusterConfiguration& nextClusterConfiguration
+            const ClusterConfiguration& newClusterConfiguration,
+            const ClusterConfiguration& newNextClusterConfiguration
         );
 
         /**
@@ -655,41 +830,6 @@ namespace Raft {
         );
 
         /**
-         * This method is used by the worker thread to suspend itself until
-         * more work needs to be done.
-         *
-         * @param[in,out] lock
-         *     This is the object used to manage the shared properties mutex in
-         *     the worker thread.
-         *
-         * @param[in,out] workerAskedToStop
-         *     This is the receiving end of the promise made by the overall
-         *     class to tell the worker thread to stop.
-         */
-        void WaitForTimeoutWork(
-            std::unique_lock< decltype(shared->mutex) >& lock,
-            std::future< void >& workerAskedToStop
-        );
-
-        /**
-         * This is the logic to perform once per worker thread loop.
-         *
-         * @param[in,out] lock
-         *     This is the object used to manage the shared properties mutex in
-         *     the worker thread.
-         */
-        void TimeoutWorkerLoopBody(
-            std::unique_lock< decltype(shared->mutex) >& lock
-        );
-
-        /**
-         * This runs in a thread and performs any background tasks required of
-         * the Server, such as starting an election if no message is received
-         * from the cluster leader before the next timeout.
-         */
-        void TimeoutWorker();
-
-        /**
          * This runs in a thread which publishes any events pushed into
          * the event queue.
          */
@@ -697,5 +837,3 @@ namespace Raft {
     };
 
 }
-
-#endif /* RAFT_SERVER_IMPL_HPP */

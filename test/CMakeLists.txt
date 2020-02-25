@@ -26,6 +26,7 @@ target_link_libraries(${This} PUBLIC
     Raft
     StringExtensions
     SystemAbstractions
+    Timekeeping
 )
 
 add_test(

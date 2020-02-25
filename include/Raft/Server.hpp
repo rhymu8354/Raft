@@ -1,20 +1,20 @@
-#ifndef RAFT_SERVER_HPP
-#define RAFT_SERVER_HPP
+#pragma once
 
 /**
  * @file Server.hpp
  *
  * This module declares the Raft::Server implementation.
  *
- * © 2018 by Richard Walters
+ * © 2018-2020 by Richard Walters
  */
+
+#include "IServer.hpp"
 
 #include <functional>
 #include <memory>
-#include <Raft/IServer.hpp>
-#include <Raft/TimeKeeper.hpp>
 #include <stddef.h>
 #include <SystemAbstractions/DiagnosticsSender.hpp>
+#include <Timekeeping/Scheduler.hpp>
 
 namespace Raft {
 
@@ -59,21 +59,6 @@ namespace Raft {
             SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate delegate,
             size_t minLevel = 0
         );
-
-        /**
-         * This method is called to provide the object used to track time
-         * for the server.
-         *
-         * @param[in] timeKeeper
-         *     This is the object used to track time for the server.
-         */
-        void SetTimeKeeper(std::shared_ptr< TimeKeeper > timeKeeper);
-
-        /**
-         * This method blocks until the Coordinator's worker thread executes at
-         * least one more loop.
-         */
-        void WaitForAtLeastOneWorkerLoop();
 
         /**
          * Return the current commit index of the server.  The commit index is
@@ -183,14 +168,6 @@ namespace Raft {
         int GetClusterLeaderId() const;
 
         /**
-         * Return the current election timeout value.
-         *
-         * @return
-         *     The current election timeout value is returned.
-         */
-        double GetElectionTimeout() const;
-
-        /**
          * Set a function to be called whenever a message has been received
          * by the server.
          *
@@ -206,6 +183,7 @@ namespace Raft {
         virtual void Mobilize(
             std::shared_ptr< ILog > logKeeper,
             std::shared_ptr< IPersistentState > persistentStateKeeper,
+            std::shared_ptr< Timekeeping::Scheduler > scheduler,
             const ClusterConfiguration& clusterConfiguration,
             const ServerConfiguration& serverConfiguration
         ) override;
@@ -232,9 +210,7 @@ namespace Raft {
         /**
          * This contains the private properties of the instance.
          */
-        std::unique_ptr< Impl > impl_;
+        std::shared_ptr< Impl > impl_;
     };
 
 }
-
-#endif /* RAFT_SERVER_HPP */

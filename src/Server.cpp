@@ -3,7 +3,7 @@
  *
  * This module contains the implementation of the Raft::Server class.
  *
- * © 2018 by Richard Walters
+ * © 2018-2020 by Richard Walters
  */
 
 #include "Message.hpp"
@@ -18,7 +18,6 @@
 #include <Raft/LogEntry.hpp>
 #include <Raft/ILog.hpp>
 #include <Raft/Server.hpp>
-#include <Raft/TimeKeeper.hpp>
 #include <random>
 #include <sstream>
 #include <SystemAbstractions/CryptoRandom.hpp>
@@ -38,169 +37,156 @@ namespace Raft {
         SystemAbstractions::CryptoRandom jim;
         int seed;
         jim.Generate(&seed, sizeof(seed));
-        impl_->shared->rng.seed(seed);
+        impl_->rng.seed(seed);
     }
 
     SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate Server::SubscribeToDiagnostics(
         SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate delegate,
         size_t minLevel
     ) {
-        return impl_->shared->diagnosticsSender.SubscribeToDiagnostics(delegate, minLevel);
-    }
-
-    void Server::SetTimeKeeper(std::shared_ptr< TimeKeeper > timeKeeper) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->timeKeeper = timeKeeper;
-    }
-
-    void Server::WaitForAtLeastOneWorkerLoop() {
-        std::unique_lock< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->shared->workerLoopCompletion = std::make_shared< std::promise< void > >();
-        auto workerLoopWasCompleted = impl_->shared->workerLoopCompletion->get_future();
-        impl_->timeoutWorkerWakeCondition.notify_one();
-        lock.unlock();
-        workerLoopWasCompleted.wait();
+        return impl_->diagnosticsSender.SubscribeToDiagnostics(delegate, minLevel);
     }
 
     size_t Server::GetCommitIndex() const {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        return impl_->shared->commitIndex;
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        return impl_->commitIndex;
     }
 
     void Server::SetCommitIndex(size_t commitIndex) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->shared->commitIndex = commitIndex;
-        for (auto& instanceEntry: impl_->shared->instances) {
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        impl_->commitIndex = commitIndex;
+        for (auto& instanceEntry: impl_->instances) {
             instanceEntry.second.matchIndex = commitIndex;
             instanceEntry.second.nextIndex = commitIndex + 1;
         }
     }
 
     size_t Server::GetLastIndex() const {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        return impl_->shared->lastIndex;
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        return impl_->lastIndex;
     }
 
     void Server::SetLastIndex(size_t lastIndex) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->shared->lastIndex = lastIndex;
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        impl_->lastIndex = lastIndex;
     }
 
     size_t Server::GetNextIndex(int instanceId) const {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        return impl_->shared->instances[instanceId].nextIndex;
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        return impl_->instances[instanceId].nextIndex;
     }
 
     size_t Server::GetMatchIndex(int instanceId) const {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        return impl_->shared->instances[instanceId].matchIndex;
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        return impl_->instances[instanceId].matchIndex;
     }
 
     bool Server::IsVotingMember() const {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        return impl_->shared->isVotingMember;
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        return impl_->isVotingMember;
     }
 
     bool Server::HasJointConfiguration() const {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        return (impl_->shared->jointConfiguration != nullptr);
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        return (impl_->jointConfiguration != nullptr);
     }
 
     int Server::GetClusterLeaderId() const {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        if (impl_->shared->thisTermLeaderAnnounced) {
-            return impl_->shared->leaderId;
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        if (impl_->thisTermLeaderAnnounced) {
+            return impl_->leaderId;
         } else {
             return 0;
         }
     }
 
-    double Server::GetElectionTimeout() const {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        return impl_->shared->currentElectionTimeout;
-    }
-
     void Server::SetOnReceiveMessageCallback(std::function< void() > callback) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        impl_->shared->onReceiveMessageCallback = callback;
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        impl_->onReceiveMessageCallback = callback;
     }
 
     auto Server::SubscribeToEvents(EventDelegate eventDelegate) -> EventsUnsubscribeDelegate {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        const auto eventSubscriberId = impl_->shared->nextEventSubscriberId++;
-        impl_->shared->eventSubscribers[eventSubscriberId] = eventDelegate;
-        const std::weak_ptr< ServerSharedProperties > sharedWeak = impl_->shared;
-        return [sharedWeak, eventSubscriberId]{
-            const auto shared = sharedWeak.lock();
-            if (shared == nullptr) {
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        const auto eventSubscriberId = impl_->nextEventSubscriberId++;
+        impl_->eventSubscribers[eventSubscriberId] = eventDelegate;
+        const std::weak_ptr< Impl > implWeak = impl_;
+        return [implWeak, eventSubscriberId]{
+            const auto impl = implWeak.lock();
+            if (impl == nullptr) {
                 return;
             }
-            std::lock_guard< decltype(shared->mutex) > lock(shared->mutex);
-            shared->eventSubscribers.erase(eventSubscriberId);
+            std::lock_guard< decltype(impl->mutex) > lock(impl->mutex);
+            impl->eventSubscribers.erase(eventSubscriberId);
         };
     }
 
     void Server::Mobilize(
         std::shared_ptr< ILog > logKeeper,
         std::shared_ptr< IPersistentState > persistentStateKeeper,
+        std::shared_ptr< Timekeeping::Scheduler > scheduler,
         const ClusterConfiguration& clusterConfiguration,
         const ServerConfiguration& serverConfiguration
     ) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        if (impl_->timeoutWorker.joinable()) {
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        if (impl_->mobilized) {
             return;
         }
-        impl_->shared->logKeeper = logKeeper;
-        impl_->shared->persistentStateKeeper = persistentStateKeeper;
-        impl_->shared->serverConfiguration = serverConfiguration;
-        impl_->shared->persistentStateCache = persistentStateKeeper->Load();
-        impl_->shared->instances.clear();
-        impl_->shared->electionState = IServer::ElectionState::Follower;
-        impl_->shared->timeOfLastLeaderMessage = 0.0;
-        impl_->shared->thisTermLeaderAnnounced = false;
-        impl_->shared->votesForUsCurrentConfig = 0;
+        ++impl_->generation;
+        impl_->mobilized = true;
+        impl_->logKeeper = logKeeper;
+        impl_->persistentStateKeeper = persistentStateKeeper;
+        impl_->scheduler = scheduler;
+        impl_->serverConfiguration = serverConfiguration;
+        impl_->persistentStateCache = persistentStateKeeper->Load();
+        impl_->instances.clear();
+        impl_->electionState = IServer::ElectionState::Follower;
+        impl_->thisTermLeaderAnnounced = false;
+        impl_->votesForUsCurrentConfig = 0;
         impl_->ApplyConfiguration(clusterConfiguration);
-        impl_->shared->commitIndex = logKeeper->GetBaseIndex();
-        impl_->shared->lastIndex = 0;
+        impl_->commitIndex = logKeeper->GetBaseIndex();
+        impl_->lastIndex = 0;
         impl_->SetLastIndex(logKeeper->GetLastIndex());
         impl_->ResetStatistics();
-        impl_->stopTimeoutWorker = std::promise< void >();
-        impl_->timeoutWorker = std::thread(&Impl::TimeoutWorker, impl_.get());
         impl_->eventQueueWorker = std::thread(&Impl::EventQueueWorker, impl_.get());
+        impl_->ResetElectionTimer();
     }
 
     void Server::Demobilize() {
-        {
-            std::unique_lock< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-            if (impl_->timeoutWorker.joinable()) {
-                impl_->stopTimeoutWorker.set_value();
-                impl_->timeoutWorkerWakeCondition.notify_one();
-                lock.unlock();
-                impl_->timeoutWorker.join();
-            }
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        if (!impl_->mobilized) {
+            return;
         }
-        {
-            std::unique_lock< decltype(impl_->eventQueueMutex) > lock(impl_->eventQueueMutex);
-            if (impl_->eventQueueWorker.joinable()) {
-                impl_->stopEventQueueWorker = true;
-                impl_->eventQueueWorkerWakeCondition.notify_one();
-                lock.unlock();
-                impl_->eventQueueWorker.join();
-            }
+        impl_->mobilized = false;
+        if (impl_->heartbeatTimeoutToken != 0) {
+            impl_->scheduler->Cancel(impl_->heartbeatTimeoutToken);
+            impl_->heartbeatTimeoutToken = 0;
         }
-        impl_->shared->persistentStateKeeper = nullptr;
-        impl_->shared->logKeeper = nullptr;
+        if (impl_->electionTimeoutToken != 0) {
+            impl_->scheduler->Cancel(impl_->electionTimeoutToken);
+            impl_->electionTimeoutToken = 0;
+        }
+        impl_->ResetRetransmissionState();
+        impl_->scheduler = nullptr;
+        if (impl_->eventQueueWorker.joinable()) {
+            std::unique_lock< decltype(impl_->eventQueueMutex) > eventQueueLock(impl_->eventQueueMutex);
+            impl_->stopEventQueueWorker = true;
+            impl_->eventQueueWorkerWakeCondition.notify_one();
+            eventQueueLock.unlock();
+            impl_->eventQueueWorker.join();
+        }
+        impl_->persistentStateKeeper = nullptr;
+        impl_->logKeeper = nullptr;
     }
 
     void Server::ReceiveMessage(
         const std::string& serializedMessage,
         int senderInstanceNumber
     ) {
-        std::unique_lock< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        if (senderInstanceNumber == impl_->shared->leaderId) {
-            impl_->shared->processingMessageFromLeader = true;
+        std::unique_lock< decltype(impl_->mutex) > lock(impl_->mutex);
+        if (senderInstanceNumber == impl_->leaderId) {
+            impl_->processingMessageFromLeader = true;
         }
-        decltype(impl_->shared->onReceiveMessageCallback) callback(impl_->shared->onReceiveMessageCallback);
+        decltype(impl_->onReceiveMessageCallback) callback(impl_->onReceiveMessageCallback);
         lock.unlock();
         if (callback) {
             callback();
@@ -253,75 +239,75 @@ namespace Raft {
             default: {
             } break;
         }
-        if (senderInstanceNumber == impl_->shared->leaderId) {
-            impl_->shared->processingMessageFromLeader = false;
+        if (senderInstanceNumber == impl_->leaderId) {
+            impl_->processingMessageFromLeader = false;
         }
     }
 
     auto Server::GetElectionState() -> ElectionState {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        return impl_->shared->electionState;
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        return impl_->electionState;
     }
 
     void Server::AppendLogEntries(const std::vector< LogEntry >& entries) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        if (impl_->shared->electionState != ElectionState::Leader) {
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        if (impl_->electionState != ElectionState::Leader) {
             return;
         }
         impl_->AppendLogEntries(entries);
     }
 
     void Server::ChangeConfiguration(const ClusterConfiguration& newConfiguration) {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        if (impl_->shared->electionState != ElectionState::Leader) {
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        if (impl_->electionState != ElectionState::Leader) {
             return;
         }
-        impl_->shared->diagnosticsSender.SendDiagnosticInformationFormatted(
+        impl_->diagnosticsSender.SendDiagnosticInformationFormatted(
             3,
             "ChangeConfiguration -- from %s to %s",
-            FormatSet(impl_->shared->clusterConfiguration.instanceIds).c_str(),
+            FormatSet(impl_->clusterConfiguration.instanceIds).c_str(),
             FormatSet(newConfiguration.instanceIds).c_str()
         );
-        impl_->shared->configChangePending = true;
-        impl_->shared->newServerCatchUpIndex = impl_->shared->commitIndex;
+        impl_->configChangePending = true;
+        impl_->newServerCatchUpIndex = impl_->commitIndex;
         impl_->ApplyConfiguration(
-            impl_->shared->clusterConfiguration,
+            impl_->clusterConfiguration,
             newConfiguration
         );
     }
 
     void Server::ResetStatistics() {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
         impl_->ResetStatistics();
     }
 
     Json::Value Server::GetStatistics() {
-        std::lock_guard< decltype(impl_->shared->mutex) > lock(impl_->shared->mutex);
-        if (impl_->shared->electionState == ElectionState::Leader) {
+        std::lock_guard< decltype(impl_->mutex) > lock(impl_->mutex);
+        if (impl_->electionState == ElectionState::Leader) {
             return Json::Object({
-                {"minBroadcastTime", (double)impl_->shared->minBroadcastTime / 1000000.0},
+                {"minBroadcastTime", (double)impl_->minBroadcastTime / 1000000.0},
                 {
                     "avgBroadcastTime", (
-                        (impl_->shared->numBroadcastTimeMeasurements == 0)
+                        (impl_->numBroadcastTimeMeasurements == 0)
                         ? 0.0
-                        : (double)impl_->shared->broadcastTimeMeasurementsSum / (double)impl_->shared->numBroadcastTimeMeasurements / 1000000.0
+                        : (double)impl_->broadcastTimeMeasurementsSum / (double)impl_->numBroadcastTimeMeasurements / 1000000.0
                     )
                 },
-                {"maxBroadcastTime", (double)impl_->shared->maxBroadcastTime / 1000000.0},
+                {"maxBroadcastTime", (double)impl_->maxBroadcastTime / 1000000.0},
             });
         } else {
-            const auto now = impl_->timeKeeper->GetCurrentTime();
+            const auto now = impl_->scheduler->GetClock()->GetCurrentTime();
             return Json::Object({
-                {"minTimeBetweenLeaderMessages", (double)impl_->shared->minTimeBetweenLeaderMessages / 1000000.0},
+                {"minTimeBetweenLeaderMessages", (double)impl_->minTimeBetweenLeaderMessages / 1000000.0},
                 {
                     "avgTimeBetweenLeaderMessages", (
-                        (impl_->shared->numTimeBetweenLeaderMessagesMeasurements == 0)
+                        (impl_->numTimeBetweenLeaderMessagesMeasurements == 0)
                         ? 0.0
-                        : (double)impl_->shared->timeBetweenLeaderMessagesMeasurementsSum / (double)impl_->shared->numTimeBetweenLeaderMessagesMeasurements / 1000000.0
+                        : (double)impl_->timeBetweenLeaderMessagesMeasurementsSum / (double)impl_->numTimeBetweenLeaderMessagesMeasurements / 1000000.0
                     )
                 },
-                {"maxTimeBetweenLeaderMessages", (double)impl_->shared->maxTimeBetweenLeaderMessages / 1000000.0},
-                {"timeSinceLastLeaderMessage", now - impl_->shared->timeLastMessageReceivedFromLeader},
+                {"maxTimeBetweenLeaderMessages", (double)impl_->maxTimeBetweenLeaderMessages / 1000000.0},
+                {"timeSinceLastLeaderMessage", now - impl_->timeLastMessageReceivedFromLeader},
             });
         }
     }

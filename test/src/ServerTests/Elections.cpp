@@ -4,7 +4,7 @@
  * This module contains the unit tests of the Raft::Server class that have
  * to do with the election process/aspects of the Raft Consensus algorithm.
  *
- * © 2019 by Richard Walters
+ * © 2019-2020 by Richard Walters
  */
 
 #include "Common.hpp"
@@ -20,7 +20,6 @@
 #include <Raft/IPersistentState.hpp>
 #include <Raft/LogEntry.hpp>
 #include <Raft/Server.hpp>
-#include <Raft/TimeKeeper.hpp>
 #include <stddef.h>
 #include <vector>
 
@@ -83,7 +82,7 @@ namespace ServerTests {
                 mockTimeKeeper->currentTime <= serverConfiguration.maximumElectionTimeout;
                 ++j, mockTimeKeeper->currentTime += binInterval
             ) {
-                server.WaitForAtLeastOneWorkerLoop();
+                scheduler->WakeUp();
                 if (!messagesSent.empty()) {
                     if (bins.size() <= j) {
                         bins.resize(j + 1);
@@ -280,11 +279,10 @@ namespace ServerTests {
         // Act
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
-        ASSERT_GE(messagesSent.size(), 1);
-        EXPECT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(
             Raft::Message::Type::RequestVote,
@@ -363,13 +361,12 @@ namespace ServerTests {
     TEST_F(ServerTests_Elections, ElectionTimeoutResetIfTimeOutWhileCandidate) {
         // Arrange
         BecomeCandidate(1);
-        const auto electionTimeout = server.GetElectionTimeout();
 
         // Act
         WaitForElectionTimeout();
 
         // Assert
-        EXPECT_NE(electionTimeout, server.GetElectionTimeout());
+        EXPECT_TRUE(AwaitMessagesSent(4));
     }
 
     TEST_F(ServerTests_Elections, Receive_Vote_Request_When_No_Vote_Pending) {
@@ -385,10 +382,9 @@ namespace ServerTests {
         message.requestVote.lastLogTerm = 41;
         message.requestVote.lastLogIndex = 0;
         server.ReceiveMessage(message.Serialize(), 2);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -419,7 +415,7 @@ namespace ServerTests {
         RequestVote(2, 3, 1, 1);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -440,7 +436,7 @@ namespace ServerTests {
         RequestVote(2, 3, 100, 1);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -460,7 +456,7 @@ namespace ServerTests {
         RequestVote(2, 3, 1);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -473,13 +469,14 @@ namespace ServerTests {
         // Arrange
         MobilizeServer();
         RequestVote(2, 1, 0);
+        ASSERT_TRUE(AwaitMessagesSent(1));
         messagesSent.clear();
 
         // Act
         RequestVote(6, 1, 0);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -498,7 +495,7 @@ namespace ServerTests {
         RequestVote(2, 1, 0);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -529,7 +526,7 @@ namespace ServerTests {
         RequestVote(2, 1, 0);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -547,7 +544,7 @@ namespace ServerTests {
         RequestVote(2, 2, 0);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -582,7 +579,7 @@ namespace ServerTests {
         RequestVote(2, 2, 0);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -603,7 +600,7 @@ namespace ServerTests {
         AdvanceTimeToJustBeforeElectionTimeout();
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -627,7 +624,7 @@ namespace ServerTests {
         AdvanceTimeToJustBeforeElectionTimeout();
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -650,7 +647,7 @@ namespace ServerTests {
         RequestVote(2, 2, 0);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -673,7 +670,7 @@ namespace ServerTests {
         RequestVote(2, 2, 0);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -803,9 +800,10 @@ namespace ServerTests {
 
         // Act
         mockTimeKeeper->currentTime += 0.0011;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
         std::map< int, size_t > heartbeatsReceivedPerInstance;
         for (auto instanceNumber: clusterConfiguration.instanceIds) {
             heartbeatsReceivedPerInstance[instanceNumber] = 0;
@@ -834,7 +832,7 @@ namespace ServerTests {
 
         // Act
         mockTimeKeeper->currentTime += 0.0011;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         for (const auto& messageSent: messagesSent) {
@@ -869,11 +867,12 @@ namespace ServerTests {
 
         // Act
         RequestVote(2, 3, 0);
+        ASSERT_TRUE(AwaitMessagesSent(1));
         messagesSent.clear();
         AdvanceTimeToJustBeforeElectionTimeout();
 
         // Assert
-        EXPECT_EQ(0, messagesSent.size());
+        EXPECT_FALSE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::IServer::ElectionState::Follower,
             server.GetElectionState()
@@ -1028,7 +1027,6 @@ namespace ServerTests {
             }
             server.ReceiveMessage(message.Serialize(), instance);
         }
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_EQ(
@@ -1073,14 +1071,14 @@ namespace ServerTests {
         }
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         EXPECT_EQ(
             Raft::IServer::ElectionState::Candidate,
             server.GetElectionState()
         );
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::RequestVote, messagesSent[0].message.type);
         EXPECT_EQ(2, messagesSent[0].message.term);
@@ -1125,7 +1123,7 @@ namespace ServerTests {
         RequestVote(2, 1, 0);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -1138,6 +1136,7 @@ namespace ServerTests {
         // Arrange
         MobilizeServer();
         RequestVote(2, 1, 0);
+        (void)AwaitMessagesSent(1);
         messagesSent.clear();
         server.Demobilize();
         server = Raft::Server();
@@ -1148,7 +1147,7 @@ namespace ServerTests {
         RequestVote(10, 1, 0);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::Message::Type::RequestVoteResults,
             messagesSent[0].message.type
@@ -1193,7 +1192,6 @@ namespace ServerTests {
 
         // Act
         MobilizeServer();
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_TRUE(server.IsVotingMember());
@@ -1250,11 +1248,13 @@ namespace ServerTests {
         entry.command = std::move(command);
         MobilizeServer();
         ReceiveAppendEntriesFromMockLeader(5, term, {std::move(entry)});
+        ASSERT_TRUE(AwaitMessagesSent(1));
 
         // Act
         WaitForElectionTimeout();
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(4));
         bool voteRequestedFromNewServer = false;
         for (const auto messageInfo: messagesSent) {
             if (
@@ -1284,15 +1284,17 @@ namespace ServerTests {
             }
         }
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
+        ASSERT_TRUE(AwaitMessagesSent(4));
 
         // Act
         CastVote(11, 1, false);
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(4));
         bool retransmissionSentToServer11 = false;
         for (const auto messageInfo: messagesSent) {
             if (messageInfo.receiverInstanceNumber == 11) {
@@ -1369,7 +1371,7 @@ namespace ServerTests {
         ReceiveAppendEntriesFromMockLeader(leaderId, term);
         const auto advanceTime = [this]{
             mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout + 0.001;
-            server.WaitForAtLeastOneWorkerLoop();
+            scheduler->WakeUp();
         };
         server.SetOnReceiveMessageCallback(advanceTime);
 
@@ -1384,7 +1386,7 @@ namespace ServerTests {
         });
         server.ReceiveMessage(message.Serialize(), leaderId);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout - 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         EXPECT_EQ(

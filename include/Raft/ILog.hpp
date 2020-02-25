@@ -1,12 +1,11 @@
-#ifndef RAFT_I_LOG_HPP
-#define RAFT_I_LOG_HPP
+#pragma once
 
 /**
  * @file ILog.hpp
  *
  * This module declares the Raft::ILog interface.
  *
- * © 2018 by Richard Walters
+ * © 2018-2020 by Richard Walters
  */
 
 #include "LogEntry.hpp"
@@ -139,5 +138,3 @@ namespace Raft {
     };
 
 }
-
-#endif /* RAFT_I_LOG_HPP */

@@ -4,7 +4,7 @@
  * This module contains the unit tests of the
  * Raft::Message class.
  *
- * © 2018 by Richard Walters
+ * © 2018-2020 by Richard Walters
  */
 
 #include "../../src/Message.hpp"

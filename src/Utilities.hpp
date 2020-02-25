@@ -1,5 +1,4 @@
-#ifndef RAFT_UTILITIES_HPP
-#define RAFT_UTILITIES_HPP
+#pragma once
 
 /**
  * @file Utilities.hpp
@@ -7,7 +6,7 @@
  * This module contains the declaration of free functions used by other parts
  * of the library implementation.
  *
- * © 2019 by Richard Walters
+ * © 2019-2020 by Richard Walters
  */
 
 #include <Raft/IServer.hpp>
@@ -72,5 +71,3 @@ namespace Raft {
     }
 
 }
-
-#endif /* RAFT_UTILITIES_HPP */

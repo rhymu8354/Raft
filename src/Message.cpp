@@ -3,7 +3,7 @@
  *
  * This module contains the implementation of the Raft::Message class.
  *
- * © 2018 by Richard Walters
+ * © 2018-2020 by Richard Walters
  */
 
 #include "Message.hpp"

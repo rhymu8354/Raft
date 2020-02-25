@@ -4,7 +4,7 @@
  * This module contains the unit tests of the Raft::Server class that have to
  * do with the reconfiguration process/aspects of the Raft Consensus algorithm.
  *
- * © 2019 by Richard Walters
+ * © 2019-2020 by Richard Walters
  */
 
 #include "Common.hpp"
@@ -20,7 +20,6 @@
 #include <Raft/IPersistentState.hpp>
 #include <Raft/LogEntry.hpp>
 #include <Raft/Server.hpp>
-#include <Raft/TimeKeeper.hpp>
 #include <stddef.h>
 #include <vector>
 
@@ -70,7 +69,6 @@ namespace ServerTests {
 
         // Act
         MobilizeServer();
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_FALSE(server.IsVotingMember());
@@ -83,7 +81,6 @@ namespace ServerTests {
 
         // Act
         MobilizeServer();
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_FALSE(server.IsVotingMember());
@@ -142,7 +139,7 @@ namespace ServerTests {
         entry.command = std::move(command);
         server.AppendLogEntries({entry});
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Act
         for (const auto& messageSent: messagesSent) {
@@ -192,7 +189,7 @@ namespace ServerTests {
         // Act
         server.AppendLogEntries({entry});
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         bool newServerReceivedHeartBeat = false;
@@ -237,7 +234,6 @@ namespace ServerTests {
 
         // Act
         MobilizeServer();
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_TRUE(server.IsVotingMember());
@@ -257,7 +253,6 @@ namespace ServerTests {
 
         // Act
         MobilizeServer();
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_TRUE(server.IsVotingMember());
@@ -277,7 +272,6 @@ namespace ServerTests {
 
         // Act
         MobilizeServer();
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_TRUE(server.IsVotingMember());
@@ -297,7 +291,6 @@ namespace ServerTests {
 
         // Act
         MobilizeServer();
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         EXPECT_FALSE(server.IsVotingMember());
@@ -367,7 +360,7 @@ namespace ServerTests {
         // Act
         server.ChangeConfiguration(newConfiguration);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         EXPECT_TRUE(server.HasJointConfiguration());
@@ -399,12 +392,11 @@ namespace ServerTests {
         Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
         newConfiguration.instanceIds = {2, 5, 6, 7, 12};
         MobilizeServer();
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Act
         server.ChangeConfiguration(newConfiguration);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         EXPECT_FALSE(server.HasJointConfiguration());
@@ -427,7 +419,6 @@ namespace ServerTests {
         Raft::LogEntry entry;
         entry.term = term;
         server.AppendLogEntries({entry});
-        server.WaitForAtLeastOneWorkerLoop();
         for (auto instanceNumber: clusterConfiguration.instanceIds) {
             if (instanceNumber == serverConfiguration.selfInstanceId) {
                 continue;
@@ -439,7 +430,7 @@ namespace ServerTests {
         server.ChangeConfiguration(newConfiguration);
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         EXPECT_TRUE(server.HasJointConfiguration());
@@ -475,7 +466,6 @@ namespace ServerTests {
         Raft::LogEntry entry;
         entry.term = term;
         server.AppendLogEntries({entry});
-        server.WaitForAtLeastOneWorkerLoop();
         for (auto instanceNumber: clusterConfiguration.instanceIds) {
             if (instanceNumber == serverConfiguration.selfInstanceId) {
                 continue;
@@ -486,13 +476,13 @@ namespace ServerTests {
         // Act
         server.ChangeConfiguration(newConfiguration);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
         for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
             ReceiveAppendEntriesResults(instanceNumber, term, 1);
         }
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         EXPECT_TRUE(server.HasJointConfiguration());
@@ -543,7 +533,7 @@ namespace ServerTests {
         }
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
 
         // Assert
         EXPECT_FALSE(server.HasJointConfiguration());
@@ -718,7 +708,6 @@ namespace ServerTests {
         entry.command = std::move(command);
         mockLog->entries = {entry};
         MobilizeServer();
-        server.WaitForAtLeastOneWorkerLoop();
         server.Demobilize();
         mockLog = std::make_shared< MockLog >();
 
@@ -871,10 +860,9 @@ namespace ServerTests {
         messagesSent.clear();
         server.ChangeConfiguration(clusterConfiguration);
         mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        server.WaitForAtLeastOneWorkerLoop();
+        scheduler->WakeUp();
         messagesSent.clear();
         ReceiveAppendEntriesResults(5, 7, 1, false);
-        server.WaitForAtLeastOneWorkerLoop();
 
         // Assert
         for (const auto& messageSent: messagesSent) {

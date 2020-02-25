@@ -1,12 +1,11 @@
-#ifndef RAFT_INSTANCE_INFO_HPP
-#define RAFT_INSTANCE_INFO_HPP
+#pragma once
 
 /**
  * @file InstanceInfo.hpp
  *
  * This module contains the declaration of the Raft::InstanceInfo structure.
  *
- * © 2019 by Richard Walters
+ * © 2019-2020 by Richard Walters
  */
 
 #include <stddef.h>
@@ -42,6 +41,8 @@ namespace Raft {
          */
         double timeout = 0.0;
 
+        int retransmitSchedulerToken = 0;
+
         /**
          * This is the last request sent to the instance.
          */
@@ -60,5 +61,3 @@ namespace Raft {
     };
 
 }
-
-#endif /* RAFT_INSTANCE_INFO_HPP */

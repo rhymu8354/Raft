@@ -15,11 +15,9 @@ set(Headers
     include/Raft/IServer.hpp
     include/Raft/LogEntry.hpp
     include/Raft/Server.hpp
-    include/Raft/TimeKeeper.hpp
     src/InstanceInfo.hpp
     src/Message.hpp
     src/ServerImpl.hpp
-    src/ServerSharedProperties.hpp
     src/Utilities.hpp
 )
 
@@ -28,7 +26,6 @@ set(Sources
     src/Message.cpp
     src/Server.cpp
     src/ServerImpl.cpp
-    src/ServerSharedProperties.cpp
     src/Utilities.cpp
 )
 
@@ -48,6 +45,7 @@ target_link_libraries(${This} PUBLIC
     Json
     Serialization
     SystemAbstractions
+    Timekeeping
 )
 
 add_subdirectory(test)

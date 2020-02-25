@@ -1,5 +1,4 @@
-#ifndef RAFT_TEST_SERVER_TESTS_COMMON_HPP
-#define RAFT_TEST_SERVER_TESTS_COMMON_HPP
+#pragma once
 
 /**
  * @file Common.hpp
@@ -10,20 +9,22 @@
  * - Replication: getting each server in the cluster to have the same log
  * - Reconfiguration: adding or removing servers in the cluster
  *
- * © 2019 by Richard Walters
+ * © 2019-2020 by Richard Walters
  */
 
 #include "../../../src/Message.hpp"
 
 #include <functional>
+#include <future>
 #include <gtest/gtest.h>
 #include <Json/Value.hpp>
+#include <mutex>
 #include <Raft/ILog.hpp>
 #include <Raft/IPersistentState.hpp>
 #include <Raft/LogEntry.hpp>
 #include <Raft/Server.hpp>
-#include <Raft/TimeKeeper.hpp>
 #include <stddef.h>
+#include <Timekeeping/Scheduler.hpp>
 #include <vector>
 
 namespace ServerTests {
@@ -32,7 +33,7 @@ namespace ServerTests {
      * This is a fake time-keeper which is used to test the server.
      */
     struct MockTimeKeeper
-        : public Raft::TimeKeeper
+        : public Timekeeping::Clock
     {
         // Properties
 
@@ -53,7 +54,7 @@ namespace ServerTests {
 
         void RegisterDestructionDelegate(std::function< void() > destructionDelegate);
 
-        // Http::TimeKeeper
+        // Timekeeping::Clock
 
         virtual double GetCurrentTime() override;
     };
@@ -158,32 +159,37 @@ namespace ServerTests {
     {
         // Properties
 
-        Raft::Server server;
+        bool caughtUp = false;
         Raft::ClusterConfiguration clusterConfiguration;
-        Raft::Server::ServerConfiguration serverConfiguration;
+        size_t commitLogIndex = 0;
+        std::unique_ptr< Raft::ClusterConfiguration > configApplied;
+        std::unique_ptr< Raft::ClusterConfiguration > configCommitted;
         std::vector< std::string > diagnosticMessages;
         SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate diagnosticsUnsubscribeDelegate;
+        std::vector< Json::Value > electionStateChanges;
         Raft::IServer::EventsUnsubscribeDelegate eventsUnsubscribeDelegate;
-        std::shared_ptr< MockTimeKeeper > mockTimeKeeper = std::make_shared< MockTimeKeeper >();
-        std::shared_ptr< MockLog > mockLog = std::make_shared< MockLog >();
-        std::shared_ptr< MockPersistentState > mockPersistentState = std::make_shared< MockPersistentState >();
-        std::vector< MessageInfo > messagesSent;
+        size_t lastIncludedIndexInSnapshot = 0;
+        int lastIncludedTermInSnapshot = 0;
         bool leadershipChangeAnnounced = false;
         struct {
             int leaderId = 0;
             int term = 0;
         } leadershipChangeDetails;
-        std::vector< Json::Value > electionStateChanges;
-        std::unique_ptr< Raft::ClusterConfiguration > configApplied;
-        std::unique_ptr< Raft::ClusterConfiguration > configCommitted;
-        size_t commitLogIndex = 0;
+        std::promise< void > messagesAwaitedSent;
+        std::vector< MessageInfo > messagesSent;
+        std::shared_ptr< MockLog > mockLog = std::make_shared< MockLog >();
+        std::shared_ptr< MockPersistentState > mockPersistentState = std::make_shared< MockPersistentState >();
+        std::shared_ptr< MockTimeKeeper > mockTimeKeeper = std::make_shared< MockTimeKeeper >();
+        std::mutex mutex;
+        size_t numMessagesAwaiting = 0;
+        std::shared_ptr< Timekeeping::Scheduler > scheduler = std::make_shared< Timekeeping::Scheduler >();
+        Raft::Server server;
+        Raft::Server::ServerConfiguration serverConfiguration;
         Json::Value snapshotInstalled;
-        size_t lastIncludedIndexInSnapshot = 0;
-        int lastIncludedTermInSnapshot = 0;
-        bool caughtUp = false;
 
         // Methods
 
+        bool AwaitMessagesSent(size_t numMessages);
         void ServerSentMessage(
             const std::string& message,
             int receiverInstanceNumber
@@ -262,5 +268,3 @@ namespace ServerTests {
         virtual void TearDown() override;
     };
 }
-
-#endif /* RAFT_TEST_SERVER_TESTS_COMMON_HPP */
