@@ -556,8 +556,8 @@ namespace ServerTests {
         }
 
         // Act
-        ReceiveAppendEntriesFromMockLeader(2, 8, 1);
-        WaitForElectionTimeout();
+        ReceiveAppendEntriesFromMockLeader(2, 8, 1, true);
+        ASSERT_TRUE(AwaitElectionTimeout());
         CastVotes(9);
         messagesSent.clear();
 
@@ -745,7 +745,7 @@ namespace ServerTests {
         MobilizeServer();
 
         // Act
-        ReceiveAppendEntriesFromMockLeader(2, 5, 95);
+        ReceiveAppendEntriesFromMockLeader(2, 5, 95, true);
 
         // Assert
         EXPECT_EQ(5, mockPersistentState->variables.currentTerm);
@@ -1119,7 +1119,7 @@ namespace ServerTests {
 
         // Act
         EXPECT_FALSE(caughtUp);
-        ReceiveAppendEntriesFromMockLeader(leaderId, newTerm, 1);
+        ReceiveAppendEntriesFromMockLeader(leaderId, newTerm, 1, true);
 
         // Assert
         EXPECT_TRUE(caughtUp);

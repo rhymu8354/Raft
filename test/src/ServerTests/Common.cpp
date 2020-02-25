@@ -136,6 +136,32 @@ namespace ServerTests {
         ++saveCount;
     }
 
+    std::future< void > Common::SetUpToAwaitLeadershipChange() {
+        leadershipChangeAnnounced = std::make_shared< std::promise< void > >();
+        return leadershipChangeAnnounced->get_future();
+    }
+
+    bool Common::Await(std::future< void >& future) {
+        return (
+            future.wait_for(
+                std::chrono::milliseconds(100)
+            ) == std::future_status::ready
+        );
+    }
+
+    bool Common::AwaitEventsSent(size_t numEventsToAwait) {
+        std::unique_lock< decltype(mutex) > lock(mutex);
+        if (numEvents >= numEventsToAwait) {
+            return true;
+        }
+        eventsAwaitedSent = std::promise< void >();
+        numEventsAwaiting = numEventsToAwait - numEvents;
+        lock.unlock();
+        const auto result = Await(eventsAwaitedSent.get_future());
+        lock.lock();
+        return result;
+    }
+
     bool Common::AwaitMessagesSent(size_t numMessages) {
         std::unique_lock< decltype(mutex) > lock(mutex);
         if (messagesSent.size() >= numMessages) {
@@ -144,13 +170,23 @@ namespace ServerTests {
         messagesAwaitedSent = std::promise< void >();
         numMessagesAwaiting = numMessages;
         lock.unlock();
-        const auto result = (
-            messagesAwaitedSent.get_future().wait_for(
-                std::chrono::milliseconds(100)
-            ) == std::future_status::ready
-        );
+        const auto result = Await(messagesAwaitedSent.get_future());
         lock.lock();
         numMessagesAwaiting = 0;
+        return result;
+    }
+
+    bool Common::AwaitElectionStateChanges(size_t numElectionStateChanges) {
+        std::unique_lock< decltype(mutex) > lock(mutex);
+        if (electionStateChanges.size() >= numElectionStateChanges) {
+            return true;
+        }
+        electionStateChangesAwaited = std::promise< void >();
+        numElectionStateChangesAwaiting = numElectionStateChanges;
+        lock.unlock();
+        const auto result = Await(electionStateChangesAwaited.get_future());
+        lock.lock();
+        numElectionStateChanges = 0;
         return result;
     }
 
@@ -158,7 +194,6 @@ namespace ServerTests {
         const std::string& message,
         int receiverInstanceNumber
     ) {
-        std::lock_guard< decltype(mutex) > lock(mutex);
         MessageInfo messageInfo;
         messageInfo.message = message;
         messageInfo.receiverInstanceNumber = receiverInstanceNumber;
@@ -245,7 +280,8 @@ namespace ServerTests {
     void Common::ReceiveAppendEntriesFromMockLeader(
         int leaderId,
         int term,
-        size_t leaderCommit
+        size_t leaderCommit,
+        bool clearMessagesSent
     ) {
         messagesSent.clear();
         Raft::Message message;
@@ -259,18 +295,22 @@ namespace ServerTests {
             : term
         );
         server.ReceiveMessage(message.Serialize(), leaderId);
-        (void)AwaitMessagesSent(1);
-        messagesSent.clear();
+        if (clearMessagesSent) {
+            (void)AwaitMessagesSent(1);
+            messagesSent.clear();
+        }
     }
 
     void Common::ReceiveAppendEntriesFromMockLeader(
         int leaderId,
-        int term
+        int term,
+        bool clearMessagesSent
     ) {
         ReceiveAppendEntriesFromMockLeader(
             leaderId,
             term,
-            mockLog->baseIndex + mockLog->entries.size()
+            mockLog->baseIndex + mockLog->entries.size(),
+            clearMessagesSent
         );
     }
 
@@ -282,6 +322,7 @@ namespace ServerTests {
         const std::vector< Raft::LogEntry >& entries,
         bool clearMessagesSent
     ) {
+        messagesSent.clear();
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntries;
         message.term = term;
@@ -295,6 +336,7 @@ namespace ServerTests {
         message.log = entries;
         server.ReceiveMessage(message.Serialize(), leaderId);
         if (clearMessagesSent) {
+            (void)AwaitMessagesSent(1);
             messagesSent.clear();
         }
     }
@@ -345,11 +387,11 @@ namespace ServerTests {
         server.ReceiveMessage(message.Serialize(), instance);
     }
 
-    void Common::WaitForElectionTimeout() {
+    bool Common::AwaitElectionTimeout() {
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout;
         scheduler->WakeUp();
-        (void)AwaitMessagesSent(4);
+        return AwaitMessagesSent(4);
     }
 
     void Common::BecomeLeader(
@@ -358,22 +400,23 @@ namespace ServerTests {
     ) {
         mockPersistentState->variables.currentTerm = term - 1;
         MobilizeServer();
-        WaitForElectionTimeout();
+        (void)AwaitElectionTimeout();
         CastVotes(term);
+        (void)AwaitMessagesSent(4);
+        messagesSent.clear();
         if (acknowledgeInitialHeartbeats) {
             for (auto instance: clusterConfiguration.instanceIds) {
                 if (instance != serverConfiguration.selfInstanceId) {
                     ReceiveAppendEntriesResults(instance, term, mockLog->baseIndex + mockLog->entries.size());
                 }
             }
-            messagesSent.clear();
         }
     }
 
     void Common::BecomeCandidate(int term) {
         mockPersistentState->variables.currentTerm = term - 1;
         MobilizeServer();
-        WaitForElectionTimeout();
+        (void)AwaitElectionTimeout();
         messagesSent.clear();
     }
 
@@ -400,6 +443,7 @@ namespace ServerTests {
             [this](
                 const Raft::IServer::Event& baseEvent
             ){
+                std::lock_guard< decltype(mutex) > lock(mutex);
                 switch (baseEvent.type) {
                     case Raft::IServer::Event::Type::SendMessage: {
                         const auto& event = static_cast< const Raft::IServer::SendMessageEvent& >(baseEvent);
@@ -408,7 +452,10 @@ namespace ServerTests {
 
                     case Raft::IServer::Event::Type::LeadershipChange: {
                         const auto& event = static_cast< const Raft::IServer::LeadershipChangeEvent& >(baseEvent);
-                        leadershipChangeAnnounced = true;
+                        if (leadershipChangeAnnounced != nullptr) {
+                            leadershipChangeAnnounced->set_value();
+                            leadershipChangeAnnounced = nullptr;
+                        }
                         leadershipChangeDetails.leaderId = event.leaderId;
                         leadershipChangeDetails.term = event.term;
                     } break;
@@ -438,6 +485,12 @@ namespace ServerTests {
                                 {"votedFor", event.votedFor},
                             })
                         );
+                        if (
+                            (numElectionStateChangesAwaiting > 0)
+                            && (electionStateChanges.size() == numElectionStateChangesAwaiting)
+                        ) {
+                            electionStateChangesAwaited.set_value();
+                        }
                     } break;
 
                     case Raft::IServer::Event::Type::ApplyConfiguration: {
@@ -463,6 +516,12 @@ namespace ServerTests {
                     } break;
 
                     default: break;
+                }
+                ++numEvents;
+                if (numEventsAwaiting > 0) {
+                    if (--numEventsAwaiting == 0) {
+                        eventsAwaitedSent.set_value();
+                    }
                 }
             }
         );
@@ -504,7 +563,7 @@ namespace ServerTests {
     {
     };
 
-    TEST_F(ServerTests, MobilizeTwiceDoesNotCrash) {
+    TEST_F(ServerTests, Mobilize_Twice_Does_Not_Crash) {
         // Arrange
         MobilizeServer();
 
@@ -512,7 +571,7 @@ namespace ServerTests {
         MobilizeServer();
     }
 
-    TEST_F(ServerTests, LogKeeperReleasedOnDemobilize) {
+    TEST_F(ServerTests, Log_Keeper_Released_On_Demobilize) {
         // Arrange
         bool logDestroyed = false;
         const auto onLogDestroyed = [&logDestroyed]{
@@ -529,7 +588,7 @@ namespace ServerTests {
         EXPECT_TRUE(logDestroyed);
     }
 
-    TEST_F(ServerTests, PersistentStateReleasedOnDemobilize) {
+    TEST_F(ServerTests, Persistent_State_Released_On_Demobilize) {
         // Arrange
         bool persistentStateDestroyed = false;
         const auto onPersistentStateDestroyed = [&persistentStateDestroyed]{
@@ -546,7 +605,7 @@ namespace ServerTests {
         EXPECT_TRUE(persistentStateDestroyed);
     }
 
-    TEST_F(ServerTests, Scheduler_Released_On_Destruction) {
+    TEST_F(ServerTests, Scheduler_Released_On_Demobilize) {
         // Arrange
         bool timeKeeperDestroyed = false;
         const auto onTimeKeeperDestroyed = [&timeKeeperDestroyed]{
@@ -565,33 +624,23 @@ namespace ServerTests {
         EXPECT_TRUE(timeKeeperDestroyed);
     }
 
-    TEST_F(ServerTests, ServerDoesNotRetransmitTooQuickly) {
+    TEST_F(ServerTests, Server_Does_Not_Retransmit_Too_Quickly) {
         // Arrange
+        //
+        // In this scenario, server 5 is a candidate, and receives
+        // one less than the minimum number of votes required to
+        // be leader.  One server (2) has not yet cast their vote.
+        //
+        // Server 5 will retransmit a vote request to server 2, but it should
+        // not do so until the retransmission time (rpcTimeout) has elapsed.
+        //
+        // server IDs:     {2, 5, 6, 7, 11}
+        // candidate:          ^
+        // voting for:                  ^
+        // voting against:        ^  ^
+        // didn't vote:     ^
         MobilizeServer();
-        WaitForElectionTimeout();
-        for (auto instance: clusterConfiguration.instanceIds) {
-            switch (instance) {
-                case 6:
-                case 7:
-                case 11: {
-                    CastVote(instance, 1, instance != 11);
-                }
-            }
-        }
-
-        // Act
-        messagesSent.clear();
-        mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout - 0.0001;
-        scheduler->WakeUp();
-
-        // Assert
-        EXPECT_EQ(0, messagesSent.size());
-    }
-
-    TEST_F(ServerTests, ServerRegularRetransmissions) {
-        // Arrange
-        MobilizeServer();
-        WaitForElectionTimeout();
+        ASSERT_TRUE(AwaitElectionTimeout());
         for (auto instance: clusterConfiguration.instanceIds) {
             switch (instance) {
                 case 6:
@@ -604,19 +653,66 @@ namespace ServerTests {
 
         // Act
         messagesSent.clear();
-        mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout + serverConfiguration.rpcTimeout;
+        mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout - 0.0001;
+        scheduler->WakeUp();
+
+        // Assert
+        EXPECT_FALSE(AwaitMessagesSent(1));
+    }
+
+    TEST_F(ServerTests, Server_Regular_Retransmissions) {
+        // Arrange
+        //
+        // In this scenario, server 5 is a candidate, and receives
+        // one less than the minimum number of votes required to
+        // be leader.  One server (2) has not yet cast their vote.
+        //
+        // Server 5 should retransmit a vote request to server 2 every time the
+        // retransmission time (rpcTimeout) has elapsed.
+        //
+        // server IDs:     {2, 5, 6, 7, 11}
+        // candidate:          ^
+        // voting for:                  ^
+        // voting against:        ^  ^
+        // didn't vote:     ^
+        MobilizeServer();
+        ASSERT_TRUE(AwaitElectionTimeout());
+        for (auto instance: clusterConfiguration.instanceIds) {
+            switch (instance) {
+                case 6:
+                case 7:
+                case 11: {
+                    CastVote(instance, 1, instance == 11);
+                }
+            }
+        }
+
+        // Act
+        messagesSent.clear();
+        mockTimeKeeper->currentTime = (
+            serverConfiguration.maximumElectionTimeout
+            + serverConfiguration.rpcTimeout
+        );
         scheduler->WakeUp();
         EXPECT_TRUE(AwaitMessagesSent(1));
-        mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout + serverConfiguration.rpcTimeout * 2 - 0.001;
+        mockTimeKeeper->currentTime = (serverConfiguration.maximumElectionTimeout
+            + serverConfiguration.rpcTimeout * 2 - 0.001
+        );
         scheduler->WakeUp();
         EXPECT_FALSE(AwaitMessagesSent(2));
-        mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout + serverConfiguration.rpcTimeout * 2 + 0.001;
+        mockTimeKeeper->currentTime = (serverConfiguration.maximumElectionTimeout
+            + serverConfiguration.rpcTimeout * 2 + 0.001
+        );
         scheduler->WakeUp();
         EXPECT_TRUE(AwaitMessagesSent(2));
-        mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout + serverConfiguration.rpcTimeout * 3 - 0.001;
+        mockTimeKeeper->currentTime = (serverConfiguration.maximumElectionTimeout
+            + serverConfiguration.rpcTimeout * 3 - 0.001
+        );
         scheduler->WakeUp();
         EXPECT_FALSE(AwaitMessagesSent(3));
-        mockTimeKeeper->currentTime = serverConfiguration.maximumElectionTimeout + serverConfiguration.rpcTimeout * 3 + 0.003;
+        mockTimeKeeper->currentTime = (serverConfiguration.maximumElectionTimeout
+            + serverConfiguration.rpcTimeout * 3 + 0.001
+        );
         scheduler->WakeUp();
         EXPECT_TRUE(AwaitMessagesSent(3));
 
@@ -638,7 +734,7 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests, UpdateTermWhenReceivingHeartBeat) {
+    TEST_F(ServerTests, Update_Term_When_Receiving_Heart_Beat) {
         // Arrange
         MobilizeServer();
 
@@ -649,7 +745,7 @@ namespace ServerTests {
         EXPECT_EQ(2, mockPersistentState->variables.currentTerm);
     }
 
-    TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerSameTerm) {
+    TEST_F(ServerTests, Receiving_First_Heart_Beat_As_Follower_Same_Term) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int newTerm = 1;
@@ -664,7 +760,7 @@ namespace ServerTests {
         EXPECT_EQ(newTerm, mockPersistentState->variables.currentTerm);
     }
 
-    TEST_F(ServerTests, ReceivingFirstHeartBeatAsFollowerNewerTerm) {
+    TEST_F(ServerTests, Receiving_First_Heart_Beat_As_Follower_Newer_Term) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int newTerm = 1;
@@ -679,10 +775,10 @@ namespace ServerTests {
         EXPECT_EQ(newTerm, mockPersistentState->variables.currentTerm);
     }
 
-    TEST_F(ServerTests, ReceivingTwoHeartBeatAsFollowerSequentialTerms) {
+    TEST_F(ServerTests, Receiving_Two_Heart_Beats_As_Follower_Sequential_Terms) {
         // Arrange
         constexpr int firstLeaderId = 2;
-        constexpr int secondLeaderId = 2;
+        constexpr int secondLeaderId = 11;
         constexpr int firstTerm = 1;
         constexpr int secondTerm = 2;
         mockPersistentState->variables.currentTerm = 0;
@@ -697,7 +793,7 @@ namespace ServerTests {
         EXPECT_EQ(secondTerm, mockPersistentState->variables.currentTerm);
     }
 
-    TEST_F(ServerTests, ReceivingHeartBeatFromSameTermShouldResetElectionTimeout) {
+    TEST_F(ServerTests, Receiving_Heart_Beat_From_Same_Term_Should_Reset_Election_Timeout) {
         // Arrange
         MobilizeServer();
 
@@ -713,17 +809,28 @@ namespace ServerTests {
         }
 
         // Assert
+        EXPECT_FALSE(AwaitMessagesSent(1)); // expect NO election
+        EXPECT_EQ(
+            Raft::Server::ElectionState::Follower,
+            server.GetElectionState()
+        );
     }
 
-    TEST_F(ServerTests, IgnoreHeartBeatFromOldTerm) {
+    TEST_F(ServerTests, Reply_Not_Success_For_Heart_Beat_From_Old_Term) {
         // Arrange
         MobilizeServer();
         ReceiveAppendEntriesFromMockLeader(2, 2);
 
         // Act
-        ReceiveAppendEntriesFromMockLeader(2, 1);
+        ReceiveAppendEntriesFromMockLeader(2, 1, false);
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(1));
+        ASSERT_EQ(
+            Raft::Message::Type::AppendEntriesResults,
+            messagesSent[0].message.type
+        );
+        EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
         EXPECT_EQ(2, mockPersistentState->variables.currentTerm);
     }
 

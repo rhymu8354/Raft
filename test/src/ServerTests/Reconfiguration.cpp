@@ -316,7 +316,7 @@ namespace ServerTests {
         MobilizeServer();
 
         // Act
-        WaitForElectionTimeout();
+        ASSERT_TRUE(AwaitElectionTimeout());
 
         // Assert
         EXPECT_EQ(
@@ -339,7 +339,7 @@ namespace ServerTests {
         entry2.term = 7;
         mockLog->entries = {entry1};
         MobilizeServer();
-        ReceiveAppendEntriesFromMockLeader(5, 6, 1);
+        ReceiveAppendEntriesFromMockLeader(5, 6, 1, true);
 
         // Act
         ReceiveAppendEntriesFromMockLeader(6, 7, 1, 0, {entry2});
@@ -714,7 +714,7 @@ namespace ServerTests {
         // Act
         mockPersistentState->variables.currentTerm = term - 1;
         MobilizeServer();
-        WaitForElectionTimeout();
+        ASSERT_TRUE(AwaitElectionTimeout());
 
         // Assert
         for (const auto messageInfo: messagesSent) {
@@ -853,7 +853,7 @@ namespace ServerTests {
         ReceiveAppendEntriesFromMockLeader(5, 6, {jointConfigEntry, singleConfigEntry});
 
         // Act
-        WaitForElectionTimeout();
+        ASSERT_TRUE(AwaitElectionTimeout());
         for (auto instance: newConfiguration.instanceIds) {
             CastVote(instance, 7, true);
         }

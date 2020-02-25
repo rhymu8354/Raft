@@ -167,10 +167,12 @@ namespace ServerTests {
         std::vector< std::string > diagnosticMessages;
         SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate diagnosticsUnsubscribeDelegate;
         std::vector< Json::Value > electionStateChanges;
+        std::promise< void > electionStateChangesAwaited;
+        std::promise< void > eventsAwaitedSent;
         Raft::IServer::EventsUnsubscribeDelegate eventsUnsubscribeDelegate;
         size_t lastIncludedIndexInSnapshot = 0;
         int lastIncludedTermInSnapshot = 0;
-        bool leadershipChangeAnnounced = false;
+        std::shared_ptr< std::promise< void > > leadershipChangeAnnounced;
         struct {
             int leaderId = 0;
             int term = 0;
@@ -181,6 +183,9 @@ namespace ServerTests {
         std::shared_ptr< MockPersistentState > mockPersistentState = std::make_shared< MockPersistentState >();
         std::shared_ptr< MockTimeKeeper > mockTimeKeeper = std::make_shared< MockTimeKeeper >();
         std::mutex mutex;
+        size_t numElectionStateChangesAwaiting = 0;
+        size_t numEvents = 0;
+        size_t numEventsAwaiting = 0;
         size_t numMessagesAwaiting = 0;
         std::shared_ptr< Timekeeping::Scheduler > scheduler = std::make_shared< Timekeeping::Scheduler >();
         Raft::Server server;
@@ -189,7 +194,11 @@ namespace ServerTests {
 
         // Methods
 
+        std::future< void > SetUpToAwaitLeadershipChange();
+        bool Await(std::future< void >& future);
+        bool AwaitEventsSent(size_t numEvents);
         bool AwaitMessagesSent(size_t numMessages);
+        bool AwaitElectionStateChanges(size_t numElectionStateChanges);
         void ServerSentMessage(
             const std::string& message,
             int receiverInstanceNumber
@@ -220,11 +229,13 @@ namespace ServerTests {
         void ReceiveAppendEntriesFromMockLeader(
             int leaderId,
             int term,
-            size_t leaderCommit
+            size_t leaderCommit,
+            bool clearMessagesSent
         );
         void ReceiveAppendEntriesFromMockLeader(
             int leaderId,
-            int term
+            int term,
+            bool clearMessagesSent = true
         );
         void ReceiveAppendEntriesFromMockLeader(
             int leaderId,
@@ -253,7 +264,7 @@ namespace ServerTests {
             bool success = true,
             int seq = 0
         );
-        void WaitForElectionTimeout();
+        bool AwaitElectionTimeout();
         void BecomeLeader(
             int term = 1,
             bool acknowledgeInitialHeartbeats = true
