@@ -380,6 +380,7 @@ namespace ServerTests {
         mockPersistentState->variables.currentTerm = term - 1;
         MobilizeServer();
         (void)AwaitElectionTimeout();
+        messagesSent.clear();
         CastVotes(term);
         (void)AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1);
         messagesSent.clear();
@@ -504,15 +505,6 @@ namespace ServerTests {
                 }
             }
         );
-    }
-
-    bool Common::InstallSnapshotSent() {
-        for (const auto& messageSent: messagesSent) {
-            if (messageSent.message.type == Raft::Message::Type::InstallSnapshot) {
-                return true;
-            }
-        }
-        return false;
     }
 
     void Common::SetUp() {

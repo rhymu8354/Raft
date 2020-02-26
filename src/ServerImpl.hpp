@@ -523,11 +523,14 @@ namespace Raft {
         );
 
         /**
-         * Reset state variables involved in the retransmission process.
+         * Ask the scheduler to clear any already-scheduled callbacks.
          */
-        void ResetRetransmissionState();
+        void CancelAllCallbacks();
 
-        void CancelRetransmission(InstanceInfo& instance);
+        /**
+         * Ask the scheduler to clear any retransmission callbacks.
+         */
+        void CancelRetransmissionCallbacks(InstanceInfo& instance);
 
         /**
          * This method sets the server up as a candidate in the current term

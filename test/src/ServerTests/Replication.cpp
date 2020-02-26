@@ -34,7 +34,7 @@ namespace ServerTests {
     {
     };
 
-    TEST_F(ServerTests_Replication, LeaderAppendLogEntry) {
+    TEST_F(ServerTests_Replication, Leader_Append_Log_Entry) {
         // Arrange
         AppendNoOpEntry(1);
         BecomeLeader(3);
@@ -61,6 +61,7 @@ namespace ServerTests {
         for (auto instanceNumber: clusterConfiguration.instanceIds) {
             appendEntriesReceivedPerInstance[instanceNumber] = false;
         }
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
         for (const auto& messageSent: messagesSent) {
             if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
                 appendEntriesReceivedPerInstance[messageSent.receiverInstanceNumber] = true;
@@ -83,7 +84,7 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Replication, LeaderAppendLogEntryFirstAfterSnapshot) {
+    TEST_F(ServerTests_Replication, Leader_Append_Log_Entry_First_After_Snapshot) {
         // Arrange
         mockLog->baseIndex = 100;
         mockLog->commitIndex = 100;
@@ -96,6 +97,7 @@ namespace ServerTests {
         server.AppendLogEntries({entry});
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
         for (const auto& messageSent: messagesSent) {
             if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
                 EXPECT_EQ(3, messageSent.message.term);
@@ -105,7 +107,7 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Replication, FollowerAppendLogEntry) {
+    TEST_F(ServerTests_Replication, Follower_Append_Log_Entry) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int newTerm = 9;
@@ -133,7 +135,7 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Replication, LeaderDoNotAdvanceCommitIndexWhenMajorityOfClusterHasNotYetAppliedLogEntry) {
+    TEST_F(ServerTests_Replication, Leader_Do_Not_Advance_Commit_Index_When_Majority_Of_Cluster_Has_Not_Yet_Applied_Log_Entry) {
         // Arrange
         BecomeLeader();
         std::vector< Raft::LogEntry > entries;
@@ -151,7 +153,7 @@ namespace ServerTests {
         EXPECT_EQ(0, server.GetCommitIndex());
     }
 
-    TEST_F(ServerTests_Replication, LeaderAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEntry) {
+    TEST_F(ServerTests_Replication, Leader_Advance_Commit_Index_When_Majority_Of_Cluster_Has_Applied_Log_Entry) {
         // Arrange
         BecomeLeader(7);
         Raft::LogEntry firstEntry;
@@ -161,6 +163,8 @@ namespace ServerTests {
         server.AppendLogEntries({firstEntry});
 
         // Act
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
+        messagesSent.clear();
         for (auto instance: clusterConfiguration.instanceIds) {
             if (instance != serverConfiguration.selfInstanceId) {
                 ReceiveAppendEntriesResults(instance, 7, 1);
@@ -170,6 +174,8 @@ namespace ServerTests {
         server.AppendLogEntries({secondEntry});
         size_t successfulResponseCount = 0;
         size_t responseCount = 0;
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
+        messagesSent.clear();
         for (auto instance: clusterConfiguration.instanceIds) {
             if (instance != serverConfiguration.selfInstanceId) {
                 if (instance == 2) {
@@ -192,7 +198,7 @@ namespace ServerTests {
         // Assert
     }
 
-    TEST_F(ServerTests_Replication, FollowerAdvanceCommitIndexWhenMajorityOfClusterHasAppliedLogEntry) {
+    TEST_F(ServerTests_Replication, Follower_Advance_Commit_Index_When_Majority_Of_Cluster_Has_Applied_Log_Entry) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int newTerm = 9;
@@ -215,7 +221,7 @@ namespace ServerTests {
         EXPECT_EQ(1, mockLog->commitIndex);
     }
 
-    TEST_F(ServerTests_Replication, AppendEntriesWhenNotLeader) {
+    TEST_F(ServerTests_Replication, Append_Entries_When_Not_Leader) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int newTerm = 1;
@@ -235,10 +241,10 @@ namespace ServerTests {
         server.AppendLogEntries(entries);
 
         // Assert
-        EXPECT_TRUE(messagesSent.empty());
+        EXPECT_FALSE(AwaitMessagesSent(1));
     }
 
-    TEST_F(ServerTests_Replication, InitializeLastIndex) {
+    TEST_F(ServerTests_Replication, Initialize_Last_Index) {
         // Arrange
         AppendNoOpEntry(1);
         AppendNoOpEntry(1);
@@ -250,15 +256,16 @@ namespace ServerTests {
         EXPECT_EQ(2, server.GetLastIndex());
     }
 
-    TEST_F(ServerTests_Replication, LeaderInitialAppendEntriesFromEndOfLog) {
+    TEST_F(ServerTests_Replication, Leader_Initial_Append_Entries_From_End_Of_Log) {
         // Arrange
         AppendNoOpEntry(3);
         AppendNoOpEntry(7);
         BecomeLeader(8);
 
         // Act
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
         scheduler->WakeUp();
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
 
         // Assert
         for (const auto& messageSent: messagesSent) {
@@ -270,21 +277,22 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Replication, LeaderAppendOlderEntriesAfterDiscoveringFollowerIsBehind) {
+    TEST_F(ServerTests_Replication, Leader_Append_Older_Entries_After_Discovering_Follower_Is_Behind) {
         // Arrange
         AppendNoOpEntry(3);
         AppendNoOpEntry(7);
         AppendNoOpEntry(8);
         BecomeLeader(8);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
         scheduler->WakeUp();
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
+        messagesSent.clear();
 
         // Act
-        messagesSent.clear();
         ReceiveAppendEntriesResults(2, 8, 1, false);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(Raft::Message::Type::AppendEntries, messagesSent[0].message.type);
         EXPECT_EQ(1, messagesSent[0].message.appendEntries.prevLogIndex);
         EXPECT_EQ(3, messagesSent[0].message.appendEntries.prevLogTerm);
@@ -293,22 +301,19 @@ namespace ServerTests {
         EXPECT_EQ(8, messagesSent[0].message.log[1].term);
     }
 
-    TEST_F(ServerTests_Replication, LeaderAppendFirstEntryBasedOnSnapshotAfterDiscoveringFollowerIsBehind) {
+    TEST_F(ServerTests_Replication, Leader_Append_First_Entry_Based_On_Snapshot_After_Discovering_Follower_Is_Behind) {
         // Arrange
         mockLog->baseIndex = 100;
         mockLog->commitIndex = 100;
         mockLog->baseTerm = 7;
         AppendNoOpEntry(3);
-        BecomeLeader(8);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        scheduler->WakeUp();
+        BecomeLeader(8, false);
 
         // Act
-        messagesSent.clear();
         ReceiveAppendEntriesResults(2, 8, 100, false);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(Raft::Message::Type::AppendEntries, messagesSent[0].message.type);
         EXPECT_EQ(100, messagesSent[0].message.appendEntries.prevLogIndex);
         EXPECT_EQ(7, messagesSent[0].message.appendEntries.prevLogTerm);
@@ -316,19 +321,16 @@ namespace ServerTests {
         EXPECT_EQ(3, messagesSent[0].message.log[0].term);
     }
 
-    TEST_F(ServerTests_Replication, LeaderAppendOnlyLogEntryAfterDiscoveringFollowerHasNoLogAtAllNopeNoSirIAmNewPleaseForgiveMe) {
+    TEST_F(ServerTests_Replication, Leader_Append_Only_Log_Entry_After_Discovering_Follower_Has_No_Log_At_All_Nope_No_Sir_I_Am_New_Please_Forgive_Me) {
         // Arrange
         AppendNoOpEntry(3);
-        BecomeLeader(8);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        scheduler->WakeUp();
+        BecomeLeader(8, false);
 
         // Act
-        messagesSent.clear();
         ReceiveAppendEntriesResults(2, 8, 0, false);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(Raft::Message::Type::AppendEntries, messagesSent[0].message.type);
         EXPECT_EQ(0, messagesSent[0].message.appendEntries.prevLogIndex);
         EXPECT_EQ(0, messagesSent[0].message.appendEntries.prevLogTerm);
@@ -336,43 +338,32 @@ namespace ServerTests {
         EXPECT_EQ(3, messagesSent[0].message.log[0].term);
     }
 
-    TEST_F(ServerTests_Replication, AppendEntriesNotSentIfLastNotYetAcknowledged) {
+    TEST_F(ServerTests_Replication, Append_Entries_Not_Sent_If_Last_Not_Yet_Acknowledged) {
         // Arrange
         Raft::LogEntry testEntry;
         testEntry.term = 2;
-        BecomeLeader(8);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        scheduler->WakeUp();
+        BecomeLeader(2, false);
 
         // Act
-        messagesSent.clear();
         server.AppendLogEntries({testEntry});
 
         // Assert
-        for (const auto& messageSent: messagesSent) {
-            EXPECT_FALSE(
-                (messageSent.receiverInstanceNumber == 2)
-                && (messageSent.message.type == Raft::Message::Type::AppendEntries)
-            );
-        }
+        EXPECT_FALSE(AwaitMessagesSent(1));
     }
 
-    TEST_F(ServerTests_Replication, NextIndexAdvancedAndNextEntryAppendedAfterPreviousAcknowledged) {
+    TEST_F(ServerTests_Replication, Next_Index_Advanced_And_Next_Entry_Appended_After_Previous_Acknowledged) {
         // Arrange
         Raft::LogEntry secondEntry;
         secondEntry.term = 3;
         AppendNoOpEntry(2);
-        BecomeLeader(8);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        scheduler->WakeUp();
-        ReceiveAppendEntriesResults(2, 8, 0, false);
+        BecomeLeader(3, false);
 
         // Act
-        messagesSent.clear();
         server.AppendLogEntries({secondEntry});
-        ReceiveAppendEntriesResults(2, 8, 1, true);
+        ReceiveAppendEntriesResults(2, 3, 1);
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(1));
         bool sendEntrySent = false;
         for (const auto& messageSent: messagesSent) {
             if (
@@ -390,14 +381,15 @@ namespace ServerTests {
         EXPECT_TRUE(sendEntrySent);
     }
 
-    TEST_F(ServerTests_Replication, FollowerMatchIndexBeyondWhatLeaderHas) {
+    TEST_F(ServerTests_Replication, Follower_Match_Index_Beyond_What_Leader_Has) {
         // Arrange
         AppendNoOpEntry(2);
         BecomeLeader(8);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
         scheduler->WakeUp();
 
         // Act
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
         messagesSent.clear();
         ReceiveAppendEntriesResults(2, 8, 2, false);
 
@@ -405,46 +397,28 @@ namespace ServerTests {
         EXPECT_EQ(1, server.GetMatchIndex(2));
     }
 
-    TEST_F(ServerTests_Replication, NoHeartBeatShouldBeSentWhilePreviousAppendEntriesUnacknowledged) {
+    TEST_F(ServerTests_Replication, No_Heart_Beat_Should_Be_Sent_While_Previous_Append_Entries_Unacknowledged) {
         // Arrange
+        serverConfiguration.minimumElectionTimeout = 0.5;
+        serverConfiguration.maximumElectionTimeout = 0.6;
+        serverConfiguration.heartbeatInterval = 0.3;
+        serverConfiguration.rpcTimeout = 0.4;
         BecomeLeader();
-        messagesSent.clear();
         Raft::LogEntry testEntry;
         testEntry.term = 2;
         server.AppendLogEntries({testEntry});
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
+        messagesSent.clear();
 
         // Act
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
         scheduler->WakeUp();
 
         // Assert
-        for (const auto& messageSent: messagesSent) {
-            if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
-                EXPECT_FALSE(messageSent.message.log.empty());
-            }
-        }
+        EXPECT_FALSE(AwaitMessagesSent(1));
     }
 
-    TEST_F(ServerTests_Replication, IgnoreAppendEntriesResultsIfNotLeader) {
-        // Arrange
-        mockPersistentState->variables.currentTerm = 1;
-        MobilizeServer();
-
-        // Act
-        for (auto instance: clusterConfiguration.instanceIds) {
-            if (instance != serverConfiguration.selfInstanceId) {
-                ReceiveAppendEntriesResults(instance, 1, 42);
-            }
-        }
-
-        // Assert
-        for (const auto& messageSent: messagesSent) {
-            EXPECT_NE(Raft::Message::Type::AppendEntries, messageSent.message.type);
-        }
-        EXPECT_EQ(0, server.GetCommitIndex());
-    }
-
-    TEST_F(ServerTests_Replication, RetransmitUnacknowledgedAppendEntries) {
+    TEST_F(ServerTests_Replication, Retransmit_Unacknowledged_Append_Entries) {
         // Arrange
         Raft::LogEntry testEntry;
         testEntry.term = 3;
@@ -452,11 +426,13 @@ namespace ServerTests {
 
         // Act
         server.AppendLogEntries({testEntry});
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout + 0.001;
         scheduler->WakeUp();
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
         std::map< int, bool > appendEntriesReceivedPerInstance;
         for (auto instanceNumber: clusterConfiguration.instanceIds) {
             appendEntriesReceivedPerInstance[instanceNumber] = false;
@@ -478,8 +454,13 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Replication, RetransmitUnacknowledgedInstallSnapshot) {
+    TEST_F(ServerTests_Replication, Retransmit_Unacknowledged_Install_Snapshot) {
         // Arrange
+        serverConfiguration.minimumElectionTimeout = 0.6;
+        serverConfiguration.maximumElectionTimeout = 0.7;
+        serverConfiguration.heartbeatInterval = 0.5;
+        serverConfiguration.rpcTimeout = 0.1;
+        serverConfiguration.installSnapshotTimeout = 0.2;
         mockLog->baseIndex = 100;
         mockLog->commitIndex = 100;
         mockLog->baseTerm = 7;
@@ -494,24 +475,18 @@ namespace ServerTests {
                 ReceiveAppendEntriesResults(instance, 8, mockLog->baseIndex + mockLog->entries.size());
             }
         }
+        ASSERT_TRUE(AwaitMessagesSent(1));
         messagesSent.clear();
 
         // Act
         mockTimeKeeper->currentTime += serverConfiguration.rpcTimeout + 0.001;
         scheduler->WakeUp();
-        bool installSnapshotRetransmitSentAtRpcTimeout = false;
-        for (const auto& messageSent: messagesSent) {
-            if (
-                (messageSent.message.type == Raft::Message::Type::InstallSnapshot)
-            ) {
-                installSnapshotRetransmitSentAtRpcTimeout = true;
-            }
-        }
-        messagesSent.clear();
+        ASSERT_FALSE(AwaitMessagesSent(1));
         mockTimeKeeper->currentTime += serverConfiguration.installSnapshotTimeout + 0.001;
         scheduler->WakeUp();
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(1));
         bool installSnapshotRetransmitSentAtInstallSnapshotTimeout = false;
         for (const auto& messageSent: messagesSent) {
             if (
@@ -520,35 +495,37 @@ namespace ServerTests {
                 installSnapshotRetransmitSentAtInstallSnapshotTimeout = true;
             }
         }
-        EXPECT_FALSE(installSnapshotRetransmitSentAtRpcTimeout);
         EXPECT_TRUE(installSnapshotRetransmitSentAtInstallSnapshotTimeout);
     }
 
-    TEST_F(ServerTests_Replication, IgnoreDuplicateAppendEntriesResults) {
+    TEST_F(ServerTests_Replication, Ignore_Duplicate_Append_Entries_Results) {
         // Arrange
         AppendNoOpEntry(3);
         AppendNoOpEntry(7);
         AppendNoOpEntry(8);
         BecomeLeader(8);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
         scheduler->WakeUp();
 
         // Act
-        ReceiveAppendEntriesResults(2, 8, 1, false, 1);
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
         messagesSent.clear();
-        ReceiveAppendEntriesResults(2, 8, 1, false, 1);
+        ReceiveAppendEntriesResults(2, 8, 1, false, 3);
+        ASSERT_TRUE(AwaitMessagesSent(1));
+        messagesSent.clear();
+        ReceiveAppendEntriesResults(2, 8, 1, false, 3);
 
         // Assert
-        ASSERT_TRUE(messagesSent.empty());
+        EXPECT_FALSE(AwaitMessagesSent(1));
     }
 
-    TEST_F(ServerTests_Replication, ReinitializeVolatileLeaderStateAfterElection) {
+    TEST_F(ServerTests_Replication, Reinitialize_Volatile_Leader_State_After_Election) {
         // Arrange
         BecomeLeader(7);
         Raft::LogEntry testEntry;
         testEntry.term = 7;
         server.AppendLogEntries({testEntry});
-        scheduler->WakeUp();
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
         for (auto instance: clusterConfiguration.instanceIds) {
             if (instance != serverConfiguration.selfInstanceId) {
                 ReceiveAppendEntriesResults(instance, 7, 1);
@@ -559,7 +536,6 @@ namespace ServerTests {
         ReceiveAppendEntriesFromMockLeader(2, 8, 1, true);
         ASSERT_TRUE(AwaitElectionTimeout());
         CastVotes(9);
-        messagesSent.clear();
 
         // Assert
         for (auto instance: clusterConfiguration.instanceIds) {
@@ -570,7 +546,7 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesSuccess) {
+    TEST_F(ServerTests_Replication, Follower_Receive_Append_Entries_Success) {
         // Arrange
         Raft::LogEntry oldConflictingEntry, newConflictingEntry, nextEntry;
         oldConflictingEntry.term = 6;
@@ -581,7 +557,6 @@ namespace ServerTests {
         ReceiveAppendEntriesFromMockLeader(2, 8);
 
         // Act
-        messagesSent.clear();
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntries;
         message.term = 8;
@@ -596,7 +571,7 @@ namespace ServerTests {
         ASSERT_EQ(2, mockLog->entries.size());
         EXPECT_EQ(newConflictingEntry.term, mockLog->entries[0].term);
         EXPECT_EQ(nextEntry.term, mockLog->entries[1].term);
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
         EXPECT_EQ(8, messagesSent[0].message.term);
@@ -605,7 +580,7 @@ namespace ServerTests {
         EXPECT_EQ(2, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
-    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesAllOld) {
+    TEST_F(ServerTests_Replication, Follower_Receive_Append_Entries_All_Old) {
         // Arrange
         AppendNoOpEntry(6);
         AppendNoOpEntry(7);
@@ -620,14 +595,14 @@ namespace ServerTests {
         ASSERT_EQ(2, mockLog->entries.size());
         EXPECT_EQ(6, mockLog->entries[0].term);
         EXPECT_EQ(7, mockLog->entries[1].term);
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
         EXPECT_TRUE(messagesSent[0].message.appendEntriesResults.success);
         EXPECT_EQ(1, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
-    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesFailureOldTerm) {
+    TEST_F(ServerTests_Replication, Follower_Receive_Append_Entries_Failure_Old_Term) {
         // Arrange
         Raft::LogEntry oldConflictingEntry, nextEntry;
         oldConflictingEntry.term = 6;
@@ -637,7 +612,6 @@ namespace ServerTests {
         ReceiveAppendEntriesFromMockLeader(2, 8);
 
         // Act
-        messagesSent.clear();
         Raft::Message message;
         message.type = Raft::Message::Type::AppendEntries;
         message.term = 8;
@@ -650,7 +624,7 @@ namespace ServerTests {
         // Assert
         ASSERT_EQ(1, mockLog->entries.size());
         EXPECT_EQ(oldConflictingEntry.term, mockLog->entries[0].term);
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
         EXPECT_EQ(8, messagesSent[0].message.term);
@@ -658,7 +632,7 @@ namespace ServerTests {
         EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
-    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesFailurePreviousNotFoundNoEntries) {
+    TEST_F(ServerTests_Replication, Follower_Receive_Append_Entries_Failure_Previous_Not_Found_No_Entries) {
         // Arrange
         Raft::LogEntry nextEntry;
         nextEntry.term = 8;
@@ -679,7 +653,7 @@ namespace ServerTests {
 
         // Assert
         ASSERT_EQ(0, mockLog->entries.size());
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
         EXPECT_EQ(8, messagesSent[0].message.term);
@@ -687,7 +661,7 @@ namespace ServerTests {
         EXPECT_EQ(0, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
-    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesFailurePreviousNotFoundButHaveOlderEntry) {
+    TEST_F(ServerTests_Replication, Follower_Receive_Append_Entries_Failure_Previous_Not_Found_But_Have_Older_Entry) {
         // Arrange
         AppendNoOpEntry(7);
         MobilizeServer();
@@ -705,14 +679,14 @@ namespace ServerTests {
         // Assert
         ASSERT_EQ(1, mockLog->entries.size());
         EXPECT_EQ(7, mockLog->entries[0].term);
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
         EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
         EXPECT_EQ(1, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
-    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesFailureMismatchingTermPreviousIndex) {
+    TEST_F(ServerTests_Replication, Follower_Receive_Append_Entries_Failure_Mismatching_Term_Previous_Index) {
         // Arrange
         AppendNoOpEntry(7);
         AppendNoOpEntry(7);
@@ -732,14 +706,14 @@ namespace ServerTests {
         ASSERT_EQ(2, mockLog->entries.size());
         EXPECT_EQ(7, mockLog->entries[0].term);
         EXPECT_EQ(7, mockLog->entries[0].term);
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
         EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
         EXPECT_EQ(1, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
-    TEST_F(ServerTests_Replication, PersistentStateUpdateForNewTermWhenReceiveAppendEntriesFromNewerTermLeader) {
+    TEST_F(ServerTests_Replication, Persistent_State_Update_For_New_Term_When_Receive_Append_Entries_From_Newer_Term_Leader) {
         // Arrange
         mockPersistentState->variables.currentTerm = 4;
         MobilizeServer();
@@ -751,7 +725,7 @@ namespace ServerTests {
         EXPECT_EQ(5, mockPersistentState->variables.currentTerm);
     }
 
-    TEST_F(ServerTests_Replication, JointConcensusIsNotAchievedSolelyFromSimpleMajority) {
+    TEST_F(ServerTests_Replication, Joint_Concensus_Is_Not_Achieved_Solely_From_Simple_Majority) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 1;
@@ -768,7 +742,7 @@ namespace ServerTests {
         entry.term = term;
         entry.command = std::move(command);
         mockLog->entries = {entry};
-        BecomeLeader(term);
+        BecomeLeader(term, false);
 
         // Act
         for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
@@ -783,7 +757,7 @@ namespace ServerTests {
         EXPECT_EQ(0, server.GetCommitIndex());
     }
 
-    TEST_F(ServerTests_Replication, StaleAppendEntriesDeservesAFailureResponse) {
+    TEST_F(ServerTests_Replication, Stale_Append_Entries_Deserves_A_Failure_Response) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int term = 2;
@@ -797,7 +771,7 @@ namespace ServerTests {
         ReceiveAppendEntriesFromMockLeader(leaderId, term - 1, 1, 0, {}, false);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(
             leaderId,
             messagesSent[0].receiverInstanceNumber
@@ -813,7 +787,7 @@ namespace ServerTests {
         EXPECT_FALSE(messagesSent[0].message.appendEntriesResults.success);
     }
 
-    TEST_F(ServerTests_Replication, ReceivingHeartBeatsDoesNotCausePersistentStateSaves) {
+    TEST_F(ServerTests_Replication, Receiving_Heart_Beats_Does_Not_Cause_Persistent_State_Saves) {
         // Arrange
         MobilizeServer();
         const auto numSavesAtStart = mockPersistentState->saveCount;
@@ -829,7 +803,7 @@ namespace ServerTests {
         EXPECT_EQ(numSavesAtStart + 1, mockPersistentState->saveCount);
     }
 
-    TEST_F(ServerTests_Replication, IgnoreAppendEntriesSameTermIfLeader) {
+    TEST_F(ServerTests_Replication, Ignore_Append_Entries_Same_Term_If_Leader) {
         // Arrange
         constexpr int term = 5;
         BecomeLeader(term);
@@ -842,10 +816,10 @@ namespace ServerTests {
             Raft::IServer::ElectionState::Leader,
             server.GetElectionState()
         );
-        EXPECT_TRUE(messagesSent.empty());
+        EXPECT_FALSE(AwaitMessagesSent(1));
     }
 
-    TEST_F(ServerTests_Replication, DoNotTellLogKeeperToCommitIfCommitIndexUnchanged) {
+    TEST_F(ServerTests_Replication, Do_Not_Tell_Log_Keeper_To_Commit_If_Commit_Index_Unchanged) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int term = 5;
@@ -864,7 +838,7 @@ namespace ServerTests {
         EXPECT_EQ(commitCountStart, mockLog->commitCount);
     }
 
-    TEST_F(ServerTests_Replication, DoNotCommitToLogAnyEntriesWeDoNotHave) {
+    TEST_F(ServerTests_Replication, Do_Not_Commit_To_Log_Any_Entries_We_Do_Not_Have) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int term = 5;
@@ -878,7 +852,7 @@ namespace ServerTests {
         EXPECT_EQ(0, mockLog->commitIndex);
     }
 
-    TEST_F(ServerTests_Replication, CommitLogAnyEntriesWeHaveWhenIndexLessThanBasePlusSize) {
+    TEST_F(ServerTests_Replication, Commit_Log_Any_Entries_We_Have_When_Index_Less_Than_Base_Plus_Size) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int term = 5;
@@ -896,12 +870,13 @@ namespace ServerTests {
         EXPECT_EQ(101, mockLog->commitIndex);
     }
 
-    TEST_F(ServerTests_Replication, StaleServerShouldRevertToFollowerWhenAppendEntryResultsHigherTermReceived) {
+    TEST_F(ServerTests_Replication, Stale_Server_Should_Revert_To_Follower_When_Append_Entry_Results_Higher_Term_Received) {
         // Arrange
         constexpr int term = 7;
         BecomeLeader(term);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
         scheduler->WakeUp();
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
 
         // Act
         ReceiveAppendEntriesResults(2, term + 1, 0, false);
@@ -914,7 +889,7 @@ namespace ServerTests {
         EXPECT_EQ(term + 1, mockPersistentState->variables.currentTerm);
     }
 
-    TEST_F(ServerTests_Replication, DoNotRetransmitRequestsToServersNoLongerInTheCluster) {
+    TEST_F(ServerTests_Replication, Do_Not_Retransmit_Requests_To_Servers_No_Longer_In_The_Cluster) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 2;
@@ -928,28 +903,29 @@ namespace ServerTests {
         entry.term = term;
         entry.command = std::move(command);
         BecomeLeader(term);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        scheduler->WakeUp();
 
         // Act
         server.AppendLogEntries({entry});
-        messagesSent.clear();
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        scheduler->WakeUp();
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(newConfiguration.instanceIds.size() - 1));
         for (const auto messageInfo: messagesSent) {
             EXPECT_NE(5, messageInfo.receiverInstanceNumber);
         }
     }
 
-    TEST_F(ServerTests_Replication, NewLeaderShouldSendHeartBeatsImmediately) {
+    TEST_F(ServerTests_Replication, New_Leader_Should_Send_Heart_Beats_Immediately) {
         // Arrange
+        mockPersistentState->variables.currentTerm = 1;
+        MobilizeServer();
+        (void)AwaitElectionTimeout();
+        messagesSent.clear();
 
         // Act
-        BecomeLeader(1, false);
+        CastVotes(2);
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
         std::map< int, bool > heartbeatReceivedPerInstance;
         for (auto instanceNumber: clusterConfiguration.instanceIds) {
             heartbeatReceivedPerInstance[instanceNumber] = false;
@@ -968,7 +944,58 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Replication, RemobilizeShouldResetLastIndexCache) {
+    TEST_F(ServerTests_Replication, Leader_Should_Send_Regular_Heartbeats) {
+        // Arrange
+        serverConfiguration.heartbeatInterval = 0.001;
+        BecomeLeader();
+
+        // Act
+        mockTimeKeeper->currentTime += 0.0011;
+        scheduler->WakeUp();
+
+        // Assert
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
+        std::map< int, size_t > heartbeatsReceivedPerInstance;
+        for (auto instanceNumber: clusterConfiguration.instanceIds) {
+            heartbeatsReceivedPerInstance[instanceNumber] = 0;
+        }
+        for (const auto& messageSent: messagesSent) {
+            if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+                ++heartbeatsReceivedPerInstance[messageSent.receiverInstanceNumber];
+            }
+        }
+        for (auto instanceNumber: clusterConfiguration.instanceIds) {
+            if (instanceNumber == serverConfiguration.selfInstanceId) {
+                EXPECT_EQ(0, heartbeatsReceivedPerInstance[instanceNumber]);
+            } else {
+                EXPECT_EQ(1, heartbeatsReceivedPerInstance[instanceNumber]);
+            }
+        }
+    }
+
+    TEST_F(ServerTests_Replication, Heartbeat_No_Log_Entries_Since_Snapshot) {
+        // Arrange
+        mockLog->baseIndex = 100;
+        mockLog->commitIndex = 100;
+        mockLog->baseTerm = 42;
+        serverConfiguration.heartbeatInterval = 0.001;
+        BecomeLeader();
+
+        // Act
+        mockTimeKeeper->currentTime += 0.0011;
+        scheduler->WakeUp();
+
+        // Assert
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
+        for (const auto& messageSent: messagesSent) {
+            if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
+                EXPECT_EQ(100, messageSent.message.appendEntries.prevLogIndex);
+                EXPECT_EQ(42, messageSent.message.appendEntries.prevLogTerm);
+            }
+        }
+    }
+
+    TEST_F(ServerTests_Replication, Remobilize_Should_Reset_Last_Index_Cache) {
         // Arrange
         constexpr int term = 6;
         clusterConfiguration.instanceIds = {2, 5, 6, 7};
@@ -1001,6 +1028,7 @@ namespace ServerTests {
         server.ResetStatistics();
         mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
         scheduler->WakeUp();
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
 
         // Act
         // first instance (2):  0.001 seconds
@@ -1060,7 +1088,7 @@ namespace ServerTests {
         EXPECT_NEAR(0.005, (double)stats["timeSinceLastLeaderMessage"], 0.0001);
     }
 
-    TEST_F(ServerTests_Replication, LeaderDeclareCaughtUpOnceCommitIndexReachesInitialLeaderLastIndex) {
+    TEST_F(ServerTests_Replication, Leader_Declare_Caught_Up_Once_Commit_Index_Reaches_Initial_Leader_Last_Index) {
         // Arrange
         constexpr int term = 5;
         Raft::LogEntry entry;
@@ -1082,7 +1110,7 @@ namespace ServerTests {
         EXPECT_TRUE(caughtUp);
     }
 
-    TEST_F(ServerTests_Replication, LeaderMustNotDeclareCaughtUpIfCommitIndexHasNotYetReachedInitialLeaderLastIndexWhenBaseIndexNonZero) {
+    TEST_F(ServerTests_Replication, Leader_Must_Not_Declare_Caught_Up_If_Commit_Index_Has_Not_Yet_Reached_Initial_Leader_Last_Index_When_Base_Index_Non_Zero) {
         // Arrange
         constexpr int term = 5;
         Raft::LogEntry entry1, entry2;
@@ -1106,7 +1134,7 @@ namespace ServerTests {
         EXPECT_FALSE(caughtUp);
     }
 
-    TEST_F(ServerTests_Replication, FollowerDeclareCaughtUpOnceCommitIndexReachesInitialLeaderLastIndex) {
+    TEST_F(ServerTests_Replication, Follower_Declare_Caught_Up_Once_Commit_Index_Reaches_Initial_Leader_Last_Index) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int newTerm = 9;
@@ -1125,7 +1153,7 @@ namespace ServerTests {
         EXPECT_TRUE(caughtUp);
     }
 
-    TEST_F(ServerTests_Replication, CommitIndexInitializedFromLog) {
+    TEST_F(ServerTests_Replication, Commit_Index_Initialized_From_Log) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int term = 5;
@@ -1139,7 +1167,7 @@ namespace ServerTests {
         EXPECT_EQ(123, server.GetCommitIndex());
     }
 
-    TEST_F(ServerTests_Replication, LastIndexInitializedFromLog) {
+    TEST_F(ServerTests_Replication, Last_Index_Initialized_From_Log) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int term = 5;
@@ -1153,7 +1181,7 @@ namespace ServerTests {
         EXPECT_EQ(123, server.GetLastIndex());
     }
 
-    TEST_F(ServerTests_Replication, CorrectMatchIndexInAppendEntriesResultsBasedOnSnapshot) {
+    TEST_F(ServerTests_Replication, Correct_Match_Index_In_Append_Entries_Results_Based_On_Snapshot) {
         // Arrange
         Raft::LogEntry oldEntry, newEntry;
         oldEntry.term = 7;
@@ -1171,7 +1199,7 @@ namespace ServerTests {
         ASSERT_EQ(2, mockLog->entries.size());
         EXPECT_EQ(oldEntry.term, mockLog->entries[0].term);
         EXPECT_EQ(newEntry.term, mockLog->entries[1].term);
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
         EXPECT_EQ(8, messagesSent[0].message.term);
@@ -1179,7 +1207,7 @@ namespace ServerTests {
         EXPECT_EQ(102, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
-    TEST_F(ServerTests_Replication, DoNotRewindCommitIndexIfLeaderCommitIsBehind) {
+    TEST_F(ServerTests_Replication, Do_Not_Rewind_Commit_Index_If_Leader_Commit_Is_Behind) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int term = 5;
@@ -1198,7 +1226,7 @@ namespace ServerTests {
         EXPECT_EQ(1, mockLog->commitIndex);
     }
 
-    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesWhenLogEmptyBasedOnSnapshot) {
+    TEST_F(ServerTests_Replication, Follower_Receive_Append_Entries_When_Log_Empty_Based_On_Snapshot) {
         // Arrange
         Raft::LogEntry newEntry;
         newEntry.term = 8;
@@ -1214,7 +1242,7 @@ namespace ServerTests {
         // Assert
         ASSERT_EQ(1, mockLog->entries.size());
         EXPECT_EQ(newEntry.term, mockLog->entries[0].term);
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
         EXPECT_EQ(0, messagesSent[0].message.term);
@@ -1222,7 +1250,7 @@ namespace ServerTests {
         EXPECT_EQ(101, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
-    TEST_F(ServerTests_Replication, FollowerReceiveAppendEntriesFailWhenLogBasedOnSnapshot) {
+    TEST_F(ServerTests_Replication, Follower_Receive_Append_Entries_Fail_When_Log_Based_On_Snapshot) {
         // Arrange
         Raft::LogEntry newEntry;
         newEntry.term = 8;
@@ -1244,7 +1272,7 @@ namespace ServerTests {
 
         // Assert
         EXPECT_EQ(0, mockLog->entries.size());
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(2, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
         EXPECT_EQ(0, messagesSent[0].message.term);
@@ -1252,7 +1280,7 @@ namespace ServerTests {
         EXPECT_EQ(100, messagesSent[0].message.appendEntriesResults.matchIndex);
     }
 
-    TEST_F(ServerTests_Replication, LeaderInstallSnapshot) {
+    TEST_F(ServerTests_Replication, Leader_Install_Snapshot) {
         // Arrange
         mockLog->baseIndex = 100;
         mockLog->commitIndex = 100;
@@ -1263,19 +1291,22 @@ namespace ServerTests {
         BecomeLeader(8, false);
 
         // Act
-        messagesSent.clear();
         ReceiveAppendEntriesResults(2, 8, 0, false);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(Raft::Message::Type::InstallSnapshot, messagesSent[0].message.type);
         EXPECT_EQ(100, messagesSent[0].message.installSnapshot.lastIncludedIndex);
         EXPECT_EQ(7, messagesSent[0].message.installSnapshot.lastIncludedTerm);
         EXPECT_EQ(mockLog->snapshot, messagesSent[0].message.snapshot);
     }
 
-    TEST_F(ServerTests_Replication, LeaderHeartbeatAfterSnapshotInstallation) {
+    TEST_F(ServerTests_Replication, Leader_Heartbeat_After_Snapshot_Installation) {
         // Arrange
+        serverConfiguration.minimumElectionTimeout = 0.5;
+        serverConfiguration.maximumElectionTimeout = 0.6;
+        serverConfiguration.heartbeatInterval = 0.3;
+        serverConfiguration.rpcTimeout = 0.4;
         mockLog->baseIndex = 100;
         mockLog->commitIndex = 100;
         mockLog->baseTerm = 7;
@@ -1284,18 +1315,20 @@ namespace ServerTests {
         });
         BecomeLeader(8, false);
         ReceiveAppendEntriesResults(2, 8, 0, false);
+        ASSERT_TRUE(AwaitMessagesSent(1));
+        messagesSent.clear();
 
         // Act
-        messagesSent.clear();
         Raft::Message message;
         message.type = Raft::Message::Type::InstallSnapshotResults;
         message.term = 8;
         message.installSnapshotResults.matchIndex = 100;
         server.ReceiveMessage(message.Serialize(), 2);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
         scheduler->WakeUp();
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(1));
         bool expectedMessageFound = false;
         for (const auto& messageSent: messagesSent) {
             if (
@@ -1311,8 +1344,12 @@ namespace ServerTests {
         EXPECT_TRUE(expectedMessageFound);
     }
 
-    TEST_F(ServerTests_Replication, LeaderNextAppendAfterSnapshotInstallation) {
+    TEST_F(ServerTests_Replication, Leader_Next_Append_After_Snapshot_Installation) {
         // Arrange
+        serverConfiguration.minimumElectionTimeout = 0.5;
+        serverConfiguration.maximumElectionTimeout = 0.6;
+        serverConfiguration.heartbeatInterval = 0.3;
+        serverConfiguration.rpcTimeout = 0.4;
         mockLog->baseIndex = 100;
         mockLog->commitIndex = 100;
         mockLog->baseTerm = 7;
@@ -1321,9 +1358,9 @@ namespace ServerTests {
         });
         AppendNoOpEntry(8);
         BecomeLeader(8, false);
-        while (!InstallSnapshotSent()) {
-            ReceiveAppendEntriesResults(2, 8, 0, false);
-        }
+        ReceiveAppendEntriesResults(2, 8, 0, false);
+        ASSERT_TRUE(AwaitMessagesSent(1));
+        messagesSent.clear();
 
         // Act
         messagesSent.clear();
@@ -1334,6 +1371,7 @@ namespace ServerTests {
         server.ReceiveMessage(message.Serialize(), 2);
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(1));
         bool expectedMessageFound = false;
         for (const auto& messageSent: messagesSent) {
             if (
@@ -1350,15 +1388,15 @@ namespace ServerTests {
         EXPECT_TRUE(expectedMessageFound);
     }
 
-    TEST_F(ServerTests_Replication, FollowerInstallSnapshot) {
+    TEST_F(ServerTests_Replication, Follower_Install_Snapshot) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int term = 5;
         Raft::LogEntry entry;
         entry.term = term;
         mockLog->entries = {entry};
+        mockPersistentState->variables.currentTerm = 4;
         MobilizeServer();
-        ReceiveAppendEntriesFromMockLeader(2, 4);
 
         // Act
         Raft::Message message;
@@ -1373,7 +1411,7 @@ namespace ServerTests {
         server.ReceiveMessage(message.Serialize(), leaderId);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(leaderId, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::InstallSnapshotResults, messagesSent[0].message.type);
         EXPECT_EQ(4, messagesSent[0].message.term);
@@ -1388,7 +1426,7 @@ namespace ServerTests {
         EXPECT_EQ(message.snapshot, mockLog->snapshot);
     }
 
-    TEST_F(ServerTests_Replication, FollowerAppendEntriesAfterSnapshot) {
+    TEST_F(ServerTests_Replication, Follower_Append_Entries_After_Snapshot) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int term = 5;
@@ -1407,6 +1445,7 @@ namespace ServerTests {
             {"foo", "bar"},
         });
         server.ReceiveMessage(message.Serialize(), leaderId);
+        ASSERT_TRUE(AwaitMessagesSent(1));
         messagesSent.clear();
         message.type = Raft::Message::Type::AppendEntries;
         message.term = term;
@@ -1416,14 +1455,14 @@ namespace ServerTests {
         server.ReceiveMessage(message.Serialize(), leaderId);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(leaderId, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::AppendEntriesResults, messagesSent[0].message.type);
         EXPECT_EQ(100, messagesSent[0].message.appendEntriesResults.matchIndex);
         EXPECT_TRUE(messagesSent[0].message.appendEntriesResults.success);
     }
 
-    TEST_F(ServerTests_Replication, FollowerDoNotInstallStaleSnapshot) {
+    TEST_F(ServerTests_Replication, Follower_Do_Not_Install_Stale_Snapshot) {
         // Arrange
         constexpr int leaderId = 2;
         constexpr int term = 5;
@@ -1434,8 +1473,8 @@ namespace ServerTests {
         });
         mockLog->snapshot = originalSnapshot;
         MobilizeServer();
-        ReceiveAppendEntriesFromMockLeader(leaderId, term, 0, {entry, entry});
-        ReceiveAppendEntriesFromMockLeader(leaderId, term, 1, {});
+        ReceiveAppendEntriesFromMockLeader(leaderId, term, 0, {entry, entry}, true);
+        ReceiveAppendEntriesFromMockLeader(leaderId, term, 1, {}, true);
         messagesSent.clear();
 
         // Act
@@ -1450,7 +1489,7 @@ namespace ServerTests {
         server.ReceiveMessage(message.Serialize(), leaderId);
 
         // Assert
-        ASSERT_EQ(1, messagesSent.size());
+        ASSERT_TRUE(AwaitMessagesSent(1));
         EXPECT_EQ(leaderId, messagesSent[0].receiverInstanceNumber);
         EXPECT_EQ(Raft::Message::Type::InstallSnapshotResults, messagesSent[0].message.type);
         EXPECT_EQ(2, messagesSent[0].message.installSnapshotResults.matchIndex);
@@ -1460,7 +1499,7 @@ namespace ServerTests {
         EXPECT_EQ(originalSnapshot, mockLog->snapshot);
     }
 
-    TEST_F(ServerTests_Replication, AppendEntriesShouldNotSendMessageToFollowerStillProcessingInstallSnapshot) {
+    TEST_F(ServerTests_Replication, Append_Entries_Should_Not_Send_Message_To_Follower_Still_Processing_Install_Snapshot) {
         // Arrange
         mockLog->baseIndex = 100;
         mockLog->commitIndex = 100;
@@ -1470,17 +1509,26 @@ namespace ServerTests {
         });
         AppendNoOpEntry(8);
         BecomeLeader(8, false);
-        while (!InstallSnapshotSent()) {
-            ReceiveAppendEntriesResults(2, 8, 0, false);
+        for (auto instance: clusterConfiguration.instanceIds) {
+            if (instance != serverConfiguration.selfInstanceId) {
+                if (instance == 2) {
+                    ReceiveAppendEntriesResults(instance, 8, 0, false);
+                } else {
+                    ReceiveAppendEntriesResults(instance, 8, 101, true);
+                }
+            }
         }
+        ASSERT_TRUE(AwaitMessagesSent(1));
+        messagesSent.clear();
 
         // Act
-        messagesSent.clear();
         Raft::LogEntry testEntry;
         testEntry.term = 8;
         server.AppendLogEntries({testEntry});
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 2));
+        EXPECT_FALSE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
         for (const auto& messageSent: messagesSent) {
             EXPECT_FALSE(
                 (messageSent.receiverInstanceNumber == 2)

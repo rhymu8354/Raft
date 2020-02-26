@@ -826,57 +826,6 @@ namespace ServerTests {
         EXPECT_EQ(2, mockPersistentState->variables.currentTerm);
     }
 
-    TEST_F(ServerTests_Elections, Leader_Should_Send_Regular_Heartbeats) {
-        // Arrange
-        serverConfiguration.heartbeatInterval = 0.001;
-        BecomeLeader();
-
-        // Act
-        mockTimeKeeper->currentTime += 0.0011;
-        scheduler->WakeUp();
-
-        // Assert
-        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
-        std::map< int, size_t > heartbeatsReceivedPerInstance;
-        for (auto instanceNumber: clusterConfiguration.instanceIds) {
-            heartbeatsReceivedPerInstance[instanceNumber] = 0;
-        }
-        for (const auto& messageSent: messagesSent) {
-            if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
-                ++heartbeatsReceivedPerInstance[messageSent.receiverInstanceNumber];
-            }
-        }
-        for (auto instanceNumber: clusterConfiguration.instanceIds) {
-            if (instanceNumber == serverConfiguration.selfInstanceId) {
-                EXPECT_EQ(0, heartbeatsReceivedPerInstance[instanceNumber]);
-            } else {
-                EXPECT_EQ(1, heartbeatsReceivedPerInstance[instanceNumber]);
-            }
-        }
-    }
-
-    TEST_F(ServerTests_Elections, Heartbeat_No_Log_Entries_Since_Snapshot) {
-        // Arrange
-        mockLog->baseIndex = 100;
-        mockLog->commitIndex = 100;
-        mockLog->baseTerm = 42;
-        serverConfiguration.heartbeatInterval = 0.001;
-        BecomeLeader();
-
-        // Act
-        mockTimeKeeper->currentTime += 0.0011;
-        scheduler->WakeUp();
-
-        // Assert
-        ASSERT_TRUE(AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1));
-        for (const auto& messageSent: messagesSent) {
-            if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
-                EXPECT_EQ(100, messageSent.message.appendEntries.prevLogIndex);
-                EXPECT_EQ(42, messageSent.message.appendEntries.prevLogTerm);
-            }
-        }
-    }
-
     TEST_F(ServerTests_Elections, Repeat_Votes_Should_Not_Count) {
         // Arrange
         //

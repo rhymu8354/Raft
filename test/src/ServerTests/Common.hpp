@@ -274,7 +274,6 @@ namespace ServerTests {
         );
         void BecomeCandidate(int term = 1);
         void SetServerDelegates();
-        bool InstallSnapshotSent();
 
         // ::testing::Test
 

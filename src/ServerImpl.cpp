@@ -338,14 +338,22 @@ namespace Raft {
         AddToEventQueue(std::move(snapshotInstalledEvent));
     }
 
-    void Server::Impl::ResetRetransmissionState() {
+    void Server::Impl::CancelAllCallbacks() {
         for (auto instanceId: GetInstanceIds()) {
             auto& instance = instances[instanceId];
-            CancelRetransmission(instance);
+            CancelRetransmissionCallbacks(instance);
+        }
+        if (heartbeatTimeoutToken != 0) {
+            scheduler->Cancel(heartbeatTimeoutToken);
+            heartbeatTimeoutToken = 0;
+        }
+        if (electionTimeoutToken != 0) {
+            scheduler->Cancel(electionTimeoutToken);
+            electionTimeoutToken = 0;
         }
     }
 
-    void Server::Impl::CancelRetransmission(InstanceInfo& instance) {
+    void Server::Impl::CancelRetransmissionCallbacks(InstanceInfo& instance) {
         instance.awaitingResponse = false;
         if (instance.retransmitSchedulerToken != 0) {
             scheduler->Cancel(instance.retransmitSchedulerToken);
@@ -376,7 +384,7 @@ namespace Raft {
                 votesForUsNextConfig = 1;
             }
         }
-        ResetRetransmissionState();
+        CancelAllCallbacks();
         diagnosticsSender.SendDiagnosticInformationFormatted(
             3,
             "Timeout -- starting new election (term %d)",
@@ -660,7 +668,7 @@ namespace Raft {
             ResetStatistics();
             electionState = IServer::ElectionState::Follower;
             configChangePending = false;
-            ResetRetransmissionState();
+            CancelAllCallbacks();
 #ifdef EXTRA_DIAGNOSTICS
             diagnosticsSender.SendDiagnosticInformationString(
                 2,
@@ -672,7 +680,7 @@ namespace Raft {
     }
 
     void Server::Impl::AssumeLeadership() {
-        ResetRetransmissionState();
+        CancelAllCallbacks();
         electionState = IServer::ElectionState::Leader;
         thisTermLeaderAnnounced = true;
         leaderId = serverConfiguration.selfInstanceId;
@@ -1091,71 +1099,72 @@ namespace Raft {
             );
             return;
         }
+        if (
+            !instance.awaitingResponse
+            || (
+                (message.seq != 0)
+                && (instance.lastSerialNumber != message.seq)
+            )
+        ) {
+            diagnosticsSender.SendDiagnosticInformationFormatted(
+                1,
+                "Unexpected vote from server %d in term %d ignored",
+                senderInstanceNumber,
+                message.term
+            );
+            return;
+        }
+        CancelRetransmissionCallbacks(instance);
         if (message.requestVoteResults.voteGranted) {
             if (
-                instance.awaitingResponse
-                && (
-                    (message.seq == 0)
-                    || (instance.lastSerialNumber == message.seq)
-                )
+                clusterConfiguration.instanceIds.find(senderInstanceNumber)
+                != clusterConfiguration.instanceIds.end()
             ) {
+                ++votesForUsCurrentConfig;
+            }
+            if (jointConfiguration) {
                 if (
-                    clusterConfiguration.instanceIds.find(senderInstanceNumber)
-                    != clusterConfiguration.instanceIds.end()
+                    nextClusterConfiguration.instanceIds.find(senderInstanceNumber)
+                    != nextClusterConfiguration.instanceIds.end()
                 ) {
-                    ++votesForUsCurrentConfig;
+                    ++votesForUsNextConfig;
                 }
-                if (jointConfiguration) {
-                    if (
-                        nextClusterConfiguration.instanceIds.find(senderInstanceNumber)
-                        != nextClusterConfiguration.instanceIds.end()
-                    ) {
-                        ++votesForUsNextConfig;
-                    }
-                    diagnosticsSender.SendDiagnosticInformationFormatted(
-                        1,
-                        "Server %d voted for us in term %d (%zu/%zu + %zu/%zu)",
-                        senderInstanceNumber,
-                        persistentStateCache.currentTerm,
-                        votesForUsCurrentConfig,
-                        clusterConfiguration.instanceIds.size(),
-                        votesForUsNextConfig,
-                        nextClusterConfiguration.instanceIds.size()
-                    );
-                } else {
-                    diagnosticsSender.SendDiagnosticInformationFormatted(
-                        1,
-                        "Server %d voted for us in term %d (%zu/%zu)",
-                        senderInstanceNumber,
-                        persistentStateCache.currentTerm,
-                        votesForUsCurrentConfig,
-                        clusterConfiguration.instanceIds.size()
-                    );
-                }
-                bool wonTheVote = (
-                    votesForUsCurrentConfig
-                    > clusterConfiguration.instanceIds.size() - votesForUsCurrentConfig
+                diagnosticsSender.SendDiagnosticInformationFormatted(
+                    1,
+                    "Server %d voted for us in term %d (%zu/%zu + %zu/%zu)",
+                    senderInstanceNumber,
+                    persistentStateCache.currentTerm,
+                    votesForUsCurrentConfig,
+                    clusterConfiguration.instanceIds.size(),
+                    votesForUsNextConfig,
+                    nextClusterConfiguration.instanceIds.size()
                 );
-                if (jointConfiguration) {
-                    if (votesForUsNextConfig
-                        <= nextClusterConfiguration.instanceIds.size() - votesForUsNextConfig
-                    ) {
-                        wonTheVote = false;
-                    }
-                }
-                if (
-                    (electionState == IServer::ElectionState::Candidate)
-                    && wonTheVote
-                ) {
-                    AssumeLeadership();
-                }
             } else {
                 diagnosticsSender.SendDiagnosticInformationFormatted(
                     1,
-                    "Repeat vote from server %d in term %d ignored",
+                    "Server %d voted for us in term %d (%zu/%zu)",
                     senderInstanceNumber,
-                    message.term
+                    persistentStateCache.currentTerm,
+                    votesForUsCurrentConfig,
+                    clusterConfiguration.instanceIds.size()
                 );
+            }
+            bool wonTheVote = (
+                votesForUsCurrentConfig
+                > clusterConfiguration.instanceIds.size() - votesForUsCurrentConfig
+            );
+            if (jointConfiguration) {
+                if (votesForUsNextConfig
+                    <= nextClusterConfiguration.instanceIds.size() - votesForUsNextConfig
+                ) {
+                    wonTheVote = false;
+                }
+            }
+            if (
+                (electionState == IServer::ElectionState::Candidate)
+                && wonTheVote
+            ) {
+                AssumeLeadership();
             }
         } else {
             diagnosticsSender.SendDiagnosticInformationFormatted(
@@ -1165,7 +1174,6 @@ namespace Raft {
                 persistentStateCache.currentTerm
             );
         }
-        CancelRetransmission(instance);
     }
 
     void Server::Impl::OnReceiveAppendEntries(
@@ -1382,7 +1390,7 @@ namespace Raft {
         if (electionState != ElectionState::Leader) {
             return;
         }
-        CancelRetransmission(instance);
+        CancelRetransmissionCallbacks(instance);
         instance.matchIndex = message.appendEntriesResults.matchIndex;
         if (instance.matchIndex > lastIndex) {
             diagnosticsSender.SendDiagnosticInformationFormatted(
@@ -1583,7 +1591,7 @@ namespace Raft {
         if (electionState != ElectionState::Leader) {
             return;
         }
-        CancelRetransmission(instance);
+        CancelRetransmissionCallbacks(instance);
         instance.matchIndex = message.installSnapshotResults.matchIndex;
         instance.nextIndex = message.installSnapshotResults.matchIndex + 1;
         if (instance.nextIndex <= lastIndex) {

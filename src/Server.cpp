@@ -158,15 +158,7 @@ namespace Raft {
             return;
         }
         impl_->mobilized = false;
-        if (impl_->heartbeatTimeoutToken != 0) {
-            impl_->scheduler->Cancel(impl_->heartbeatTimeoutToken);
-            impl_->heartbeatTimeoutToken = 0;
-        }
-        if (impl_->electionTimeoutToken != 0) {
-            impl_->scheduler->Cancel(impl_->electionTimeoutToken);
-            impl_->electionTimeoutToken = 0;
-        }
-        impl_->ResetRetransmissionState();
+        impl_->CancelAllCallbacks();
         impl_->scheduler = nullptr;
         if (impl_->eventQueueWorker.joinable()) {
             std::unique_lock< decltype(impl_->eventQueueMutex) > eventQueueLock(impl_->eventQueueMutex);
