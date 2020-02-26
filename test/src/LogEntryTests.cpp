@@ -11,7 +11,7 @@
 #include <Json/Value.hpp>
 #include <Raft/LogEntry.hpp>
 
-TEST(LogEntryTests, EncodeSingleConfigurationCommand) {
+TEST(LogEntryTests, Encode_Single_Configuration_Command) {
     // Arrange
     auto command = std::make_shared< Raft::SingleConfigurationCommand >();
     command->oldConfiguration.instanceIds = {5, 42, 85, 13531, 8354};
@@ -38,7 +38,7 @@ TEST(LogEntryTests, EncodeSingleConfigurationCommand) {
     );
 }
 
-TEST(LogEntryTests, DecodeSingleConfigurationCommand) {
+TEST(LogEntryTests, Decode_Single_Configuration_Command) {
     // Arrange
     auto encodedEntry = Json::Object({
         {"type", "SingleConfiguration"},
@@ -70,7 +70,7 @@ TEST(LogEntryTests, DecodeSingleConfigurationCommand) {
     );
 }
 
-TEST(LogEntryTests, EncodeJointConfigurationCommand) {
+TEST(LogEntryTests, Encode_Joint_Configuration_Command) {
     // Arrange
     auto command = std::make_shared< Raft::JointConfigurationCommand >();
     command->oldConfiguration.instanceIds = {42, 85, 13531, 8354};
@@ -97,7 +97,7 @@ TEST(LogEntryTests, EncodeJointConfigurationCommand) {
     );
 }
 
-TEST(LogEntryTests, DecodeJointConfigurationCommand) {
+TEST(LogEntryTests, Decode_Joint_Configuration_Command) {
     // Arrange
     auto encodedEntry = Json::Object({
         {"type", "JointConfiguration"},
@@ -129,7 +129,7 @@ TEST(LogEntryTests, DecodeJointConfigurationCommand) {
     );
 }
 
-TEST(LogEntryTests, ToJsonWithCommand) {
+TEST(LogEntryTests, To_Json_With_Command) {
     // Arrange
     auto command = std::make_shared< Raft::SingleConfigurationCommand >();
     command->oldConfiguration.instanceIds = {5, 42, 85, 13531, 8354};
@@ -156,7 +156,7 @@ TEST(LogEntryTests, ToJsonWithCommand) {
     );
 }
 
-TEST(LogEntryTests, FromJsonWithCommand) {
+TEST(LogEntryTests, From_Json_With_Command) {
     // Arrange
     auto entryAsJson = Json::Object({
         {"type", "SingleConfiguration"},
@@ -189,7 +189,7 @@ TEST(LogEntryTests, FromJsonWithCommand) {
     );
 }
 
-TEST(LogEntryTests, ToJsonWithoutCommand) {
+TEST(LogEntryTests, To_Json_Without_Command) {
     // Arrange
     Raft::LogEntry entry;
     entry.term = 9;
@@ -203,7 +203,7 @@ TEST(LogEntryTests, ToJsonWithoutCommand) {
     );
 }
 
-TEST(LogEntryTests, FromJsonWithoutCommand) {
+TEST(LogEntryTests, From_Json_Without_Command) {
     // Arrange
     auto entryAsJson = Json::Object({
         {"term", 9},
@@ -217,7 +217,7 @@ TEST(LogEntryTests, FromJsonWithoutCommand) {
     EXPECT_TRUE(entry.command == nullptr);
 }
 
-TEST(LogEntryTests, CompareEqual) {
+TEST(LogEntryTests, Compare_Equal) {
     // Arrange
     std::vector< Raft::LogEntry > examples{
         Json::Object({
@@ -277,7 +277,7 @@ TEST(LogEntryTests, CompareEqual) {
     }
 }
 
-TEST(LogEntryTests, CustomCommand) {
+TEST(LogEntryTests, Custom_Command) {
     // Arrange
     struct PogChamp : public Raft::Command {
         int payload = 0;

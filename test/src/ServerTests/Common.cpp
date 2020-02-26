@@ -141,27 +141,6 @@ namespace ServerTests {
         return leadershipChangeAnnounced->get_future();
     }
 
-    bool Common::Await(std::future< void >& future) {
-        return (
-            future.wait_for(
-                std::chrono::milliseconds(100)
-            ) == std::future_status::ready
-        );
-    }
-
-    bool Common::AwaitEventsSent(size_t numEventsToAwait) {
-        std::unique_lock< decltype(mutex) > lock(mutex);
-        if (numEvents >= numEventsToAwait) {
-            return true;
-        }
-        eventsAwaitedSent = std::promise< void >();
-        numEventsAwaiting = numEventsToAwait - numEvents;
-        lock.unlock();
-        const auto result = Await(eventsAwaitedSent.get_future());
-        lock.lock();
-        return result;
-    }
-
     bool Common::AwaitMessagesSent(size_t numMessages) {
         std::unique_lock< decltype(mutex) > lock(mutex);
         if (messagesSent.size() >= numMessages) {
@@ -387,11 +366,11 @@ namespace ServerTests {
         server.ReceiveMessage(message.Serialize(), instance);
     }
 
-    bool Common::AwaitElectionTimeout() {
+    bool Common::AwaitElectionTimeout(size_t messagesExpected) {
         messagesSent.clear();
         mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout;
         scheduler->WakeUp();
-        return AwaitMessagesSent(4);
+        return AwaitMessagesSent(messagesExpected);
     }
 
     void Common::BecomeLeader(
@@ -402,7 +381,7 @@ namespace ServerTests {
         MobilizeServer();
         (void)AwaitElectionTimeout();
         CastVotes(term);
-        (void)AwaitMessagesSent(4);
+        (void)AwaitMessagesSent(clusterConfiguration.instanceIds.size() - 1);
         messagesSent.clear();
         if (acknowledgeInitialHeartbeats) {
             for (auto instance: clusterConfiguration.instanceIds) {
@@ -495,12 +474,18 @@ namespace ServerTests {
 
                     case Raft::IServer::Event::Type::ApplyConfiguration: {
                         const auto& event = static_cast< const Raft::IServer::ApplyConfigurationEvent& >(baseEvent);
-                        configApplied.reset(new Raft::ClusterConfiguration(event.newConfig));
+                        if (configApplied != nullptr) {
+                            configApplied->set_value(event.newConfig);
+                            configApplied = nullptr;
+                        }
                     } break;
 
                     case Raft::IServer::Event::Type::CommitConfiguration: {
                         const auto& event = static_cast< const Raft::IServer::CommitConfigurationEvent& >(baseEvent);
-                        configCommitted.reset(new Raft::ClusterConfiguration(event.newConfig));
+                        if (configCommitted != nullptr) {
+                            configCommitted->set_value(event.newConfig);
+                            configCommitted = nullptr;
+                        }
                         commitLogIndex = event.logIndex;
                     } break;
 
@@ -516,12 +501,6 @@ namespace ServerTests {
                     } break;
 
                     default: break;
-                }
-                ++numEvents;
-                if (numEventsAwaiting > 0) {
-                    if (--numEventsAwaiting == 0) {
-                        eventsAwaitedSent.set_value();
-                    }
                 }
             }
         );

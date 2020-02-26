@@ -34,7 +34,7 @@ namespace ServerTests {
     {
     };
 
-    TEST_F(ServerTests_Reconfiguration, DoNotCrashWhenCommittingSingleConfigFollowedByNoOp) {
+    TEST_F(ServerTests_Reconfiguration, Do_Not_Crash_When_Committing_Single_Config_Followed_By_No_Op) {
         // Arrange
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -56,7 +56,7 @@ namespace ServerTests {
         // Assert
     }
 
-    TEST_F(ServerTests_Reconfiguration, ApplyConfigNonVotingMemberSingleConfigOnStartup) {
+    TEST_F(ServerTests_Reconfiguration, Apply_Config_Non_Voting_Member_Single_Config_On_Startup) {
         // Arrange
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -74,7 +74,7 @@ namespace ServerTests {
         EXPECT_FALSE(server.IsVotingMember());
     }
 
-    TEST_F(ServerTests_Reconfiguration, NonVotingMemberOnStartupNoLog) {
+    TEST_F(ServerTests_Reconfiguration, Non_Voting_Member_On_Startup_No_Log) {
         // Arrange
         clusterConfiguration.instanceIds = {5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -86,7 +86,7 @@ namespace ServerTests {
         EXPECT_FALSE(server.IsVotingMember());
     }
 
-    TEST_F(ServerTests_Reconfiguration, ApplyConfigNonVotingMemberSingleConfigWhenAppendedAsFollower) {
+    TEST_F(ServerTests_Reconfiguration, Apply_Config_Non_Voting_Member_Single_Config_When_Appended_As_Follower) {
         // Arrange
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -105,7 +105,7 @@ namespace ServerTests {
         EXPECT_FALSE(server.IsVotingMember());
     }
 
-    TEST_F(ServerTests_Reconfiguration, BecomeNonVotingMemberWhenLeaderAndSingleConfigAppendedAndNotInClusterAnymore) {
+    TEST_F(ServerTests_Reconfiguration, Become_Non_Voting_Member_When_Leader_And_Single_Config_Appended_And_Not_In_Cluster_Anymore) {
         // Arrange
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -125,7 +125,7 @@ namespace ServerTests {
         EXPECT_FALSE(server.IsVotingMember());
     }
 
-    TEST_F(ServerTests_Reconfiguration, StepDownFromLeadershipOnceSingleConfigCommittedAndNotInClusterAnymore) {
+    TEST_F(ServerTests_Reconfiguration, Step_Down_From_Leadership_Once_Single_Config_Committed_And_Not_In_Cluster_Anymore) {
         // Arrange
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -138,8 +138,7 @@ namespace ServerTests {
         entry.term = term;
         entry.command = std::move(command);
         server.AppendLogEntries({entry});
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        scheduler->WakeUp();
+        ASSERT_TRUE(AwaitMessagesSent(3));
 
         // Act
         for (const auto& messageSent: messagesSent) {
@@ -172,7 +171,7 @@ namespace ServerTests {
         // Assert
     }
 
-    TEST_F(ServerTests_Reconfiguration, SendCorrectHeartBeatToNewServersOnceJointConfigApplied) {
+    TEST_F(ServerTests_Reconfiguration, Send_Correct_Heart_Beat_To_New_Servers_Once_Joint_Config_Applied) {
         // Arrange
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -184,14 +183,12 @@ namespace ServerTests {
         Raft::LogEntry entry;
         entry.term = term;
         entry.command = std::move(command);
-        messagesSent.clear();
 
         // Act
         server.AppendLogEntries({entry});
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        scheduler->WakeUp();
 
         // Assert
+        ASSERT_TRUE(AwaitMessagesSent(5));
         bool newServerReceivedHeartBeat = false;
         for (const auto& messageSent: messagesSent) {
             if (
@@ -205,6 +202,7 @@ namespace ServerTests {
             }
         }
         ASSERT_TRUE(newServerReceivedHeartBeat);
+        ASSERT_TRUE(AwaitMessagesSent(1));
         bool newServerReceivedLog = false;
         for (const auto& messageSent: messagesSent) {
             if (
@@ -220,7 +218,7 @@ namespace ServerTests {
         EXPECT_TRUE(newServerReceivedLog);
     }
 
-    TEST_F(ServerTests_Reconfiguration, VotingMemberFromBothConfigsJointConfig) {
+    TEST_F(ServerTests_Reconfiguration, Voting_Member_From_Both_Configs_Joint_Config) {
         // Arrange
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -239,7 +237,7 @@ namespace ServerTests {
         EXPECT_TRUE(server.IsVotingMember());
     }
 
-    TEST_F(ServerTests_Reconfiguration, VotingMemberFromNewConfigJointConfig) {
+    TEST_F(ServerTests_Reconfiguration, Voting_Member_From_New_Config_Joint_Config) {
         // Arrange
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -258,7 +256,7 @@ namespace ServerTests {
         EXPECT_TRUE(server.IsVotingMember());
     }
 
-    TEST_F(ServerTests_Reconfiguration, VotingMemberFromOldConfigJointConfig) {
+    TEST_F(ServerTests_Reconfiguration, Voting_Member_From_Old_Config_Joint_Config) {
         // Arrange
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -277,7 +275,7 @@ namespace ServerTests {
         EXPECT_TRUE(server.IsVotingMember());
     }
 
-    TEST_F(ServerTests_Reconfiguration, NonVotingMemberJointConfig) {
+    TEST_F(ServerTests_Reconfiguration, Non_Voting_Member_Joint_Config) {
         // Arrange
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -296,7 +294,7 @@ namespace ServerTests {
         EXPECT_FALSE(server.IsVotingMember());
     }
 
-    TEST_F(ServerTests_Reconfiguration, NonVotingMemberShouldNotVoteForAnyCandidate) {
+    TEST_F(ServerTests_Reconfiguration, Non_Voting_Member_Should_Not_Vote_For_Any_Candidate) {
         // Arrange
         clusterConfiguration.instanceIds = {5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -306,27 +304,28 @@ namespace ServerTests {
         RequestVote(2, 1, 0);
 
         // Assert
-        ASSERT_TRUE(messagesSent.empty());
+        EXPECT_FALSE(AwaitMessagesSent(1));
     }
 
-    TEST_F(ServerTests_Reconfiguration, NonVotingMemberShouldNotStartNewElection) {
+    TEST_F(ServerTests_Reconfiguration, Non_Voting_Member_Should_Not_Start_New_Election) {
         // Arrange
         clusterConfiguration.instanceIds = {5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
         MobilizeServer();
 
         // Act
-        ASSERT_TRUE(AwaitElectionTimeout());
+        mockTimeKeeper->currentTime += serverConfiguration.maximumElectionTimeout;
+        scheduler->WakeUp();
 
         // Assert
+        EXPECT_FALSE(AwaitMessagesSent(1));
         EXPECT_EQ(
             Raft::IServer::ElectionState::Follower,
             server.GetElectionState()
         );
-        EXPECT_TRUE(messagesSent.empty());
     }
 
-    TEST_F(ServerTests_Reconfiguration, FollowerRevertConfigWhenRollingBackBeforeConfigChange) {
+    TEST_F(ServerTests_Reconfiguration, Follower_Revert_Config_When_Rolling_Back_Before_Config_Change) {
         // Arrange
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -348,7 +347,7 @@ namespace ServerTests {
         EXPECT_TRUE(server.IsVotingMember());
     }
 
-    TEST_F(ServerTests_Reconfiguration, StartConfigurationProcessWhenLeader) {
+    TEST_F(ServerTests_Reconfiguration, Start_Configuration_Process_When_Leader) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 2;
@@ -359,8 +358,6 @@ namespace ServerTests {
 
         // Act
         server.ChangeConfiguration(newConfiguration);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        scheduler->WakeUp();
 
         // Assert
         EXPECT_TRUE(server.HasJointConfiguration());
@@ -372,6 +369,7 @@ namespace ServerTests {
             appendEntriesReceivedPerInstance[instanceNumber] = false;
         }
         (void)appendEntriesReceivedPerInstance.erase(serverConfiguration.selfInstanceId);
+        ASSERT_TRUE(AwaitMessagesSent(appendEntriesReceivedPerInstance.size()));
         for (const auto& messageSent: messagesSent) {
             if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
                 auto appendEntriesReceivedPerInstanceEntry = appendEntriesReceivedPerInstance.find(messageSent.receiverInstanceNumber);
@@ -385,7 +383,7 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Reconfiguration, StartConfigurationProcessWhenNotLeader) {
+    TEST_F(ServerTests_Reconfiguration, Start_Configuration_Process_When_Not_Leader) {
         // Arrange
         serverConfiguration.selfInstanceId = 2;
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
@@ -395,8 +393,6 @@ namespace ServerTests {
 
         // Act
         server.ChangeConfiguration(newConfiguration);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        scheduler->WakeUp();
 
         // Assert
         EXPECT_FALSE(server.HasJointConfiguration());
@@ -404,10 +400,10 @@ namespace ServerTests {
             Raft::IServer::ElectionState::Follower,
             server.GetElectionState()
         );
-        EXPECT_TRUE(messagesSent.empty());
+        EXPECT_FALSE(AwaitMessagesSent(1));
     }
 
-    TEST_F(ServerTests_Reconfiguration, DoNotApplyJointConfigurationIfNewServersAreNotYetCaughtUp) {
+    TEST_F(ServerTests_Reconfiguration, Do_Not_Apply_Joint_Configuration_If_New_Servers_Are_Not_Yet_Caught_Up) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 2;
@@ -419,6 +415,8 @@ namespace ServerTests {
         Raft::LogEntry entry;
         entry.term = term;
         server.AppendLogEntries({entry});
+        ASSERT_TRUE(AwaitMessagesSent(4));
+        messagesSent.clear();
         for (auto instanceNumber: clusterConfiguration.instanceIds) {
             if (instanceNumber == serverConfiguration.selfInstanceId) {
                 continue;
@@ -428,8 +426,7 @@ namespace ServerTests {
 
         // Act
         server.ChangeConfiguration(newConfiguration);
-        messagesSent.clear();
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
         scheduler->WakeUp();
 
         // Assert
@@ -438,6 +435,7 @@ namespace ServerTests {
         for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
             appendEntriesReceivedPerInstance[instanceNumber] = false;
         }
+        ASSERT_TRUE(AwaitMessagesSent(appendEntriesReceivedPerInstance.size()));
         for (const auto& messageSent: messagesSent) {
             if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
                 auto appendEntriesReceivedPerInstanceEntry = appendEntriesReceivedPerInstance.find(messageSent.receiverInstanceNumber);
@@ -454,7 +452,7 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Reconfiguration, ApplyJointConfigurationOnceNewServersCaughtUp) {
+    TEST_F(ServerTests_Reconfiguration, Apply_Joint_Configuration_Once_New_Servers_Caught_Up) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 2;
@@ -466,22 +464,25 @@ namespace ServerTests {
         Raft::LogEntry entry;
         entry.term = term;
         server.AppendLogEntries({entry});
+        ASSERT_TRUE(AwaitMessagesSent(4));
         for (auto instanceNumber: clusterConfiguration.instanceIds) {
             if (instanceNumber == serverConfiguration.selfInstanceId) {
                 continue;
             }
             ReceiveAppendEntriesResults(instanceNumber, term, 1);
         }
+        messagesSent.clear();
 
         // Act
         server.ChangeConfiguration(newConfiguration);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
         scheduler->WakeUp();
+        ASSERT_TRUE(AwaitMessagesSent(jointConfigurationNotIncludingSelfInstanceIds.size()));
+        messagesSent.clear();
         for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
             ReceiveAppendEntriesResults(instanceNumber, term, 1);
         }
-        messagesSent.clear();
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval + 0.001;
         scheduler->WakeUp();
 
         // Assert
@@ -490,6 +491,7 @@ namespace ServerTests {
         for (auto instanceNumber: jointConfigurationNotIncludingSelfInstanceIds) {
             appendEntriesReceivedPerInstance[instanceNumber] = false;
         }
+        ASSERT_TRUE(AwaitMessagesSent(jointConfigurationNotIncludingSelfInstanceIds.size()));
         for (const auto& messageSent: messagesSent) {
             if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
                 auto appendEntriesReceivedPerInstanceEntry = appendEntriesReceivedPerInstance.find(messageSent.receiverInstanceNumber);
@@ -506,7 +508,7 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Reconfiguration, ApplyNewConfigurationOnceJointConfigurationCommitted) {
+    TEST_F(ServerTests_Reconfiguration, Apply_New_Configuration_Once_Joint_Configuration_Committed) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 2;
@@ -532,7 +534,7 @@ namespace ServerTests {
             ReceiveAppendEntriesResults(instanceNumber, term, 1);
         }
         messagesSent.clear();
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
+        mockTimeKeeper->currentTime += serverConfiguration.heartbeatInterval+ 0.001;
         scheduler->WakeUp();
 
         // Assert
@@ -541,6 +543,7 @@ namespace ServerTests {
         for (auto instanceNumber: newConfigurationNotIncludingSelfInstanceIds) {
             appendEntriesReceivedPerInstance[instanceNumber] = false;
         }
+        ASSERT_TRUE(AwaitMessagesSent(newConfigurationNotIncludingSelfInstanceIds.size()));
         for (const auto& messageSent: messagesSent) {
             if (messageSent.message.type == Raft::Message::Type::AppendEntries) {
                 auto appendEntriesReceivedPerInstanceEntry = appendEntriesReceivedPerInstance.find(messageSent.receiverInstanceNumber);
@@ -569,7 +572,7 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Reconfiguration, DoNotApplySingleConfigurationWhenJointConfigurationCommittedIfSingleConfigurationAlreadyApplied) {
+    TEST_F(ServerTests_Reconfiguration, Do_Not_Apply_Single_Configuration_When_Joint_Configuration_Committed_If_Single_Configuration_Already_Applied) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 2;
@@ -599,13 +602,12 @@ namespace ServerTests {
             }
             ReceiveAppendEntriesResults(instanceNumber, term, 1);
         }
-        messagesSent.clear();
 
         // Assert
         EXPECT_EQ(2, mockLog->entries.size());
     }
 
-    TEST_F(ServerTests_Reconfiguration, JointConfigurationShouldBeCommittedIfMajorityAchievedByCommonServerRespondingLast) {
+    TEST_F(ServerTests_Reconfiguration, Joint_Configuration_Should_Be_Committed_If_Majority_Achieved_By_Common_Server_Responding_Last) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 2;
@@ -632,27 +634,27 @@ namespace ServerTests {
         EXPECT_EQ(1, server.GetCommitIndex());
     }
 
-    TEST_F(ServerTests_Reconfiguration, LeaderStepsDownIfNotInNewConfigurationOnceItIsCommitted) {
+    TEST_F(ServerTests_Reconfiguration, Leader_Steps_Down_If_Not_In_New_Configuration_Once_It_Is_Committed) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 2;
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+        BecomeLeader(term);
+
+        // Act
+        Raft::LogEntry entry;
+        entry.term = term;
         Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
         newConfiguration.instanceIds = {5, 6, 7, 12};
         auto command = std::make_shared< Raft::SingleConfigurationCommand >();
         command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
         command->configuration.instanceIds = newConfiguration.instanceIds;
-        Raft::LogEntry entry;
-        entry.term = term;
         entry.command = std::move(command);
-        mockLog->entries = {entry};
-        BecomeLeader(term);
-
-        // Act
+        server.AppendLogEntries({std::move(entry)});
+        ASSERT_TRUE(AwaitMessagesSent(newConfiguration.instanceIds.size()));
         for (auto instanceNumber: newConfiguration.instanceIds) {
             ReceiveAppendEntriesResults(instanceNumber, term, 1);
         }
-        messagesSent.clear();
 
         // Assert
         EXPECT_EQ(
@@ -662,30 +664,30 @@ namespace ServerTests {
         EXPECT_FALSE(server.IsVotingMember());
     }
 
-    TEST_F(ServerTests_Reconfiguration, LeaderMaintainsLeadershipIfInNewConfigurationOnceItIsCommitted) {
+    TEST_F(ServerTests_Reconfiguration, Leader_Maintains_Leadership_If_In_New_Configuration_Once_It_Is_Committed) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 2;
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+        BecomeLeader(term);
+
+        // Act
+        Raft::LogEntry entry;
+        entry.term = term;
         Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
         newConfiguration.instanceIds = {2, 5, 6, 7, 12};
         auto command = std::make_shared< Raft::SingleConfigurationCommand >();
         command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
         command->configuration.instanceIds = newConfiguration.instanceIds;
-        Raft::LogEntry entry;
-        entry.term = term;
         entry.command = std::move(command);
-        mockLog->entries = {entry};
-        BecomeLeader(term);
-
-        // Act
+        server.AppendLogEntries({std::move(entry)});
+        ASSERT_TRUE(AwaitMessagesSent(newConfiguration.instanceIds.size() - 1));
         for (auto instanceNumber: newConfiguration.instanceIds) {
             if (instanceNumber == serverConfiguration.selfInstanceId) {
                 continue;
             }
             ReceiveAppendEntriesResults(instanceNumber, term, 1);
         }
-        messagesSent.clear();
 
         // Assert
         EXPECT_EQ(
@@ -695,7 +697,7 @@ namespace ServerTests {
         EXPECT_TRUE(server.IsVotingMember());
     }
 
-    TEST_F(ServerTests_Reconfiguration, RemobilizeShouldClearJointConfigurationState) {
+    TEST_F(ServerTests_Reconfiguration, Remobilize_Should_Clear_Joint_Configuration_State) {
         // Arrange
         constexpr int term = 6;
         clusterConfiguration.instanceIds = {2, 5, 6, 7};
@@ -709,12 +711,13 @@ namespace ServerTests {
         mockLog->entries = {entry};
         MobilizeServer();
         server.Demobilize();
+        scheduler->WakeUp();
         mockLog = std::make_shared< MockLog >();
 
         // Act
         mockPersistentState->variables.currentTerm = term - 1;
         MobilizeServer();
-        ASSERT_TRUE(AwaitElectionTimeout());
+        ASSERT_TRUE(AwaitElectionTimeout(3));
 
         // Assert
         for (const auto messageInfo: messagesSent) {
@@ -725,33 +728,35 @@ namespace ServerTests {
         }
     }
 
-    TEST_F(ServerTests_Reconfiguration, CallDelegateOnApplyConfiguration) {
+    TEST_F(ServerTests_Reconfiguration, Apply_Configuration_Event) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 2;
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
+        BecomeLeader();
+
+        // Act
+        configApplied.reset(new std::promise< Raft::ClusterConfiguration >());
+        auto configAppliedFuture = configApplied->get_future();
+        Raft::LogEntry entry;
+        entry.term = term;
         Raft::ClusterConfiguration newConfiguration(clusterConfiguration);
         newConfiguration.instanceIds = {2, 6, 7, 12};
         auto command = std::make_shared< Raft::SingleConfigurationCommand >();
         command->oldConfiguration.instanceIds = clusterConfiguration.instanceIds;
         command->configuration.instanceIds = newConfiguration.instanceIds;
-        Raft::LogEntry entry;
-        entry.term = term;
         entry.command = std::move(command);
-        mockLog->entries = {entry};
-
-        // Act
-        MobilizeServer();
+        server.AppendLogEntries({std::move(entry)});
 
         // Assert
-        ASSERT_FALSE(configApplied == nullptr);
+        ASSERT_TRUE(Await(configAppliedFuture));
         EXPECT_EQ(
             std::set< int >({2, 6, 7, 12}),
-            configApplied->instanceIds
+            configAppliedFuture.get().instanceIds
         );
     }
 
-    TEST_F(ServerTests_Reconfiguration, CallDelegateOnCommitConfiguration) {
+    TEST_F(ServerTests_Reconfiguration, Call_Delegate_On_Commit_Configuration) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 2;
@@ -774,26 +779,38 @@ namespace ServerTests {
             std::move(jointConfigEntry),
             std::move(singleConfigEntry)
         };
-        BecomeLeader(term, false);
+        configCommitted.reset(new std::promise< Raft::ClusterConfiguration >());
+        auto configCommittedFuture = configCommitted->get_future();
+        mockPersistentState->variables.currentTerm = term - 1;
+        MobilizeServer();
+        (void)AwaitElectionTimeout(newConfiguration.instanceIds.size() - 1);
+        messagesSent.clear();
+        for (auto instance: newConfiguration.instanceIds) {
+            if (instance != serverConfiguration.selfInstanceId) {
+                CastVote(instance, term, true);
+            }
+        }
+        (void)AwaitMessagesSent(newConfiguration.instanceIds.size() - 1);
+        messagesSent.clear();
 
         // Act
-        EXPECT_TRUE(configCommitted == nullptr);
-        for (auto instance: clusterConfiguration.instanceIds) {
+        EXPECT_FALSE(Await(configCommittedFuture));
+        for (auto instance: newConfiguration.instanceIds) {
             if (instance != serverConfiguration.selfInstanceId) {
                 ReceiveAppendEntriesResults(instance, term, 2);
             }
         }
 
         // Assert
-        ASSERT_FALSE(configCommitted == nullptr);
+        ASSERT_TRUE(Await(configCommittedFuture));
         EXPECT_EQ(2, commitLogIndex);
         EXPECT_EQ(
             std::set< int >({2, 6, 7, 12}),
-            configCommitted->instanceIds
+            configCommittedFuture.get().instanceIds
         );
     }
 
-    TEST_F(ServerTests_Reconfiguration, DoNotCallCommitConfigurationDelegateWhenReplayingOldSingleConfigurationCommand) {
+    TEST_F(ServerTests_Reconfiguration, Do_Not_Call_Commit_Configuration_Delegate_When_Replaying_Old_Single_Configuration_Command) {
         // Arrange
         constexpr int term = 5;
         serverConfiguration.selfInstanceId = 2;
@@ -818,20 +835,32 @@ namespace ServerTests {
             std::move(singleConfigEntry),
             std::move(jointConfigEntry),
         };
-        BecomeLeader(term, false);
+        configCommitted.reset(new std::promise< Raft::ClusterConfiguration >());
+        auto configCommittedFuture = configCommitted->get_future();
+        mockPersistentState->variables.currentTerm = term - 1;
+        MobilizeServer();
+        (void)AwaitElectionTimeout(nextConfiguration.instanceIds.size() - 1);
+        messagesSent.clear();
+        for (auto instance: nextConfiguration.instanceIds) {
+            if (instance != serverConfiguration.selfInstanceId) {
+                CastVote(instance, term, true);
+            }
+        }
+        (void)AwaitMessagesSent(nextConfiguration.instanceIds.size() - 1);
+        messagesSent.clear();
 
         // Act
-        for (auto instance: clusterConfiguration.instanceIds) {
+        for (auto instance: nextConfiguration.instanceIds) {
             if (instance != serverConfiguration.selfInstanceId) {
                 ReceiveAppendEntriesResults(instance, term, 2);
             }
         }
 
         // Assert
-        EXPECT_TRUE(configCommitted == nullptr);
+        EXPECT_FALSE(Await(configCommittedFuture));
     }
 
-    TEST_F(ServerTests_Reconfiguration, InitializeInstanceInfoAddBackServerThatWasPreviouslyLeader) {
+    TEST_F(ServerTests_Reconfiguration, Initialize_Instance_Info_Add_Back_Server_That_Was_Previously_Leader) {
         // Arrange
         clusterConfiguration.instanceIds = {2, 5, 6, 7, 11};
         serverConfiguration.selfInstanceId = 2;
@@ -853,14 +882,20 @@ namespace ServerTests {
         ReceiveAppendEntriesFromMockLeader(5, 6, {jointConfigEntry, singleConfigEntry});
 
         // Act
-        ASSERT_TRUE(AwaitElectionTimeout());
+        ASSERT_TRUE(AwaitElectionTimeout(3));
+        messagesSent.clear();
         for (auto instance: newConfiguration.instanceIds) {
             CastVote(instance, 7, true);
         }
+        ASSERT_TRUE(AwaitMessagesSent(3));
+        for (auto instance: newConfiguration.instanceIds) {
+            if (instance != serverConfiguration.selfInstanceId) {
+                ReceiveAppendEntriesResults(instance, 7, 0);
+            }
+        }
         messagesSent.clear();
         server.ChangeConfiguration(clusterConfiguration);
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        scheduler->WakeUp();
+        ASSERT_TRUE(AwaitMessagesSent(4));
         messagesSent.clear();
         ReceiveAppendEntriesResults(5, 7, 1, false);
 

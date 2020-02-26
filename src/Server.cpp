@@ -147,6 +147,7 @@ namespace Raft {
         impl_->lastIndex = 0;
         impl_->SetLastIndex(logKeeper->GetLastIndex());
         impl_->ResetStatistics();
+        impl_->stopEventQueueWorker = false;
         impl_->eventQueueWorker = std::thread(&Impl::EventQueueWorker, impl_.get());
         impl_->ResetElectionTimer();
     }

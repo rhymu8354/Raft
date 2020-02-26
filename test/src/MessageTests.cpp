@@ -13,7 +13,7 @@
 #include <Json/Value.hpp>
 #include <Raft/LogEntry.hpp>
 
-TEST(MessageTests, RequestVote) {
+TEST(MessageTests, Request_Vote) {
     // Arrange
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::RequestVote;
@@ -36,7 +36,7 @@ TEST(MessageTests, RequestVote) {
     EXPECT_EQ(3, message.requestVote.lastLogTerm);
 }
 
-TEST(MessageTests, DeserializeRequestVoteV1) {
+TEST(MessageTests, Deserialize_Request_Vote_V1) {
     // Arrange
     const std::vector< char > serializedMessageBytes({
         0x01, // version (1)
@@ -63,7 +63,7 @@ TEST(MessageTests, DeserializeRequestVoteV1) {
     EXPECT_EQ(3, message.requestVote.lastLogTerm);
 }
 
-TEST(MessageTests, RequestVoteResults) {
+TEST(MessageTests, Request_Vote_Results) {
     // Arrange
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::RequestVoteResults;
@@ -82,7 +82,7 @@ TEST(MessageTests, RequestVoteResults) {
     EXPECT_TRUE(message.requestVoteResults.voteGranted);
 }
 
-TEST(MessageTests, HeartBeat) {
+TEST(MessageTests, Heart_Beat) {
     // Arrange
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::AppendEntries;
@@ -105,7 +105,7 @@ TEST(MessageTests, HeartBeat) {
     EXPECT_EQ(1, message.appendEntries.prevLogTerm);
 }
 
-TEST(MessageTests, AppendEntriesWithContent) {
+TEST(MessageTests, Append_Entries_With_Content) {
     // Arrange
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::AppendEntries;
@@ -153,7 +153,7 @@ TEST(MessageTests, AppendEntriesWithContent) {
     );
 }
 
-TEST(MessageTests, DeserializeGarbage) {
+TEST(MessageTests, Deserialize_Garbage) {
     // Arrange
     const auto serializedMessage = "PogChamp";
 
@@ -164,7 +164,7 @@ TEST(MessageTests, DeserializeGarbage) {
     EXPECT_EQ(Raft::Message::Type::Unknown, message.type);
 }
 
-TEST(MessageTests, AppendEntriesResults) {
+TEST(MessageTests, Append_Entries_Results) {
     // Arrange
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::AppendEntriesResults;
@@ -185,7 +185,7 @@ TEST(MessageTests, AppendEntriesResults) {
     EXPECT_EQ(10, message.appendEntriesResults.matchIndex);
 }
 
-TEST(MessageTests, InstallSnapshot) {
+TEST(MessageTests, Install_Snapshot) {
     // Arrange
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::InstallSnapshot;
@@ -210,7 +210,7 @@ TEST(MessageTests, InstallSnapshot) {
     EXPECT_EQ(messageIn.snapshot, message.snapshot);
 }
 
-TEST(MessageTests, InstallSnapshotResults) {
+TEST(MessageTests, Install_Snapshot_Results) {
     // Arrange
     Raft::Message messageIn;
     messageIn.type = Raft::Message::Type::InstallSnapshotResults;

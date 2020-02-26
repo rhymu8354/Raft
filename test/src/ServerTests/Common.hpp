@@ -162,13 +162,12 @@ namespace ServerTests {
         bool caughtUp = false;
         Raft::ClusterConfiguration clusterConfiguration;
         size_t commitLogIndex = 0;
-        std::unique_ptr< Raft::ClusterConfiguration > configApplied;
-        std::unique_ptr< Raft::ClusterConfiguration > configCommitted;
+        std::shared_ptr< std::promise< Raft::ClusterConfiguration > > configApplied;
+        std::shared_ptr< std::promise< Raft::ClusterConfiguration > > configCommitted;
         std::vector< std::string > diagnosticMessages;
         SystemAbstractions::DiagnosticsSender::UnsubscribeDelegate diagnosticsUnsubscribeDelegate;
         std::vector< Json::Value > electionStateChanges;
         std::promise< void > electionStateChangesAwaited;
-        std::promise< void > eventsAwaitedSent;
         Raft::IServer::EventsUnsubscribeDelegate eventsUnsubscribeDelegate;
         size_t lastIncludedIndexInSnapshot = 0;
         int lastIncludedTermInSnapshot = 0;
@@ -184,8 +183,6 @@ namespace ServerTests {
         std::shared_ptr< MockTimeKeeper > mockTimeKeeper = std::make_shared< MockTimeKeeper >();
         std::mutex mutex;
         size_t numElectionStateChangesAwaiting = 0;
-        size_t numEvents = 0;
-        size_t numEventsAwaiting = 0;
         size_t numMessagesAwaiting = 0;
         std::shared_ptr< Timekeeping::Scheduler > scheduler = std::make_shared< Timekeeping::Scheduler >();
         Raft::Server server;
@@ -194,9 +191,15 @@ namespace ServerTests {
 
         // Methods
 
+        template< typename T > bool Await(std::future< T >& future) {
+            return (
+                future.wait_for(
+                    std::chrono::milliseconds(100)
+                ) == std::future_status::ready
+            );
+        }
+
         std::future< void > SetUpToAwaitLeadershipChange();
-        bool Await(std::future< void >& future);
-        bool AwaitEventsSent(size_t numEvents);
         bool AwaitMessagesSent(size_t numMessages);
         bool AwaitElectionStateChanges(size_t numElectionStateChanges);
         void ServerSentMessage(
@@ -264,7 +267,7 @@ namespace ServerTests {
             bool success = true,
             int seq = 0
         );
-        bool AwaitElectionTimeout();
+        bool AwaitElectionTimeout(size_t messagesExpected = 4);
         void BecomeLeader(
             int term = 1,
             bool acknowledgeInitialHeartbeats = true
