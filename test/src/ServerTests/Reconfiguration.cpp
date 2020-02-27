@@ -890,7 +890,7 @@ namespace ServerTests {
         ASSERT_TRUE(AwaitMessagesSent(3));
         for (auto instance: newConfiguration.instanceIds) {
             if (instance != serverConfiguration.selfInstanceId) {
-                ReceiveAppendEntriesResults(instance, 7, 0);
+                ReceiveAppendEntriesResults(instance, 7, 2);
             }
         }
         messagesSent.clear();

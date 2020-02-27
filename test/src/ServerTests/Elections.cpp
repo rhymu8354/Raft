@@ -1274,8 +1274,6 @@ namespace ServerTests {
                 CastVote(instance, 1);
             }
         }
-        mockTimeKeeper->currentTime += serverConfiguration.minimumElectionTimeout / 2 + 0.001;
-        scheduler->WakeUp();
         ASSERT_TRUE(AwaitMessagesSent(4));
 
         // Act
