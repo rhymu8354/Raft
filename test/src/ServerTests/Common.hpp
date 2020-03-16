@@ -191,6 +191,14 @@ namespace ServerTests {
 
         // Methods
 
+        template< typename T > bool Await(std::future< T >&& future) {
+            return (
+                future.wait_for(
+                    std::chrono::milliseconds(100)
+                ) == std::future_status::ready
+            );
+        }
+
         template< typename T > bool Await(std::future< T >& future) {
             return (
                 future.wait_for(
