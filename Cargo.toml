@@ -1,0 +1,25 @@
+[package]
+name = "raft"
+version = "1.0.0"
+description = "Implementation of the Raft Concensus Algorithm"
+authors = ["Richard Walters <rwalters@digitalstirling.com>"]
+edition = "2018"
+license-file = "LICENSE.txt"
+readme = "README.md"
+categories = []
+keywords = ["raft"]
+repository = "https://github.com/rhymu8354/Raft.git"
+exclude = [
+    "*.hpp",
+    "*.cpp",
+    "CMakeLists.txt"
+]
+
+[dependencies]
+futures = "0.3"
+rand = "0.7"
+serde_json = "1.0"
+thiserror = "1.0"
+
+[dev-dependencies]
+maplit = "1.0"
