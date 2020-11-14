@@ -16,7 +16,7 @@ pub trait CustomCommand {
         Self: Sized;
 }
 
-#[derive(Eq)]
+#[derive(Clone, Eq)]
 pub enum Command<T> {
     SingleConfiguration {
         old_configuration: HashSet<usize>,
@@ -204,10 +204,10 @@ impl<T: PartialEq> PartialEq for Command<T> {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LogEntry<T> {
-    term: usize,
-    command: Option<Command<T>>,
+    pub term: usize,
+    pub command: Option<Command<T>>,
 }
 
 impl<T: CustomCommand> LogEntry<T> {
