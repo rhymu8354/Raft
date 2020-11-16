@@ -45,6 +45,11 @@ enum MessageContent<T> {
         match_index: usize,
         success: bool,
     },
+    InstallSnapshot {
+        last_included_index: usize,
+        last_included_term: usize,
+        snapshot: JsonValue,
+    },
 }
 
 #[derive(Debug)]
@@ -205,6 +210,21 @@ impl<T: CustomCommand> Message<T> {
                             success: success != 0,
                         }
                     },
+                    5 => {
+                        let (last_included_index, remainder) =
+                            Self::deserialize_usize(serialization)?;
+                        let (last_included_term, remainder) =
+                            Self::deserialize_usize(remainder)?;
+                        let (snapshot, _) = Self::deserialize_str(remainder)?;
+                        MessageContent::InstallSnapshot {
+                            last_included_index,
+                            last_included_term,
+                            snapshot: serde_json::from_str::<JsonValue>(
+                                snapshot,
+                            )
+                            .map_err(Error::BadLogEntry)?,
+                        }
+                    },
                     _ => return Err(Error::UnknownMessageType),
                 },
             })
@@ -270,6 +290,16 @@ impl<T: CustomCommand> Message<T> {
                 });
                 Self::serialize_usize(&mut serialization, *match_index);
             },
+            MessageContent::InstallSnapshot {
+                last_included_index,
+                last_included_term,
+                snapshot,
+            } => {
+                serialization.push(5); // InstallSnapshot
+                Self::serialize_usize(&mut serialization, *last_included_index);
+                Self::serialize_usize(&mut serialization, *last_included_term);
+                Self::serialize_str(&mut serialization, snapshot.to_string());
+            },
         };
         serialization
     }
@@ -283,6 +313,7 @@ mod tests {
         CustomCommand,
     };
     use maplit::hashset;
+    use serde_json::json;
     use std::fmt::Debug;
 
     // TODO: Extract this out so that it can be shared with the `message`
@@ -494,6 +525,47 @@ mod tests {
             assert!(!success);
         } else {
             panic!("AppendEntriesResults message expected");
+        }
+    }
+
+    #[test]
+    fn install_snapshot() {
+        let message_in = Message::<DummyCommand> {
+            term: 8,
+            seq: 2,
+            content: MessageContent::InstallSnapshot {
+                last_included_index: 2,
+                last_included_term: 7,
+                snapshot: json!({
+                    "foo": "bar"
+                }),
+            },
+        };
+        let serialized_message = message_in.serialize();
+        let message = Message::<DummyCommand>::deserialize(serialized_message);
+        assert!(message.is_ok());
+        let message = message.unwrap();
+        assert_eq!(8, message.term);
+        assert_eq!(2, message.seq);
+        if let MessageContent::InstallSnapshot {
+            last_included_index,
+            last_included_term,
+            snapshot,
+        } = message.content
+        {
+            assert_eq!(2, last_included_index);
+            assert_eq!(7, last_included_term);
+            if let MessageContent::InstallSnapshot {
+                snapshot: snapshot_in,
+                ..
+            } = message_in.content
+            {
+                assert_eq!(snapshot_in, snapshot);
+            } else {
+                panic!("message in was not an InstallSnapshot");
+            }
+        } else {
+            panic!("InstallSnapshot message expected");
         }
     }
 }
