@@ -41,6 +41,10 @@ enum MessageContent<T> {
         prev_log_term: usize,
         log: Vec<LogEntry<T>>,
     },
+    AppendEntriesResults {
+        match_index: usize,
+        success: bool,
+    },
 }
 
 #[derive(Debug)]
@@ -188,6 +192,19 @@ impl<T: CustomCommand> Message<T> {
                             log,
                         }
                     },
+                    4 => {
+                        if serialization.is_empty() {
+                            return Err(Error::MessageTruncated);
+                        }
+                        let success = serialization[0];
+                        let serialization = &serialization[1..];
+                        let (match_index, _) =
+                            Self::deserialize_usize(serialization)?;
+                        MessageContent::AppendEntriesResults {
+                            match_index,
+                            success: success != 0,
+                        }
+                    },
                     _ => return Err(Error::UnknownMessageType),
                 },
             })
@@ -240,6 +257,18 @@ impl<T: CustomCommand> Message<T> {
                         entry.to_json().to_string(),
                     );
                 })
+            },
+            MessageContent::AppendEntriesResults {
+                match_index,
+                success,
+            } => {
+                serialization.push(4); // AppendEntriesResults
+                serialization.push(if *success {
+                    1
+                } else {
+                    0
+                });
+                Self::serialize_usize(&mut serialization, *match_index);
             },
         };
         serialization
@@ -430,6 +459,41 @@ mod tests {
             assert_eq!(entries, log);
         } else {
             panic!("AppendEntries message expected");
+        }
+    }
+
+    #[test]
+    fn deserialize_garbage() {
+        let serialized_message = "PogChamp";
+        let message = Message::<DummyCommand>::deserialize(serialized_message);
+        assert!(message.is_err());
+    }
+
+    #[test]
+    fn append_entries_results() {
+        let message_in = Message::<DummyCommand> {
+            term: 5,
+            seq: 4,
+            content: MessageContent::AppendEntriesResults {
+                match_index: 10,
+                success: false,
+            },
+        };
+        let serialized_message = message_in.serialize();
+        let message = Message::<DummyCommand>::deserialize(serialized_message);
+        assert!(message.is_ok());
+        let message = message.unwrap();
+        assert_eq!(5, message.term);
+        assert_eq!(4, message.seq);
+        if let MessageContent::AppendEntriesResults {
+            match_index,
+            success,
+        } = message.content
+        {
+            assert_eq!(10, match_index);
+            assert!(!success);
+        } else {
+            panic!("AppendEntriesResults message expected");
         }
     }
 }
