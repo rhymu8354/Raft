@@ -23,6 +23,9 @@ pub enum Error {
 
     #[error("error parsing log entry from serialized message")]
     BadLogEntry(serde_json::Error),
+
+    #[error("error parsing snapshot from serialized message")]
+    BadSnapshot(serde_json::Error),
 }
 
 #[derive(Debug)]
@@ -225,7 +228,7 @@ impl<T: CustomCommand> Message<T> {
                             snapshot: serde_json::from_str::<JsonValue>(
                                 snapshot,
                             )
-                            .map_err(Error::BadLogEntry)?,
+                            .map_err(Error::BadSnapshot)?,
                         }
                     },
                     6 => {
