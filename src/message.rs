@@ -50,6 +50,9 @@ enum MessageContent<T> {
         last_included_term: usize,
         snapshot: JsonValue,
     },
+    InstallSnapshotResults {
+        match_index: usize,
+    },
 }
 
 #[derive(Debug)]
@@ -225,6 +228,13 @@ impl<T: CustomCommand> Message<T> {
                             .map_err(Error::BadLogEntry)?,
                         }
                     },
+                    6 => {
+                        let (match_index, _) =
+                            Self::deserialize_usize(serialization)?;
+                        MessageContent::InstallSnapshotResults {
+                            match_index,
+                        }
+                    },
                     _ => return Err(Error::UnknownMessageType),
                 },
             })
@@ -299,6 +309,12 @@ impl<T: CustomCommand> Message<T> {
                 Self::serialize_usize(&mut serialization, *last_included_index);
                 Self::serialize_usize(&mut serialization, *last_included_term);
                 Self::serialize_str(&mut serialization, snapshot.to_string());
+            },
+            MessageContent::InstallSnapshotResults {
+                match_index,
+            } => {
+                serialization.push(6); // InstallSnapshotResults
+                Self::serialize_usize(&mut serialization, *match_index);
             },
         };
         serialization
@@ -566,6 +582,31 @@ mod tests {
             }
         } else {
             panic!("InstallSnapshot message expected");
+        }
+    }
+
+    #[test]
+    fn install_snapshot_results() {
+        let message_in = Message::<DummyCommand> {
+            term: 8,
+            seq: 17,
+            content: MessageContent::InstallSnapshotResults {
+                match_index: 100,
+            },
+        };
+        let serialized_message = message_in.serialize();
+        let message = Message::<DummyCommand>::deserialize(serialized_message);
+        assert!(message.is_ok());
+        let message = message.unwrap();
+        assert_eq!(8, message.term);
+        assert_eq!(17, message.seq);
+        if let MessageContent::InstallSnapshotResults {
+            match_index,
+        } = message.content
+        {
+            assert_eq!(100, match_index);
+        } else {
+            panic!("InstallSnapshotResults message expected");
         }
     }
 }
