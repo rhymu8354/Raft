@@ -295,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn encode_single_configuration_command() {
+    fn single_configuration_command_to_json() {
         let command = Command::<DummyCommand>::SingleConfiguration {
             old_configuration: hashset!(5, 42, 85, 13531, 8354),
             configuration: hashset!(42, 85, 13531, 8354),
@@ -322,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn decode_single_configuration_command() {
+    fn single_configuration_command_from_json() {
         let encoded_entry = json!({
             "type": "SingleConfiguration",
             "term": 9,
@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn encode_joint_configuration_command() {
+    fn joint_configuration_command_to_json() {
         let command = Command::<DummyCommand>::JointConfiguration {
             old_configuration: hashset!(5, 42, 85, 13531, 8354),
             new_configuration: hashset!(42, 85, 13531, 8354),
@@ -383,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn decode_joint_configuration_command() {
+    fn joint_configuration_command_from_json() {
         let encoded_entry = json!({
             "type": "JointConfiguration",
             "term": 9,
