@@ -186,8 +186,12 @@ impl<T: CustomCommand> From<&JsonValue> for LogEntry<T> {
 mod tests {
     use super::*;
     use maplit::hashset;
+    use serialization::{
+        from_bytes,
+        to_bytes,
+    };
 
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
     struct DummyCommand {}
 
     impl CustomCommand for DummyCommand {
@@ -209,13 +213,12 @@ mod tests {
 
     #[test]
     fn single_configuration_command_to_json() {
-        let command = Command::<DummyCommand>::SingleConfiguration {
-            old_configuration: hashset!(5, 42, 85, 13531, 8354),
-            configuration: hashset!(42, 85, 13531, 8354),
-        };
         let entry = LogEntry {
             term: 9,
-            command: Some(command),
+            command: Some(Command::<DummyCommand>::SingleConfiguration {
+                old_configuration: hashset!(5, 42, 85, 13531, 8354),
+                configuration: hashset!(42, 85, 13531, 8354),
+            }),
         };
         assert_eq!(
             json!({
@@ -259,14 +262,28 @@ mod tests {
     }
 
     #[test]
-    fn joint_configuration_command_to_json() {
-        let command = Command::<DummyCommand>::JointConfiguration {
-            old_configuration: hashset!(5, 42, 85, 13531, 8354),
-            new_configuration: hashset!(42, 85, 13531, 8354),
+    fn single_configuration_command_serialization() {
+        let original_entry = LogEntry {
+            term: 9,
+            command: Some(Command::<DummyCommand>::SingleConfiguration {
+                old_configuration: hashset!(5, 42, 85, 13531, 8354),
+                configuration: hashset!(42, 85, 13531, 8354),
+            }),
         };
+        let encoded_entry = to_bytes(&original_entry).unwrap();
+        let decoded_entry: LogEntry<DummyCommand> =
+            from_bytes(&encoded_entry).unwrap();
+        assert_eq!(decoded_entry, original_entry);
+    }
+
+    #[test]
+    fn joint_configuration_command_to_json() {
         let entry = LogEntry {
             term: 9,
-            command: Some(command),
+            command: Some(Command::<DummyCommand>::JointConfiguration {
+                old_configuration: hashset!(5, 42, 85, 13531, 8354),
+                new_configuration: hashset!(42, 85, 13531, 8354),
+            }),
         };
         assert_eq!(
             json!({
@@ -310,6 +327,21 @@ mod tests {
     }
 
     #[test]
+    fn joint_configuration_command_serialization() {
+        let original_entry = LogEntry {
+            term: 9,
+            command: Some(Command::<DummyCommand>::JointConfiguration {
+                old_configuration: hashset!(5, 42, 85, 13531, 8354),
+                new_configuration: hashset!(42, 85, 13531, 8354),
+            }),
+        };
+        let encoded_entry = to_bytes(&original_entry).unwrap();
+        let decoded_entry: LogEntry<DummyCommand> =
+            from_bytes(&encoded_entry).unwrap();
+        assert_eq!(decoded_entry, original_entry);
+    }
+
+    #[test]
     fn to_json_without_command() {
         let entry = LogEntry::<DummyCommand> {
             term: 9,
@@ -334,9 +366,21 @@ mod tests {
     }
 
     #[test]
+    fn empty_command_serialization() {
+        let original_entry = LogEntry {
+            term: 9,
+            command: None,
+        };
+        let encoded_entry = to_bytes(&original_entry).unwrap();
+        let decoded_entry: LogEntry<DummyCommand> =
+            from_bytes(&encoded_entry).unwrap();
+        assert_eq!(decoded_entry, original_entry);
+    }
+
+    #[test]
     fn custom_command() {
         // Invent a custom command for this test.
-        #[derive(Debug, Eq, PartialEq)]
+        #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
         struct PogChamp {
             payload: usize,
         }
@@ -390,5 +434,11 @@ mod tests {
 
         // Verify the command has all the expected values in it.
         assert_eq!(log_entry, pog_champ_entry);
+
+        // Run the command through the full round-trip of serialization.
+        let encoded_entry = to_bytes(&log_entry).unwrap();
+        let decoded_entry: LogEntry<PogChamp> =
+            from_bytes(&encoded_entry).unwrap();
+        assert_eq!(decoded_entry, log_entry);
     }
 }
