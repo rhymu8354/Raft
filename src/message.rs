@@ -3,7 +3,15 @@ use super::log_entry::{
     CustomCommand,
     LogEntry,
 };
+use serde::{
+    Deserialize,
+    Serialize,
+};
 use serde_json::Value as JsonValue;
+use serialization::{
+    from_bytes,
+    to_bytes,
+};
 
 // TODO: I don't know what I want to do with this, but it certainly
 // probably maybe doesn't belong here.
@@ -28,7 +36,7 @@ pub enum Error {
     BadSnapshot(serde_json::Error),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 enum MessageContent<T> {
     RequestVote {
         candidate_id: usize,
@@ -51,6 +59,7 @@ enum MessageContent<T> {
     InstallSnapshot {
         last_included_index: usize,
         last_included_term: usize,
+        #[serde(with = "super::json_encoding")]
         snapshot: JsonValue,
     },
     InstallSnapshotResults {
@@ -58,270 +67,11 @@ enum MessageContent<T> {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Message<T> {
     term: usize,
     seq: usize,
     content: MessageContent<T>,
-}
-
-impl<T: CustomCommand> Message<T> {
-    fn serialize_usize(
-        buf: &mut Vec<u8>,
-        mut value: usize,
-    ) {
-        // TODO: This is ripe for optimization!
-        let mut stack = Vec::new();
-        stack.reserve(8);
-        loop {
-            stack.push((value & 0x7F) as u8);
-            value >>= 7;
-            if value == 0 {
-                break;
-            }
-        }
-        while !stack.is_empty() {
-            let mut next = stack.pop().unwrap();
-            if !stack.is_empty() {
-                next |= 0x80;
-            }
-            buf.push(next);
-        }
-    }
-
-    fn serialize_str<S>(
-        buf: &mut Vec<u8>,
-        value: S,
-    ) where
-        S: AsRef<str>,
-    {
-        let value = value.as_ref();
-        Self::serialize_usize(buf, value.len());
-        buf.extend(value.as_bytes());
-    }
-
-    fn deserialize_str(serialization: &[u8]) -> Result<(&str, &[u8]), Error> {
-        let (len, serialization) = Self::deserialize_usize(serialization)?;
-        if serialization.len() < len {
-            return Err(Error::MessageTruncated);
-        }
-        let value = &serialization[0..len];
-        let serialization = &serialization[len..];
-        Ok((std::str::from_utf8(value).map_err(Error::Utf8)?, serialization))
-    }
-
-    fn deserialize_usize(
-        mut serialization: &[u8]
-    ) -> Result<(usize, &[u8]), Error> {
-        // TODO: This is ripe for optimization!
-        let mut value = 0;
-        loop {
-            if serialization.is_empty() {
-                return Err(Error::MessageTruncated);
-            }
-            let next = serialization[0];
-            serialization = &serialization[1..];
-            value <<= 7;
-            value |= (next & 0x7F) as usize;
-            if (next & 0x80) == 0 {
-                break;
-            }
-        }
-        Ok((value, serialization))
-    }
-
-    fn deserialize<S>(serialization: S) -> Result<Self, Error>
-    where
-        S: AsRef<[u8]>,
-    {
-        let serialization = serialization.as_ref();
-        if serialization.is_empty() {
-            return Err(Error::MessageTruncated);
-        }
-        let version = serialization[0];
-        let serialization = &serialization[1..];
-        if version == 1 {
-            let (term, serialization) = Self::deserialize_usize(serialization)?;
-            let (seq, serialization) = Self::deserialize_usize(serialization)?;
-            if serialization.is_empty() {
-                return Err(Error::MessageTruncated);
-            }
-            let type_encoding = serialization[0];
-            let serialization = &serialization[1..];
-            Ok(Message {
-                term,
-                seq,
-                content: match type_encoding {
-                    1 => {
-                        let (candidate_id, serialization) =
-                            Self::deserialize_usize(serialization)?;
-                        let (last_log_index, serialization) =
-                            Self::deserialize_usize(serialization)?;
-                        let (last_log_term, _) =
-                            Self::deserialize_usize(serialization)?;
-                        MessageContent::RequestVote {
-                            candidate_id,
-                            last_log_index,
-                            last_log_term,
-                        }
-                    },
-                    2 => {
-                        if serialization.is_empty() {
-                            return Err(Error::MessageTruncated);
-                        }
-                        let vote_granted = serialization[0];
-                        MessageContent::RequestVoteResults {
-                            vote_granted: vote_granted != 0,
-                        }
-                    },
-                    3 => {
-                        let (leader_commit, serialization) =
-                            Self::deserialize_usize(serialization)?;
-                        let (prev_log_index, serialization) =
-                            Self::deserialize_usize(serialization)?;
-                        let (prev_log_term, serialization) =
-                            Self::deserialize_usize(serialization)?;
-                        let (num_log_entries, mut serialization) =
-                            Self::deserialize_usize(serialization)?;
-                        let mut log = Vec::<LogEntry<T>>::new();
-                        log.reserve(num_log_entries);
-                        for _ in 0..num_log_entries {
-                            let (serialized_log_entry, remainder) =
-                                Self::deserialize_str(serialization)?;
-                            serialization = remainder;
-                            log.push(LogEntry::from(
-                                &serde_json::from_str::<JsonValue>(
-                                    serialized_log_entry,
-                                )
-                                .map_err(Error::BadLogEntry)?,
-                            ))
-                        }
-                        MessageContent::AppendEntries {
-                            leader_commit,
-                            prev_log_index,
-                            prev_log_term,
-                            log,
-                        }
-                    },
-                    4 => {
-                        if serialization.is_empty() {
-                            return Err(Error::MessageTruncated);
-                        }
-                        let success = serialization[0];
-                        let serialization = &serialization[1..];
-                        let (match_index, _) =
-                            Self::deserialize_usize(serialization)?;
-                        MessageContent::AppendEntriesResults {
-                            match_index,
-                            success: success != 0,
-                        }
-                    },
-                    5 => {
-                        let (last_included_index, remainder) =
-                            Self::deserialize_usize(serialization)?;
-                        let (last_included_term, remainder) =
-                            Self::deserialize_usize(remainder)?;
-                        let (snapshot, _) = Self::deserialize_str(remainder)?;
-                        MessageContent::InstallSnapshot {
-                            last_included_index,
-                            last_included_term,
-                            snapshot: serde_json::from_str::<JsonValue>(
-                                snapshot,
-                            )
-                            .map_err(Error::BadSnapshot)?,
-                        }
-                    },
-                    6 => {
-                        let (match_index, _) =
-                            Self::deserialize_usize(serialization)?;
-                        MessageContent::InstallSnapshotResults {
-                            match_index,
-                        }
-                    },
-                    _ => return Err(Error::UnknownMessageType),
-                },
-            })
-        } else {
-            Err(Error::UnsupportedVersion)
-        }
-    }
-
-    fn serialize(&self) -> Vec<u8> {
-        let mut serialization = Vec::new();
-        serialization.reserve(16);
-        serialization.push(1); // version
-        Self::serialize_usize(&mut serialization, self.term);
-        Self::serialize_usize(&mut serialization, self.seq);
-        match &self.content {
-            MessageContent::RequestVote {
-                candidate_id,
-                last_log_index,
-                last_log_term,
-            } => {
-                serialization.push(1); // RequestVote
-                Self::serialize_usize(&mut serialization, *candidate_id);
-                Self::serialize_usize(&mut serialization, *last_log_index);
-                Self::serialize_usize(&mut serialization, *last_log_term);
-            },
-            MessageContent::RequestVoteResults {
-                vote_granted,
-            } => {
-                serialization.push(2); // RequestVoteResults
-                serialization.push(if *vote_granted {
-                    1
-                } else {
-                    0
-                });
-            },
-            MessageContent::AppendEntries {
-                leader_commit,
-                prev_log_index,
-                prev_log_term,
-                log,
-            } => {
-                serialization.push(3); // AppendEntries
-                Self::serialize_usize(&mut serialization, *leader_commit);
-                Self::serialize_usize(&mut serialization, *prev_log_index);
-                Self::serialize_usize(&mut serialization, *prev_log_term);
-                Self::serialize_usize(&mut serialization, log.len());
-                log.iter().for_each(|entry| {
-                    Self::serialize_str(
-                        &mut serialization,
-                        entry.to_json().to_string(),
-                    );
-                })
-            },
-            MessageContent::AppendEntriesResults {
-                match_index,
-                success,
-            } => {
-                serialization.push(4); // AppendEntriesResults
-                serialization.push(if *success {
-                    1
-                } else {
-                    0
-                });
-                Self::serialize_usize(&mut serialization, *match_index);
-            },
-            MessageContent::InstallSnapshot {
-                last_included_index,
-                last_included_term,
-                snapshot,
-            } => {
-                serialization.push(5); // InstallSnapshot
-                Self::serialize_usize(&mut serialization, *last_included_index);
-                Self::serialize_usize(&mut serialization, *last_included_term);
-                Self::serialize_str(&mut serialization, snapshot.to_string());
-            },
-            MessageContent::InstallSnapshotResults {
-                match_index,
-            } => {
-                serialization.push(6); // InstallSnapshotResults
-                Self::serialize_usize(&mut serialization, *match_index);
-            },
-        };
-        serialization
-    }
 }
 
 #[cfg(test)]
@@ -337,7 +87,7 @@ mod tests {
 
     // TODO: Extract this out so that it can be shared with the `message`
     // unit tests.
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     struct DummyCommand {}
 
     impl CustomCommand for DummyCommand {
@@ -386,10 +136,9 @@ mod tests {
                 last_log_term: 3,
             },
         };
-        let serialized_message = message_in.serialize();
-        let message = Message::<DummyCommand>::deserialize(&serialized_message);
-        assert!(message.is_ok());
-        let message = message.unwrap();
+        let serialized_message = dbg!(to_bytes(&message_in).unwrap());
+        let message: Message<DummyCommand> =
+            from_bytes(&serialized_message).unwrap();
         assert_eq!(42, message.term);
         assert_eq!(7, message.seq);
         if let MessageContent::RequestVote {
@@ -415,10 +164,9 @@ mod tests {
                 vote_granted: true,
             },
         };
-        let serialized_message = message_in.serialize();
-        let message = Message::<DummyCommand>::deserialize(&serialized_message);
-        assert!(message.is_ok());
-        let message = message.unwrap();
+        let serialized_message = to_bytes(&message_in).unwrap();
+        let message: Message<DummyCommand> =
+            from_bytes(&serialized_message).unwrap();
         assert_eq!(16, message.term);
         assert_eq!(8, message.seq);
         if let MessageContent::RequestVoteResults {
@@ -443,10 +191,9 @@ mod tests {
                 log: vec![],
             },
         };
-        let serialized_message = message_in.serialize();
-        let message = Message::<DummyCommand>::deserialize(&serialized_message);
-        assert!(message.is_ok());
-        let message = message.unwrap();
+        let serialized_message = to_bytes(&message_in).unwrap();
+        let message: Message<DummyCommand> =
+            from_bytes(&serialized_message).unwrap();
         assert_eq!(8, message.term);
         assert_eq!(7, message.seq);
         if let MessageContent::AppendEntries {
@@ -490,10 +237,9 @@ mod tests {
                 log: entries.clone(),
             },
         };
-        let serialized_message = message_in.serialize();
-        let message = Message::deserialize(&serialized_message);
-        assert!(message.is_ok());
-        let message = message.unwrap();
+        let serialized_message = to_bytes(&message_in).unwrap();
+        let message: Message<DummyCommand> =
+            from_bytes(&serialized_message).unwrap();
         assert_eq!(8, message.term);
         assert_eq!(9, message.seq);
         if let MessageContent::AppendEntries {
@@ -515,7 +261,8 @@ mod tests {
     #[test]
     fn deserialize_garbage() {
         let serialized_message = "PogChamp";
-        let message = Message::<DummyCommand>::deserialize(serialized_message);
+        let message: Result<Message<DummyCommand>, _> =
+            from_bytes(&serialized_message.as_bytes());
         assert!(message.is_err());
     }
 
@@ -529,10 +276,9 @@ mod tests {
                 success: false,
             },
         };
-        let serialized_message = message_in.serialize();
-        let message = Message::<DummyCommand>::deserialize(serialized_message);
-        assert!(message.is_ok());
-        let message = message.unwrap();
+        let serialized_message = to_bytes(&message_in).unwrap();
+        let message: Message<DummyCommand> =
+            from_bytes(&serialized_message).unwrap();
         assert_eq!(5, message.term);
         assert_eq!(4, message.seq);
         if let MessageContent::AppendEntriesResults {
@@ -560,10 +306,9 @@ mod tests {
                 }),
             },
         };
-        let serialized_message = message_in.serialize();
-        let message = Message::<DummyCommand>::deserialize(serialized_message);
-        assert!(message.is_ok());
-        let message = message.unwrap();
+        let serialized_message = dbg!(to_bytes(&message_in).unwrap());
+        let message: Message<DummyCommand> =
+            from_bytes(&serialized_message).unwrap();
         assert_eq!(8, message.term);
         assert_eq!(2, message.seq);
         if let MessageContent::InstallSnapshot {
@@ -597,10 +342,9 @@ mod tests {
                 match_index: 100,
             },
         };
-        let serialized_message = message_in.serialize();
-        let message = Message::<DummyCommand>::deserialize(serialized_message);
-        assert!(message.is_ok());
-        let message = message.unwrap();
+        let serialized_message = to_bytes(&message_in).unwrap();
+        let message: Message<DummyCommand> =
+            from_bytes(&serialized_message).unwrap();
         assert_eq!(8, message.term);
         assert_eq!(17, message.seq);
         if let MessageContent::InstallSnapshotResults {

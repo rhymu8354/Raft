@@ -1,3 +1,7 @@
+use serde::{
+    Deserialize,
+    Serialize,
+};
 use serde_json::{
     json,
     Value as JsonValue,
@@ -16,7 +20,7 @@ pub trait CustomCommand {
         Self: Sized;
 }
 
-#[derive(Clone, Eq)]
+#[derive(Clone, Eq, Serialize, Deserialize)]
 pub enum Command<T> {
     SingleConfiguration {
         old_configuration: HashSet<usize>,
@@ -204,7 +208,7 @@ impl<T: PartialEq> PartialEq for Command<T> {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LogEntry<T> {
     pub term: usize,
     pub command: Option<Command<T>>,
