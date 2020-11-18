@@ -20,7 +20,7 @@ pub trait CustomCommand {
         Self: Sized;
 }
 
-#[derive(Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Command<T> {
     SingleConfiguration {
         old_configuration: HashSet<usize>,
@@ -134,80 +134,6 @@ impl<T: CustomCommand> TryFrom<&JsonValue> for Command<T> {
     }
 }
 
-impl<T: Debug> Debug for Command<T> {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        match self {
-            Self::SingleConfiguration {
-                old_configuration,
-                configuration,
-            } => write!(
-                f,
-                "SingleConfiguration({:?} -> {:?})",
-                old_configuration, configuration
-            ),
-            Self::JointConfiguration {
-                old_configuration,
-                new_configuration,
-            } => write!(
-                f,
-                "JointConfiguration({:?} -> {:?})",
-                old_configuration, new_configuration
-            ),
-            Self::Custom(custom_command) => custom_command.fmt(f),
-        }
-    }
-}
-
-impl<T: PartialEq> PartialEq for Command<T> {
-    fn eq(
-        &self,
-        other: &Self,
-    ) -> bool {
-        match self {
-            Self::SingleConfiguration {
-                old_configuration,
-                configuration,
-            } => {
-                if let Self::SingleConfiguration {
-                    old_configuration: other_old_configuration,
-                    configuration: other_configuration,
-                } = other
-                {
-                    old_configuration.eq(other_old_configuration)
-                        && configuration.eq(other_configuration)
-                } else {
-                    false
-                }
-            },
-            Self::JointConfiguration {
-                old_configuration,
-                new_configuration,
-            } => {
-                if let Self::JointConfiguration {
-                    old_configuration: other_old_configuration,
-                    new_configuration: other_new_configuration,
-                } = other
-                {
-                    old_configuration.eq(other_old_configuration)
-                        && new_configuration.eq(other_new_configuration)
-                } else {
-                    false
-                }
-            },
-            Self::Custom(custom_command) => {
-                if let Self::Custom(other) = other {
-                    custom_command.eq(other)
-                } else {
-                    false
-                }
-            },
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LogEntry<T> {
     pub term: usize,
@@ -261,6 +187,7 @@ mod tests {
     use super::*;
     use maplit::hashset;
 
+    #[derive(Debug, Eq, PartialEq)]
     struct DummyCommand {}
 
     impl CustomCommand for DummyCommand {
@@ -277,24 +204,6 @@ mod tests {
             Self: Sized,
         {
             None
-        }
-    }
-
-    impl Debug for DummyCommand {
-        fn fmt(
-            &self,
-            f: &mut std::fmt::Formatter<'_>,
-        ) -> std::fmt::Result {
-            write!(f, "PogChamp")
-        }
-    }
-
-    impl PartialEq for DummyCommand {
-        fn eq(
-            &self,
-            _other: &Self,
-        ) -> bool {
-            true
         }
     }
 
@@ -339,24 +248,14 @@ mod tests {
                 },
             },
         });
-        let LogEntry {
-            term,
-            command,
-        } = LogEntry::<DummyCommand>::from(&encoded_entry);
-        assert_eq!(9, term);
-        assert!(command.is_some());
-        let command = command.unwrap();
-        assert_eq!("SingleConfiguration", command.command_type());
-        match command {
-            Command::SingleConfiguration {
-                old_configuration,
-                configuration,
-            } => {
-                assert_eq!(hashset!(42, 85, 13531, 8354), configuration);
-                assert_eq!(hashset!(5, 42, 85, 13531, 8354), old_configuration);
-            },
-            _ => panic!("expected `Command::SingleConfiguration`"),
-        }
+        let log_entry = LogEntry::<DummyCommand>::from(&encoded_entry);
+        assert_eq!(log_entry, LogEntry {
+            term: 9,
+            command: Some(Command::<DummyCommand>::SingleConfiguration {
+                old_configuration: hashset!(5, 42, 85, 13531, 8354),
+                configuration: hashset!(42, 85, 13531, 8354),
+            }),
+        });
     }
 
     #[test]
@@ -400,24 +299,14 @@ mod tests {
                 },
             },
         });
-        let LogEntry {
-            term,
-            command,
-        } = LogEntry::<DummyCommand>::from(&encoded_entry);
-        assert_eq!(9, term);
-        assert!(command.is_some());
-        let command = command.unwrap();
-        assert_eq!("JointConfiguration", command.command_type());
-        match command {
-            Command::JointConfiguration {
-                old_configuration,
-                new_configuration,
-            } => {
-                assert_eq!(hashset!(42, 85, 13531, 8354), new_configuration);
-                assert_eq!(hashset!(5, 42, 85, 13531, 8354), old_configuration);
-            },
-            _ => panic!("expected `Command::JointConfiguration`"),
-        }
+        let log_entry = LogEntry::<DummyCommand>::from(&encoded_entry);
+        assert_eq!(log_entry, LogEntry {
+            term: 9,
+            command: Some(Command::<DummyCommand>::JointConfiguration {
+                old_configuration: hashset!(5, 42, 85, 13531, 8354),
+                new_configuration: hashset!(42, 85, 13531, 8354),
+            }),
+        });
     }
 
     #[test]
@@ -445,69 +334,9 @@ mod tests {
     }
 
     #[test]
-    fn compare_equal() {
-        let examples = [
-            json!({
-                "type": "SingleConfiguration",
-                "term": 9,
-                "command": {
-                    "oldConfiguration": {
-                        "instanceIds": [5, 42, 85, 8354, 13531],
-                    },
-                    "configuration": {
-                        "instanceIds": [42, 85, 8354, 13531],
-                    },
-                },
-            }),
-            json!({
-                "type": "SingleConfiguration",
-                "term": 8,
-                "command": {
-                    "oldConfiguration": {
-                        "instanceIds": [5, 42, 85, 8354, 13531],
-                    },
-                    "configuration": {
-                        "instanceIds": [42, 85, 8354, 13531],
-                    },
-                },
-            }),
-            json!({
-                "type": "SingleConfiguration",
-                "term": 9,
-                "command": {
-                    "oldConfiguration": {
-                        "instanceIds": [5, 42, 85, 8354, 13531],
-                    },
-                    "configuration": {
-                        "instanceIds": [5, 85, 8354, 13531],
-                    },
-                },
-            }),
-            json!({
-                "term": 8,
-            }),
-            json!({
-                "term": 9,
-            }),
-        ]
-        .iter()
-        .map(LogEntry::<DummyCommand>::from)
-        .collect::<Vec<_>>();
-        let num_examples = examples.len();
-        for i in 0..num_examples {
-            for j in 0..num_examples {
-                if i == j {
-                    assert_eq!(examples[i], examples[j]);
-                } else {
-                    assert_ne!(examples[i], examples[j]);
-                }
-            }
-        }
-    }
-
-    #[test]
     fn custom_command() {
         // Invent a custom command for this test.
+        #[derive(Debug, Eq, PartialEq)]
         struct PogChamp {
             payload: usize,
         }
@@ -557,21 +386,9 @@ mod tests {
         );
 
         // Take the JSON and turn it around to form the command again.
-        let LogEntry {
-            term,
-            command,
-        } = LogEntry::<PogChamp>::from(&serialized_pog_champ);
+        let log_entry = LogEntry::<PogChamp>::from(&serialized_pog_champ);
 
         // Verify the command has all the expected values in it.
-        assert_eq!(8, term);
-        assert!(command.is_some());
-        let command = command.unwrap();
-        assert_eq!("PogChamp", command.command_type());
-        match command {
-            Command::Custom(command) => {
-                assert_eq!(42, command.payload);
-            },
-            _ => panic!("expected custom command!"),
-        }
+        assert_eq!(log_entry, pog_champ_entry);
     }
 }

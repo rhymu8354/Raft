@@ -1,17 +1,10 @@
 // TODO: Revisit the way we import/export various parts of the crate.
-use super::log_entry::{
-    CustomCommand,
-    LogEntry,
-};
+use super::log_entry::LogEntry;
 use serde::{
     Deserialize,
     Serialize,
 };
 use serde_json::Value as JsonValue;
-use serialization::{
-    from_bytes,
-    to_bytes,
-};
 
 // TODO: I don't know what I want to do with this, but it certainly
 // probably maybe doesn't belong here.
@@ -36,7 +29,7 @@ pub enum Error {
     BadSnapshot(serde_json::Error),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum MessageContent<T> {
     RequestVote {
         candidate_id: usize,
@@ -67,7 +60,7 @@ enum MessageContent<T> {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 struct Message<T> {
     term: usize,
     seq: usize,
@@ -83,6 +76,10 @@ mod tests {
     };
     use maplit::hashset;
     use serde_json::json;
+    use serialization::{
+        from_bytes,
+        to_bytes,
+    };
     use std::fmt::Debug;
 
     // TODO: Extract this out so that it can be shared with the `message`
@@ -136,23 +133,10 @@ mod tests {
                 last_log_term: 3,
             },
         };
-        let serialized_message = dbg!(to_bytes(&message_in).unwrap());
-        let message: Message<DummyCommand> =
+        let serialized_message = to_bytes(&message_in).unwrap();
+        let message_out: Message<DummyCommand> =
             from_bytes(&serialized_message).unwrap();
-        assert_eq!(42, message.term);
-        assert_eq!(7, message.seq);
-        if let MessageContent::RequestVote {
-            candidate_id,
-            last_log_index,
-            last_log_term,
-        } = message.content
-        {
-            assert_eq!(5, candidate_id);
-            assert_eq!(11, last_log_index);
-            assert_eq!(3, last_log_term);
-        } else {
-            panic!("RequestVote message expected");
-        }
+        assert_eq!(message_in, message_out);
     }
 
     #[test]
@@ -165,18 +149,9 @@ mod tests {
             },
         };
         let serialized_message = to_bytes(&message_in).unwrap();
-        let message: Message<DummyCommand> =
+        let message_out: Message<DummyCommand> =
             from_bytes(&serialized_message).unwrap();
-        assert_eq!(16, message.term);
-        assert_eq!(8, message.seq);
-        if let MessageContent::RequestVoteResults {
-            vote_granted,
-        } = message.content
-        {
-            assert!(vote_granted);
-        } else {
-            panic!("RequestVoteResults message expected");
-        }
+        assert_eq!(message_in, message_out);
     }
 
     #[test]
@@ -192,24 +167,9 @@ mod tests {
             },
         };
         let serialized_message = to_bytes(&message_in).unwrap();
-        let message: Message<DummyCommand> =
+        let message_out: Message<DummyCommand> =
             from_bytes(&serialized_message).unwrap();
-        assert_eq!(8, message.term);
-        assert_eq!(7, message.seq);
-        if let MessageContent::AppendEntries {
-            leader_commit,
-            prev_log_index,
-            prev_log_term,
-            log,
-        } = message.content
-        {
-            assert_eq!(18, leader_commit);
-            assert_eq!(6, prev_log_index);
-            assert_eq!(1, prev_log_term);
-            assert!(log.is_empty());
-        } else {
-            panic!("RequestVoteResults message expected");
-        }
+        assert_eq!(message_in, message_out);
     }
 
     #[test]
@@ -234,28 +194,13 @@ mod tests {
                 leader_commit: 33,
                 prev_log_index: 5,
                 prev_log_term: 6,
-                log: entries.clone(),
+                log: entries,
             },
         };
         let serialized_message = to_bytes(&message_in).unwrap();
-        let message: Message<DummyCommand> =
+        let message_out: Message<DummyCommand> =
             from_bytes(&serialized_message).unwrap();
-        assert_eq!(8, message.term);
-        assert_eq!(9, message.seq);
-        if let MessageContent::AppendEntries {
-            leader_commit,
-            prev_log_index,
-            prev_log_term,
-            log,
-        } = message.content
-        {
-            assert_eq!(33, leader_commit);
-            assert_eq!(5, prev_log_index);
-            assert_eq!(6, prev_log_term);
-            assert_eq!(entries, log);
-        } else {
-            panic!("AppendEntries message expected");
-        }
+        assert_eq!(message_in, message_out);
     }
 
     #[test]
@@ -277,20 +222,9 @@ mod tests {
             },
         };
         let serialized_message = to_bytes(&message_in).unwrap();
-        let message: Message<DummyCommand> =
+        let message_out: Message<DummyCommand> =
             from_bytes(&serialized_message).unwrap();
-        assert_eq!(5, message.term);
-        assert_eq!(4, message.seq);
-        if let MessageContent::AppendEntriesResults {
-            match_index,
-            success,
-        } = message.content
-        {
-            assert_eq!(10, match_index);
-            assert!(!success);
-        } else {
-            panic!("AppendEntriesResults message expected");
-        }
+        assert_eq!(message_in, message_out);
     }
 
     #[test]
@@ -306,31 +240,10 @@ mod tests {
                 }),
             },
         };
-        let serialized_message = dbg!(to_bytes(&message_in).unwrap());
-        let message: Message<DummyCommand> =
+        let serialized_message = to_bytes(&message_in).unwrap();
+        let message_out: Message<DummyCommand> =
             from_bytes(&serialized_message).unwrap();
-        assert_eq!(8, message.term);
-        assert_eq!(2, message.seq);
-        if let MessageContent::InstallSnapshot {
-            last_included_index,
-            last_included_term,
-            snapshot,
-        } = message.content
-        {
-            assert_eq!(2, last_included_index);
-            assert_eq!(7, last_included_term);
-            if let MessageContent::InstallSnapshot {
-                snapshot: snapshot_in,
-                ..
-            } = message_in.content
-            {
-                assert_eq!(snapshot_in, snapshot);
-            } else {
-                panic!("message in was not an InstallSnapshot");
-            }
-        } else {
-            panic!("InstallSnapshot message expected");
-        }
+        assert_eq!(message_in, message_out);
     }
 
     #[test]
@@ -343,17 +256,8 @@ mod tests {
             },
         };
         let serialized_message = to_bytes(&message_in).unwrap();
-        let message: Message<DummyCommand> =
+        let message_out: Message<DummyCommand> =
             from_bytes(&serialized_message).unwrap();
-        assert_eq!(8, message.term);
-        assert_eq!(17, message.seq);
-        if let MessageContent::InstallSnapshotResults {
-            match_index,
-        } = message.content
-        {
-            assert_eq!(100, match_index);
-        } else {
-            panic!("InstallSnapshotResults message expected");
-        }
+        assert_eq!(message_in, message_out);
     }
 }
