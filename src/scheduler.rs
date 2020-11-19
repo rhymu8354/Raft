@@ -1,27 +1,17 @@
-use futures::channel::mpsc;
+use futures_timer::Delay;
 use std::time::Duration;
 
-pub enum ScheduledEvent {
-    ElectionTimeout(Duration),
-    Heartbeat(Duration),
-    Retransmit(Duration),
-}
-
-pub type ScheduledEventReceiver = mpsc::UnboundedReceiver<ScheduledEvent>;
-pub type ScheduledEventSender = mpsc::UnboundedSender<ScheduledEvent>;
-
-pub struct Scheduler {
-    receiver: ScheduledEventReceiver,
-}
+pub struct Scheduler {}
 
 impl Scheduler {
-    pub fn new() -> (Self, ScheduledEventSender) {
-        let (sender, receiver) = mpsc::unbounded();
-        (
-            Self {
-                receiver,
-            },
-            sender,
-        )
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub async fn schedule(
+        &self,
+        duration: Duration,
+    ) {
+        Delay::new(duration).await
     }
 }

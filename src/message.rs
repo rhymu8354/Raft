@@ -7,7 +7,7 @@ use serde::{
 use serde_json::Value as JsonValue;
 
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
-enum MessageContent<T> {
+pub enum MessageContent<T> {
     RequestVote {
         candidate_id: usize,
         last_log_index: usize,
@@ -38,10 +38,10 @@ enum MessageContent<T> {
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
-struct Message<T> {
-    term: usize,
-    seq: usize,
-    content: MessageContent<T>,
+pub struct Message<T> {
+    pub term: usize,
+    pub seq: usize,
+    pub content: MessageContent<T>,
 }
 
 #[cfg(test)]

@@ -8,11 +8,21 @@ pub struct MockLog {
     pub dropped: Arc<AtomicBool>,
 }
 
+pub struct MockLogBackEnd {
+    pub dropped: Arc<AtomicBool>,
+}
+
 impl MockLog {
-    pub fn new() -> Self {
-        Self {
-            dropped: Arc::new(AtomicBool::new(false)),
-        }
+    pub fn new() -> (Self, MockLogBackEnd) {
+        let dropped = Arc::new(AtomicBool::new(false));
+        (
+            Self {
+                dropped: dropped.clone(),
+            },
+            MockLogBackEnd {
+                dropped,
+            },
+        )
     }
 }
 

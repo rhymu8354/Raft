@@ -8,11 +8,21 @@ pub struct MockPersistentStorage {
     pub dropped: Arc<AtomicBool>,
 }
 
+pub struct MockPersistentStorageBackEnd {
+    pub dropped: Arc<AtomicBool>,
+}
+
 impl MockPersistentStorage {
-    pub fn new() -> Self {
-        Self {
-            dropped: Arc::new(AtomicBool::new(false)),
-        }
+    pub fn new() -> (Self, MockPersistentStorageBackEnd) {
+        let dropped = Arc::new(AtomicBool::new(false));
+        (
+            Self {
+                dropped: dropped.clone(),
+            },
+            MockPersistentStorageBackEnd {
+                dropped,
+            },
+        )
     }
 }
 
