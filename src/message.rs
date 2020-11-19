@@ -6,29 +6,6 @@ use serde::{
 };
 use serde_json::Value as JsonValue;
 
-// TODO: I don't know what I want to do with this, but it certainly
-// probably maybe doesn't belong here.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("ran out of bytes while deserializing message")]
-    MessageTruncated,
-
-    #[error("encountered a message serialized as an unknown version")]
-    UnsupportedVersion,
-
-    #[error("encountered a message of an unknown type")]
-    UnknownMessageType,
-
-    #[error("error decoding text in serialized message")]
-    Utf8(std::str::Utf8Error),
-
-    #[error("error parsing log entry from serialized message")]
-    BadLogEntry(serde_json::Error),
-
-    #[error("error parsing snapshot from serialized message")]
-    BadSnapshot(serde_json::Error),
-}
-
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum MessageContent<T> {
     RequestVote {

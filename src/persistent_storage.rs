@@ -1,1 +1,1 @@
-pub trait PersistentStorage {}
+pub trait PersistentStorage: Send + Sync {}

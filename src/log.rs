@@ -1,1 +1,1 @@
-pub trait Log {}
+pub trait Log: Send + Sync {}

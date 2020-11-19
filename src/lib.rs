@@ -1,12 +1,19 @@
+mod configuration;
 mod json_encoding;
-pub mod log;
-pub mod log_entry;
-pub mod message;
-pub mod persistent_storage;
-pub mod scheduler;
-pub mod server;
+mod log;
+mod log_entry;
+mod message;
+mod persistent_storage;
+mod scheduler;
+mod server;
 
+pub use configuration::Configuration;
 pub use log::Log;
 pub use persistent_storage::PersistentStorage;
-pub use scheduler::Scheduler;
+use scheduler::{
+    ScheduledEvent,
+    ScheduledEventReceiver,
+    ScheduledEventSender,
+    Scheduler,
+};
 pub use server::Server;
