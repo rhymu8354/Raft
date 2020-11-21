@@ -8,6 +8,7 @@ use crate::{
     Log,
     LogEntryCustomCommand,
     Message,
+    MessageContent,
     PersistentStorage,
     Scheduler,
 };
@@ -23,6 +24,11 @@ use futures::{
     Stream,
     StreamExt as _,
 };
+use rand::{
+    rngs::StdRng,
+    Rng,
+    SeedableRng,
+};
 use std::{
     cell::RefCell,
     collections::HashSet,
@@ -36,14 +42,14 @@ use std::{
 #[cfg(test)]
 use crate::ScheduledEventReceiver;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ElectionState {
     Follower,
     Candidate,
     Leader,
 }
 
-pub struct Mobilization {
+pub struct MobilizeArgs {
     pub id: usize,
     pub cluster: HashSet<usize>,
     pub log: Box<dyn Log>,
@@ -65,7 +71,7 @@ type ServerEventSender<T> = mpsc::UnboundedSender<ServerEvent<T>>;
 enum ServerCommand {
     Configure(Configuration),
     Demobilize(oneshot::Sender<()>),
-    Mobilize(Mobilization),
+    Mobilize(MobilizeArgs),
     Stop,
 }
 
@@ -89,16 +95,136 @@ type ServerCommandSender = mpsc::UnboundedSender<ServerCommand>;
 type StateChangeSender = mpsc::UnboundedSender<()>;
 type StateChangeReceiver = mpsc::UnboundedReceiver<()>;
 
+struct OnlineState {
+    cluster: HashSet<usize>,
+    election_state: ElectionState,
+    id: usize,
+    log: Box<dyn Log>,
+    persistent_storage: Box<dyn PersistentStorage>,
+}
+
+impl OnlineState {
+    fn become_candidate<T>(
+        &mut self,
+        server_event_sender: &ServerEventSender<T>,
+    ) {
+        self.change_election_state(
+            ElectionState::Candidate,
+            server_event_sender,
+        );
+        for id in &self.cluster {
+            if *id == self.id {
+                continue;
+            }
+            let message = Message::<T> {
+                term: 0,
+                seq: 0,
+                content: MessageContent::RequestVote::<T> {
+                    candidate_id: *id,
+                    last_log_term: 0,
+                    last_log_index: 0,
+                },
+            };
+            let _ = server_event_sender
+                .unbounded_send(ServerEvent::SendMessage(message));
+        }
+    }
+
+    fn change_election_state<T>(
+        &mut self,
+        new_election_state: ElectionState,
+        server_event_sender: &ServerEventSender<T>,
+    ) {
+        println!(
+            "State: {:?} -> {:?}",
+            self.election_state, new_election_state
+        );
+        self.election_state = new_election_state;
+        let _ = server_event_sender.unbounded_send(
+            ServerEvent::ElectionStateChange {
+                election_state: self.election_state,
+                term: 0,
+                voted_for: Some(self.id),
+            },
+        );
+    }
+
+    fn new(mobilize_args: MobilizeArgs) -> Self {
+        Self {
+            cluster: mobilize_args.cluster,
+            election_state: ElectionState::Follower,
+            id: mobilize_args.id,
+            log: mobilize_args.log,
+            persistent_storage: mobilize_args.persistent_storage,
+        }
+    }
+}
+
 struct State<T> {
     configuration: Configuration,
-    mobilization: Option<Mobilization>,
     server_event_sender: ServerEventSender<T>,
     state_change_sender: StateChangeSender,
+    online: Option<OnlineState>,
+}
+
+impl<T> State<T> {
+    fn become_candidate(&mut self) {
+        if let Some(state) = &mut self.online {
+            state.become_candidate(&self.server_event_sender);
+        }
+    }
+
+    fn election_state(&self) -> ElectionState {
+        if let Some(state) = &self.online {
+            state.election_state
+        } else {
+            ElectionState::Follower
+        }
+    }
+
+    fn notify_state_change(&mut self) {
+        self.state_change_sender
+            .unbounded_send(())
+            .expect("state change receiver unexpectedly dropped");
+    }
 }
 
 enum FutureKind {
+    Cancelled,
     ElectionTimeout,
     StateChange(StateChangeReceiver),
+}
+
+async fn await_cancellation(cancel: oneshot::Receiver<()>) {
+    let _ = cancel.await;
+}
+
+async fn await_cancellable_timeout(
+    future_kind: FutureKind,
+    timeout: Pin<Box<dyn futures::Future<Output = ()> + Send>>,
+    cancel: oneshot::Receiver<()>,
+) -> FutureKind {
+    futures::select! {
+        _ = timeout.fuse() => future_kind,
+        _ = await_cancellation(cancel).fuse() => FutureKind::Cancelled,
+    }
+}
+
+fn make_cancellable_timeout_future(
+    future_kind: FutureKind,
+    duration: Duration,
+    #[cfg(test)] scheduled_event: ScheduledEvent,
+    scheduler: &Scheduler,
+) -> (Pin<Box<dyn futures::Future<Output = FutureKind>>>, oneshot::Sender<()>) {
+    let (sender, receiver) = oneshot::channel();
+    let timeout = scheduler.schedule(
+        #[cfg(test)]
+        scheduled_event,
+        duration,
+    );
+    let future =
+        await_cancellable_timeout(future_kind, timeout, receiver).boxed();
+    (future, sender)
 }
 
 async fn process_server_commands<T>(
@@ -111,27 +237,38 @@ async fn process_server_commands<T>(
         })
         .for_each(|message| async {
             let mut state = state.lock().await;
-            match message {
-                ServerCommand::Configure(new_configuration) => {
-                    state.configuration = new_configuration;
+            let state_change = match message {
+                ServerCommand::Configure(configuration) => {
+                    println!("Received Configure");
+                    state.configuration = configuration;
+                    true
                 },
                 ServerCommand::Demobilize(completed) => {
-                    state.mobilization.take();
+                    println!("Received Demobilize");
+                    state.online = None;
                     let _ = completed.send(());
+                    true
                 },
-                ServerCommand::Mobilize(new_mobilize_args) => {
-                    state.mobilization.replace(new_mobilize_args);
+                ServerCommand::Mobilize(mobilize_args) => {
+                    println!("Received Mobilize");
+                    state.online = Some(OnlineState::new(mobilize_args));
+                    true
                 },
                 ServerCommand::Stop => unreachable!(),
+            };
+            if state_change {
+                state.notify_state_change();
             }
         })
         .await;
+    println!("Received Stop");
 }
 
 async fn process_state_change_receiver(
     mut state_change_receiver: StateChangeReceiver
 ) -> FutureKind {
     state_change_receiver.next().await;
+    println!("Received StateChange");
     FutureKind::StateChange(state_change_receiver)
 }
 
@@ -142,6 +279,8 @@ async fn process_futures<T>(
 ) {
     let mut state_change_receiver = Some(state_change_receiver);
     let mut need_state_change_receiver_future = true;
+    let mut cancel_election_timeout = None;
+    let mut rng = StdRng::from_entropy();
     let mut futures: Vec<Pin<Box<dyn futures::Future<Output = FutureKind>>>> =
         Vec::new();
     loop {
@@ -158,15 +297,57 @@ async fn process_futures<T>(
             need_state_change_receiver_future = false;
         }
 
+        // Make election timeout future if we don't have one and we are
+        // not the leader of the cluster.
+        {
+            let state = state.lock().await;
+            let is_not_leader =
+                !matches!(state.election_state(), ElectionState::Leader);
+            if is_not_leader && cancel_election_timeout.is_none() {
+                let timeout_duration = rng.gen_range(
+                    state.configuration.election_timeout.start,
+                    state.configuration.election_timeout.end,
+                );
+                println!(
+                    "Setting election timer to {:?} ({:?})",
+                    timeout_duration, state.configuration.election_timeout
+                );
+                let (future, cancel_future) = make_cancellable_timeout_future(
+                    FutureKind::ElectionTimeout,
+                    timeout_duration,
+                    #[cfg(test)]
+                    ScheduledEvent::ElectionTimeout,
+                    &scheduler,
+                );
+                futures.push(future);
+                cancel_election_timeout.replace(cancel_future);
+            }
+        }
+
         // Wait for the next future to complete.
         let futures_in = futures;
         let (future_kind, _, futures_remaining) =
             future::select_all(futures_in).await;
         match future_kind {
+            FutureKind::Cancelled => {
+                println!("Completed canceled future");
+            },
             FutureKind::ElectionTimeout => {
                 // TODO: Handle election timeout here.
+                println!("*** Election timeout! ***");
+                cancel_election_timeout.take();
+                let mut state = state.lock().await;
+                let is_not_leader =
+                    !matches!(state.election_state(), ElectionState::Leader);
+                if is_not_leader {
+                    state.become_candidate();
+                }
             },
             FutureKind::StateChange(state_change_receiver_out) => {
+                println!("Handling StateChange");
+                if let Some(cancel) = cancel_election_timeout.take() {
+                    let _ = cancel.send(());
+                }
                 state_change_receiver.replace(state_change_receiver_out);
                 need_state_change_receiver_future = true;
             },
@@ -174,16 +355,6 @@ async fn process_futures<T>(
 
         // Move remaining futures back to await again in the next loop.
         futures = futures_remaining;
-
-        // TODO: This is a place-holder for the futures we will await
-        // to process timeouts.
-        // scheduler
-        //     .schedule(
-        //         #[cfg(test)]
-        //         ScheduledEvent::ElectionTimeout,
-        //         Duration::from_millis(150),
-        //     )
-        //     .await;
     }
 }
 
@@ -195,9 +366,9 @@ async fn serve<T>(
     let (state_change_sender, state_change_receiver) = mpsc::unbounded();
     let state = Mutex::new(State {
         configuration: Configuration::default(),
-        mobilization: None,
         server_event_sender,
         state_change_sender,
+        online: None,
     });
     let server_command_processor =
         process_server_commands(server_command_receiver, &state);
@@ -240,7 +411,7 @@ where
 
     pub fn mobilize(
         &self,
-        args: Mobilization,
+        args: MobilizeArgs,
     ) {
         self.server_command_sender
             .unbounded_send(ServerCommand::Mobilize(args))

@@ -1,9 +1,16 @@
-use futures::channel::{
-    mpsc,
-    oneshot,
+use futures::{
+    channel::{
+        mpsc,
+        oneshot,
+    },
+    FutureExt,
 };
-use std::time::Duration;
+use std::{
+    pin::Pin,
+    time::Duration,
+};
 
+#[derive(Debug)]
 pub enum ScheduledEvent {
     ElectionTimeout,
     Heartbeat,
@@ -24,6 +31,10 @@ pub struct Scheduler {
     sender: ScheduledEventSender,
 }
 
+async fn await_receiver(receiver: oneshot::Receiver<()>) {
+    let _ = receiver.await;
+}
+
 impl Scheduler {
     pub fn new() -> (Self, ScheduledEventReceiver) {
         let (sender, receiver) = mpsc::unbounded();
@@ -35,17 +46,18 @@ impl Scheduler {
         )
     }
 
-    pub async fn schedule(
+    pub fn schedule(
         &self,
         event: ScheduledEvent,
         duration: Duration,
-    ) {
+    ) -> Pin<Box<dyn futures::Future<Output = ()> + Send>> {
+        println!("Scheduling {:?} in {:?}", event, duration);
         let (sender, receiver) = oneshot::channel();
         let _ = self.sender.unbounded_send(ScheduledEventWithCompleter {
             scheduled_event: event,
             duration,
             completer: sender,
         });
-        let _ = receiver.await;
+        await_receiver(receiver).boxed()
     }
 }

@@ -217,7 +217,7 @@ impl Fixture {
         if !self.configured {
             self.configure_server();
         }
-        self.server.mobilize(Mobilization {
+        self.server.mobilize(MobilizeArgs {
             id: self.id,
             cluster: self.cluster.clone(),
             log: Box::new(mock_log),
