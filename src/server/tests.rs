@@ -71,12 +71,10 @@ impl LogEntryCustomCommand for DummyCommand {
     }
 }
 
-type DummyMessage = Message<DummyCommand>;
-type DummyMessageContent = MessageContent<DummyCommand>;
-
-struct MobilizedServerResources {
-    mock_log_back_end: MockLogBackEnd,
-    mock_persistent_storage_back_end: MockPersistentStorageBackEnd,
+struct AwaitElectionTimeoutArgs {
+    expected_cancellations: usize,
+    last_log_term: usize,
+    last_log_index: usize,
 }
 
 struct Fixture {
@@ -96,7 +94,7 @@ struct Fixture {
 impl Fixture {
     async fn await_election_timeout(
         &mut self,
-        mut expected_cancellations: usize,
+        mut args: AwaitElectionTimeoutArgs,
     ) {
         // Expect the server to register an election timeout event with a
         // duration within the configured range, and complete it.
@@ -105,7 +103,7 @@ impl Fixture {
                 REASONABLE_FAST_OPERATION_TIMEOUT,
                 async {
                     let mut completers = Vec::new();
-                    completers.reserve(expected_cancellations + 1);
+                    completers.reserve(args.expected_cancellations + 1);
                     loop {
                         let event_with_completer = self
                             .scheduled_event_receiver
@@ -120,9 +118,9 @@ impl Fixture {
                         {
                             completers.push(completer);
                             if let Some(remaining_expected_cancellations) =
-                                expected_cancellations.checked_sub(1)
+                                args.expected_cancellations.checked_sub(1)
                             {
-                                expected_cancellations =
+                                args.expected_cancellations =
                                     remaining_expected_cancellations;
                             } else {
                                 break (duration, completers);
@@ -165,16 +163,31 @@ impl Fixture {
                             .expect("unexpected end of server events");
                         match event {
                             ServerEvent::SendMessage(
-                                DummyMessage {
+                                Message::<DummyCommand> {
                                     content:
-                                        DummyMessageContent::RequestVote {
+                                        MessageContent::<DummyCommand>::RequestVote {
                                             candidate_id,
-                                            ..
+                                            last_log_index,
+                                            last_log_term,
                                         },
                                     ..
                                 },
                                 ..,
                             ) => {
+                                assert_eq!(
+                                    last_log_term,
+                                    args.last_log_term,
+                                    "wrong last_log_term in vote request (was {}, should be {})",
+                                    last_log_term,
+                                    args.last_log_term
+                                );
+                                assert_eq!(
+                                    last_log_index,
+                                    args.last_log_index,
+                                    "wrong last_log_index in vote request (was {}, should be {})",
+                                    last_log_index,
+                                    args.last_log_index
+                                );
                                 break candidate_id;
                             },
                             ServerEvent::ElectionStateChange {
@@ -226,22 +239,47 @@ impl Fixture {
         }
     }
 
-    fn mobilize_server(&mut self) -> MobilizedServerResources {
+    fn mobilize_server(&mut self) {
         let (mock_log, mock_log_back_end) = MockLog::new();
+        self.mobilize_server_with_log(Box::new(mock_log))
+    }
+
+    fn mobilize_server_with_log(
+        &mut self,
+        log: Box<dyn Log>,
+    ) {
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             MockPersistentStorage::new();
+        self.mobilize_server_with_log_and_persistent_storage(
+            log,
+            Box::new(mock_persistent_storage),
+        );
+    }
+
+    fn mobilize_server_with_log_and_persistent_storage(
+        &mut self,
+        log: Box<dyn Log>,
+        persistent_storage: Box<dyn PersistentStorage>,
+    ) {
         if !self.configured {
             self.configure_server();
         }
         self.server.mobilize(MobilizeArgs {
             id: self.id,
             cluster: self.cluster.clone(),
-            log: Box::new(mock_log),
-            persistent_storage: Box::new(mock_persistent_storage),
+            log,
+            persistent_storage,
         });
-        MobilizedServerResources {
-            mock_log_back_end,
-            mock_persistent_storage_back_end,
-        }
+    }
+
+    fn mobilize_server_with_persistent_storage(
+        &mut self,
+        persistent_storage: Box<dyn PersistentStorage>,
+    ) {
+        let (mock_log, mock_log_back_end) = MockLog::new();
+        self.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            persistent_storage,
+        );
     }
 }

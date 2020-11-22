@@ -30,11 +30,9 @@ use rand::{
     SeedableRng,
 };
 use std::{
-    cell::RefCell,
     collections::HashSet,
     fmt::Debug,
     pin::Pin,
-    rc::Rc,
     thread,
     time::Duration,
 };
@@ -99,6 +97,8 @@ struct OnlineState {
     cluster: HashSet<usize>,
     election_state: ElectionState,
     id: usize,
+    last_log_index: usize,
+    last_log_term: usize,
     log: Box<dyn Log>,
     persistent_storage: Box<dyn PersistentStorage>,
 }
@@ -121,8 +121,8 @@ impl OnlineState {
                 seq: 0,
                 content: MessageContent::RequestVote::<T> {
                     candidate_id: *id,
-                    last_log_term: 0,
-                    last_log_index: 0,
+                    last_log_index: self.last_log_index,
+                    last_log_term: self.last_log_term,
                 },
             };
             let _ = server_event_sender
@@ -154,6 +154,8 @@ impl OnlineState {
             cluster: mobilize_args.cluster,
             election_state: ElectionState::Follower,
             id: mobilize_args.id,
+            last_log_index: mobilize_args.log.base_index(),
+            last_log_term: mobilize_args.log.base_term(),
             log: mobilize_args.log,
             persistent_storage: mobilize_args.persistent_storage,
         }

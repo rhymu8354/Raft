@@ -1,35 +1,56 @@
 use crate::Log;
 use std::sync::{
-    atomic::AtomicBool,
     Arc,
+    Mutex,
 };
 
+pub struct MockLogShared {
+    pub base_term: usize,
+    pub base_index: usize,
+    pub dropped: bool,
+}
+
 pub struct MockLog {
-    pub dropped: Arc<AtomicBool>,
+    pub shared: Arc<Mutex<MockLogShared>>,
 }
 
 pub struct MockLogBackEnd {
-    pub dropped: Arc<AtomicBool>,
+    pub shared: Arc<Mutex<MockLogShared>>,
 }
 
 impl MockLog {
     pub fn new() -> (Self, MockLogBackEnd) {
-        let dropped = Arc::new(AtomicBool::new(false));
+        let shared = Arc::new(Mutex::new(MockLogShared {
+            base_term: 0,
+            base_index: 0,
+            dropped: false,
+        }));
         (
             Self {
-                dropped: dropped.clone(),
+                shared: shared.clone(),
             },
             MockLogBackEnd {
-                dropped,
+                shared,
             },
         )
     }
 }
 
-impl Log for MockLog {}
+impl Log for MockLog {
+    fn base_term(&self) -> usize {
+        let shared = self.shared.lock().unwrap();
+        shared.base_term
+    }
+
+    fn base_index(&self) -> usize {
+        let shared = self.shared.lock().unwrap();
+        shared.base_index
+    }
+}
 
 impl Drop for MockLog {
     fn drop(&mut self) {
-        self.dropped.store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut shared = self.shared.lock().unwrap();
+        shared.dropped = true;
     }
 }
