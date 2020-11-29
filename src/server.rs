@@ -275,6 +275,37 @@ async fn process_state_change_receiver(
     FutureKind::StateChange(state_change_receiver)
 }
 
+async fn upkeep_election_timeout_future<T>(
+    state: &Mutex<State<T>>,
+    cancel_election_timeout: &mut Option<oneshot::Sender<()>>,
+    rng: &mut StdRng,
+    futures: &mut Vec<Pin<Box<dyn futures::Future<Output = FutureKind>>>>,
+    scheduler: &Scheduler,
+) {
+    let state = state.lock().await;
+    let is_not_leader =
+        !matches!(state.election_state(), ElectionState::Leader);
+    if is_not_leader && cancel_election_timeout.is_none() {
+        let timeout_duration = rng.gen_range(
+            state.configuration.election_timeout.start,
+            state.configuration.election_timeout.end,
+        );
+        println!(
+            "Setting election timer to {:?} ({:?})",
+            timeout_duration, state.configuration.election_timeout
+        );
+        let (future, cancel_future) = make_cancellable_timeout_future(
+            FutureKind::ElectionTimeout,
+            timeout_duration,
+            #[cfg(test)]
+            ScheduledEvent::ElectionTimeout,
+            &scheduler,
+        );
+        futures.push(future);
+        cancel_election_timeout.replace(cancel_future);
+    }
+}
+
 async fn process_futures<T>(
     state_change_receiver: mpsc::UnboundedReceiver<()>,
     scheduler: Scheduler,
@@ -302,30 +333,14 @@ async fn process_futures<T>(
 
         // Make election timeout future if we don't have one and we are
         // not the leader of the cluster.
-        {
-            let state = state.lock().await;
-            let is_not_leader =
-                !matches!(state.election_state(), ElectionState::Leader);
-            if is_not_leader && cancel_election_timeout.is_none() {
-                let timeout_duration = rng.gen_range(
-                    state.configuration.election_timeout.start,
-                    state.configuration.election_timeout.end,
-                );
-                println!(
-                    "Setting election timer to {:?} ({:?})",
-                    timeout_duration, state.configuration.election_timeout
-                );
-                let (future, cancel_future) = make_cancellable_timeout_future(
-                    FutureKind::ElectionTimeout,
-                    timeout_duration,
-                    #[cfg(test)]
-                    ScheduledEvent::ElectionTimeout,
-                    &scheduler,
-                );
-                futures.push(future);
-                cancel_election_timeout.replace(cancel_future);
-            }
-        }
+        upkeep_election_timeout_future(
+            state,
+            &mut cancel_election_timeout,
+            &mut rng,
+            &mut futures,
+            &scheduler,
+        )
+        .await;
 
         // Wait for the next future to complete.
         let futures_in = futures;
