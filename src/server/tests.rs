@@ -176,6 +176,13 @@ impl Fixture {
                                 ..,
                             ) => {
                                 assert_eq!(
+                                    candidate_id,
+                                    self.id,
+                                    "wrong candidate_id in vote request (was {}, should be {})",
+                                    candidate_id,
+                                    self.id
+                                );
+                                assert_eq!(
                                     last_log_term,
                                     args.last_log_term,
                                     "wrong last_log_term in vote request (was {}, should be {})",
