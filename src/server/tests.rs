@@ -18,14 +18,8 @@ use futures::{
     StreamExt as _,
 };
 use maplit::hashset;
-use mock_log::{
-    MockLog,
-    MockLogBackEnd,
-};
-use mock_persistent_storage::{
-    MockPersistentStorage,
-    MockPersistentStorageBackEnd,
-};
+use mock_log::MockLog;
+use mock_persistent_storage::MockPersistentStorage;
 use serde::{
     Deserialize,
     Serialize,
