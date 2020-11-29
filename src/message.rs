@@ -39,9 +39,10 @@ pub enum MessageContent<T> {
 
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Message<T> {
-    pub term: usize,
-    pub seq: usize,
     pub content: MessageContent<T>,
+    pub receiver_id: usize,
+    pub seq: usize,
+    pub term: usize,
 }
 
 #[cfg(test)]
@@ -102,13 +103,14 @@ mod tests {
     #[test]
     fn request_vote() {
         let message_in = Message::<DummyCommand> {
-            term: 42,
-            seq: 7,
             content: MessageContent::RequestVote {
                 candidate_id: 5,
                 last_log_index: 11,
                 last_log_term: 3,
             },
+            receiver_id: 2,
+            seq: 7,
+            term: 42,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
         let message_out: Message<DummyCommand> =
@@ -119,11 +121,12 @@ mod tests {
     #[test]
     fn request_vote_results() {
         let message_in = Message::<DummyCommand> {
-            term: 16,
-            seq: 8,
             content: MessageContent::RequestVoteResults {
                 vote_granted: true,
             },
+            receiver_id: 2,
+            seq: 8,
+            term: 16,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
         let message_out: Message<DummyCommand> =
@@ -134,14 +137,15 @@ mod tests {
     #[test]
     fn heart_beat() {
         let message_in = Message::<DummyCommand> {
-            term: 8,
-            seq: 7,
             content: MessageContent::AppendEntries {
                 leader_commit: 18,
                 prev_log_index: 6,
                 prev_log_term: 1,
                 log: vec![],
             },
+            receiver_id: 2,
+            seq: 7,
+            term: 8,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
         let message_out: Message<DummyCommand> =
@@ -165,14 +169,15 @@ mod tests {
             },
         ];
         let message_in = Message {
-            term: 8,
-            seq: 9,
             content: MessageContent::AppendEntries {
                 leader_commit: 33,
                 prev_log_index: 5,
                 prev_log_term: 6,
                 log: entries,
             },
+            receiver_id: 2,
+            seq: 9,
+            term: 8,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
         let message_out: Message<DummyCommand> =
@@ -191,12 +196,13 @@ mod tests {
     #[test]
     fn append_entries_results() {
         let message_in = Message::<DummyCommand> {
-            term: 5,
-            seq: 4,
             content: MessageContent::AppendEntriesResults {
                 match_index: 10,
                 success: false,
             },
+            receiver_id: 2,
+            seq: 4,
+            term: 5,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
         let message_out: Message<DummyCommand> =
@@ -207,8 +213,6 @@ mod tests {
     #[test]
     fn install_snapshot() {
         let message_in = Message::<DummyCommand> {
-            term: 8,
-            seq: 2,
             content: MessageContent::InstallSnapshot {
                 last_included_index: 2,
                 last_included_term: 7,
@@ -216,6 +220,9 @@ mod tests {
                     "foo": "bar"
                 }),
             },
+            receiver_id: 2,
+            seq: 2,
+            term: 8,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
         let message_out: Message<DummyCommand> =
@@ -226,11 +233,12 @@ mod tests {
     #[test]
     fn install_snapshot_results() {
         let message_in = Message::<DummyCommand> {
-            term: 8,
-            seq: 17,
             content: MessageContent::InstallSnapshotResults {
                 match_index: 100,
             },
+            receiver_id: 2,
+            seq: 17,
+            term: 8,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
         let message_out: Message<DummyCommand> =

@@ -117,13 +117,14 @@ impl OnlineState {
                 continue;
             }
             let message = Message::<T> {
-                term: 0,
-                seq: 0,
                 content: MessageContent::RequestVote::<T> {
-                    candidate_id: *id,
+                    candidate_id: self.id,
                     last_log_index: self.last_log_index,
                     last_log_term: self.last_log_term,
                 },
+                receiver_id: *id,
+                seq: 0,
+                term: 0,
             };
             let _ = server_event_sender
                 .unbounded_send(ServerEvent::SendMessage(message));

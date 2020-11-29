@@ -152,7 +152,7 @@ impl Fixture {
         awaiting_vote_requests.remove(&self.id);
         let mut election_state = ElectionState::Follower;
         while !awaiting_vote_requests.is_empty() {
-            let candidate_id = timeout(
+            let receiver_id = timeout(
                 REASONABLE_FAST_OPERATION_TIMEOUT,
                 async {
                     loop {
@@ -170,6 +170,7 @@ impl Fixture {
                                             last_log_index,
                                             last_log_term,
                                         },
+                                    receiver_id,
                                     ..
                                 },
                                 ..,
@@ -188,7 +189,7 @@ impl Fixture {
                                     last_log_index,
                                     args.last_log_index
                                 );
-                                break candidate_id;
+                                break receiver_id;
                             },
                             ServerEvent::ElectionStateChange {
                                 election_state: new_election_state,
@@ -205,9 +206,9 @@ impl Fixture {
             .await
             .expect("timeout waiting for vote request message");
             assert!(
-                awaiting_vote_requests.remove(&candidate_id),
+                awaiting_vote_requests.remove(&receiver_id),
                 "Unexpected vote request from {} sent",
-                candidate_id
+                receiver_id
             );
         }
 
