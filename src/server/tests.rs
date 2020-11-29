@@ -248,7 +248,7 @@ impl Fixture {
     }
 
     fn mobilize_server(&mut self) {
-        let (mock_log, mock_log_back_end) = MockLog::new();
+        let (mock_log, _mock_log_back_end) = MockLog::new();
         self.mobilize_server_with_log(Box::new(mock_log))
     }
 
@@ -256,7 +256,7 @@ impl Fixture {
         &mut self,
         log: Box<dyn Log>,
     ) {
-        let (mock_persistent_storage, mock_persistent_storage_back_end) =
+        let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             MockPersistentStorage::new();
         self.mobilize_server_with_log_and_persistent_storage(
             log,
@@ -284,7 +284,7 @@ impl Fixture {
         &mut self,
         persistent_storage: Box<dyn PersistentStorage>,
     ) {
-        let (mock_log, mock_log_back_end) = MockLog::new();
+        let (mock_log, _mock_log_back_end) = MockLog::new();
         self.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             persistent_storage,
