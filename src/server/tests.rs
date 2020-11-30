@@ -80,6 +80,14 @@ struct AwaitElectionTimeoutArgs {
     term: usize,
 }
 
+struct VerifyVoteRequestArgs<'a> {
+    message: &'a Message<DummyCommand>,
+    expected_last_log_term: usize,
+    expected_last_log_index: usize,
+    expected_seq: Option<usize>,
+    expected_term: usize,
+}
+
 struct AwaitAssumeLeadershipArgs {
     term: usize,
 }
@@ -161,11 +169,7 @@ impl Fixture {
 
     fn verify_vote_request(
         &self,
-        content: &MessageContent<DummyCommand>,
-        term: usize,
-        expected_last_log_term: usize,
-        expected_last_log_index: usize,
-        expected_term: usize,
+        args: VerifyVoteRequestArgs,
     ) -> Result<(), ()> {
         // Prefer '&' over '*' despite what Clippy says, because reasons.
         #[allow(clippy::match_ref_pats)]
@@ -173,7 +177,7 @@ impl Fixture {
             candidate_id,
             last_log_index,
             last_log_term,
-        } = content
+        } = &args.message.content
         {
             assert_eq!(
                 candidate_id, self.id,
@@ -181,20 +185,27 @@ impl Fixture {
                 candidate_id, self.id
             );
             assert_eq!(
-                last_log_term, expected_last_log_term,
+                last_log_term, args.expected_last_log_term,
                 "wrong last_log_term in vote request (was {}, should be {})",
-                last_log_term, expected_last_log_term
+                last_log_term, args.expected_last_log_term
             );
             assert_eq!(
-                last_log_index, expected_last_log_index,
+                last_log_index, args.expected_last_log_index,
                 "wrong last_log_index in vote request (was {}, should be {})",
-                last_log_index, expected_last_log_index
+                last_log_index, args.expected_last_log_index
             );
             assert_eq!(
-                term, expected_term,
+                args.message.term, args.expected_term,
                 "wrong term in vote request (was {}, should be {})",
-                term, expected_term
+                args.message.term, args.expected_term
             );
+            if let Some(expected_seq) = args.expected_seq {
+                assert_eq!(
+                    args.message.seq, expected_seq,
+                    "wrong sequence number in vote request (was {}, should be {})",
+                    args.message.seq, expected_seq
+                );
+            }
             Ok(())
         } else {
             Err(())
@@ -205,6 +216,7 @@ impl Fixture {
         &mut self,
         expected_last_log_term: usize,
         expected_last_log_index: usize,
+        expected_seq: Option<usize>,
         expected_term: usize,
     ) -> usize {
         loop {
@@ -215,21 +227,19 @@ impl Fixture {
                 .expect("unexpected end of server events");
             match event {
                 ServerEvent::SendMessage {
-                    message:
-                        Message::<DummyCommand> {
-                            content,
-                            term,
-                            ..
-                        },
+                    message,
                     receiver_id,
                 } => {
-                    if let Ok(()) = self.verify_vote_request(
-                        &content,
-                        term,
-                        expected_last_log_term,
-                        expected_last_log_index,
-                        expected_term,
-                    ) {
+                    if self
+                        .verify_vote_request(VerifyVoteRequestArgs {
+                            message: &message,
+                            expected_last_log_term,
+                            expected_last_log_index,
+                            expected_seq,
+                            expected_term,
+                        })
+                        .is_ok()
+                    {
                         break receiver_id;
                     }
                 },
@@ -271,6 +281,7 @@ impl Fixture {
                 self.expect_vote_request(
                     expected_last_log_term,
                     expected_last_log_index,
+                    None,
                     expected_term,
                 ),
             )
