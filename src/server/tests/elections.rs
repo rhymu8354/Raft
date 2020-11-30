@@ -13,7 +13,7 @@ fn new_election() {
             Box::new(mock_persistent_storage),
         );
         fixture
-            .await_election_timeout(AwaitElectionTimeoutArgs {
+            .await_election(AwaitElectionTimeoutArgs {
                 expected_cancellations: 2,
                 last_log_term: 7,
                 last_log_index: 42,
@@ -33,7 +33,7 @@ fn elected_leader_unanimously() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
-        fixture.await_election_timeout_with_defaults().await;
+        fixture.await_election_with_defaults().await;
         fixture.cast_votes(1).await;
         fixture
             .await_assume_leadership(AwaitAssumeLeadershipArgs {
@@ -48,7 +48,7 @@ fn elected_leader_non_unanimous_majority() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
-        fixture.await_election_timeout_with_defaults().await;
+        fixture.await_election_with_defaults().await;
         fixture.cast_vote(2, 1, true).await;
         fixture.cast_vote(6, 1, true).await;
         fixture
@@ -64,40 +64,22 @@ fn server_retransmits_request_vote_for_slow_voters_in_election() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
-        fixture.await_election_timeout_with_defaults().await;
+        fixture.await_election_with_defaults().await;
         let retransmission = fixture.await_retransmission(2).await;
-        if let MessageContent::<DummyCommand>::RequestVote {
-            candidate_id,
-            last_log_index,
-            last_log_term,
-        } = retransmission.content
-        {
-            assert_eq!(
-                candidate_id, fixture.id,
-                "wrong candidate_id in vote request (was {}, should be {})",
-                candidate_id, fixture.id
-            );
-            assert_eq!(
-                last_log_term, 0,
-                "wrong last_log_term in vote request (was {}, should be {})",
-                last_log_term, 0
-            );
-            assert_eq!(
-                last_log_index, 0,
-                "wrong last_log_index in vote request (was {}, should be {})",
-                last_log_index, 0
-            );
-            assert_eq!(
-                retransmission.term, 1,
-                "wrong term in vote request (was {}, should be {})",
-                retransmission.term, 1
-            );
-        } else {
-            panic!(
-                "Expected request vote message, got {:?} instead",
-                retransmission
-            );
-        }
+        fixture
+            .verify_vote_request(
+                &retransmission.content,
+                retransmission.term,
+                0,
+                0,
+                1,
+            )
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Expected request vote message, got {:?} instead",
+                    retransmission
+                )
+            });
     });
 }
 
@@ -106,12 +88,12 @@ fn timeout_before_majority_vote_or_new_leader_heart_beat() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
-        fixture.await_election_timeout_with_defaults().await;
+        fixture.await_election_with_defaults().await;
         fixture.cast_vote(6, 1, false).await;
         fixture.cast_vote(7, 1, false).await;
         fixture.cast_vote(11, 1, true).await;
         fixture
-            .await_election_timeout(AwaitElectionTimeoutArgs {
+            .await_election(AwaitElectionTimeoutArgs {
                 expected_cancellations: 0,
                 last_log_term: 0,
                 last_log_index: 0,

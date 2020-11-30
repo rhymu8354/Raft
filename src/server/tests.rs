@@ -99,48 +99,48 @@ struct Fixture {
 }
 
 impl Fixture {
-    async fn await_election_timeout(
+    async fn await_election_timer_registrations(
         &mut self,
-        mut args: AwaitElectionTimeoutArgs,
+        mut num_timers_to_await: usize,
+        other_timer_completers: &mut Vec<oneshot::Sender<()>>,
+    ) -> (Duration, Vec<oneshot::Sender<()>>) {
+        let mut election_timeout_completers = Vec::new();
+        election_timeout_completers.reserve(num_timers_to_await);
+        loop {
+            let event_with_completer = self
+                .scheduled_event_receiver
+                .next()
+                .await
+                .expect("no election timer registered");
+            if let ScheduledEventWithCompleter {
+                scheduled_event: ScheduledEvent::ElectionTimeout,
+                duration,
+                completer,
+            } = event_with_completer
+            {
+                election_timeout_completers.push(completer);
+                num_timers_to_await -= 1;
+                if num_timers_to_await == 0 {
+                    break (duration, election_timeout_completers);
+                }
+            } else {
+                other_timer_completers.push(event_with_completer.completer);
+            }
+        }
+    }
+
+    async fn trigger_election_timeout(
+        &mut self,
+        num_timers_to_skip: usize,
+        other_completers: &mut Vec<oneshot::Sender<()>>,
     ) {
-        // Expect the server to register an election timeout event with a
-        // duration within the configured range, and complete it.
-        let mut other_completers = Vec::new();
         let (election_timeout_duration, mut election_timeout_completers) =
             timeout(
                 REASONABLE_FAST_OPERATION_TIMEOUT,
-                async {
-                    let mut election_timeout_completers = Vec::new();
-                    election_timeout_completers
-                        .reserve(args.expected_cancellations + 1);
-                    loop {
-                        let event_with_completer = self
-                            .scheduled_event_receiver
-                            .next()
-                            .await
-                            .expect("no election timer registered");
-                        if let ScheduledEventWithCompleter {
-                            scheduled_event: ScheduledEvent::ElectionTimeout,
-                            duration,
-                            completer,
-                        } = event_with_completer
-                        {
-                            election_timeout_completers.push(completer);
-                            if let Some(remaining_expected_cancellations) =
-                                args.expected_cancellations.checked_sub(1)
-                            {
-                                args.expected_cancellations =
-                                    remaining_expected_cancellations;
-                            } else {
-                                break (duration, election_timeout_completers);
-                            }
-                        } else {
-                            other_completers
-                                .push(event_with_completer.completer);
-                        }
-                    }
-                }
-                .boxed(),
+                self.await_election_timer_registrations(
+                    num_timers_to_skip + 1,
+                    other_completers,
+                ),
             )
             .await
             .expect("timeout waiting for election timer registration");
@@ -157,90 +157,122 @@ impl Fixture {
             .expect("no election timeout completers received")
             .send(())
             .expect("server dropped election timeout future");
+    }
 
-        // Wait on server stream until we receive all the expected
-        // vote requests.
+    fn verify_vote_request(
+        &self,
+        content: &MessageContent<DummyCommand>,
+        term: usize,
+        expected_last_log_term: usize,
+        expected_last_log_index: usize,
+        expected_term: usize,
+    ) -> Result<(), ()> {
+        // Prefer '&' over '*' despite what Clippy says, because reasons.
+        #[allow(clippy::match_ref_pats)]
+        if let &MessageContent::<DummyCommand>::RequestVote {
+            candidate_id,
+            last_log_index,
+            last_log_term,
+        } = content
+        {
+            assert_eq!(
+                candidate_id, self.id,
+                "wrong candidate_id in vote request (was {}, should be {})",
+                candidate_id, self.id
+            );
+            assert_eq!(
+                last_log_term, expected_last_log_term,
+                "wrong last_log_term in vote request (was {}, should be {})",
+                last_log_term, expected_last_log_term
+            );
+            assert_eq!(
+                last_log_index, expected_last_log_index,
+                "wrong last_log_index in vote request (was {}, should be {})",
+                last_log_index, expected_last_log_index
+            );
+            assert_eq!(
+                term, expected_term,
+                "wrong term in vote request (was {}, should be {})",
+                term, expected_term
+            );
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    async fn expect_vote_request(
+        &mut self,
+        expected_last_log_term: usize,
+        expected_last_log_index: usize,
+        expected_term: usize,
+    ) -> usize {
+        loop {
+            let event = self
+                .server
+                .next()
+                .await
+                .expect("unexpected end of server events");
+            match event {
+                ServerEvent::SendMessage {
+                    message:
+                        Message::<DummyCommand> {
+                            content,
+                            term,
+                            ..
+                        },
+                    receiver_id,
+                } => {
+                    if let Ok(()) = self.verify_vote_request(
+                        &content,
+                        term,
+                        expected_last_log_term,
+                        expected_last_log_index,
+                        expected_term,
+                    ) {
+                        break receiver_id;
+                    }
+                },
+                ServerEvent::ElectionStateChange {
+                    election_state,
+                    term,
+                    voted_for,
+                } => {
+                    assert_eq!(ElectionState::Candidate, election_state);
+                    assert_eq!(
+                        term,
+                        expected_term,
+                        "wrong term in election state change (was {}, should be {})",
+                        term,
+                        expected_term
+                    );
+                    assert!(
+                        matches!(voted_for, Some(id) if id == self.id),
+                        "server voted for {:?}, not itself ({})",
+                        voted_for,
+                        self.id
+                    );
+                },
+            }
+        }
+    }
+
+    async fn expect_server_to_start_election(
+        &mut self,
+        expected_last_log_term: usize,
+        expected_last_log_index: usize,
+        expected_term: usize,
+    ) {
         let mut awaiting_vote_requests = self.cluster.clone();
         awaiting_vote_requests.remove(&self.id);
-        let mut election_state = ElectionState::Follower;
         while !awaiting_vote_requests.is_empty() {
             let receiver_id = timeout(
                 REASONABLE_FAST_OPERATION_TIMEOUT,
-                async {
-                    loop {
-                        let event = self
-                            .server
-                            .next()
-                            .await
-                            .expect("unexpected end of server events");
-                        match event {
-                            ServerEvent::SendMessage{
-                                message: Message::<DummyCommand> {
-                                    content:
-                                        MessageContent::<DummyCommand>::RequestVote {
-                                            candidate_id,
-                                            last_log_index,
-                                            last_log_term,
-                                        },
-                                    term,
-                                    ..
-                                },
-                                receiver_id
-                            } => {
-                                assert_eq!(
-                                    candidate_id,
-                                    self.id,
-                                    "wrong candidate_id in vote request (was {}, should be {})",
-                                    candidate_id,
-                                    self.id
-                                );
-                                assert_eq!(
-                                    last_log_term,
-                                    args.last_log_term,
-                                    "wrong last_log_term in vote request (was {}, should be {})",
-                                    last_log_term,
-                                    args.last_log_term
-                                );
-                                assert_eq!(
-                                    last_log_index,
-                                    args.last_log_index,
-                                    "wrong last_log_index in vote request (was {}, should be {})",
-                                    last_log_index,
-                                    args.last_log_index
-                                );
-                                assert_eq!(
-                                    term,
-                                    args.term,
-                                    "wrong term in vote request (was {}, should be {})",
-                                    term,
-                                    args.term
-                                );
-                                break receiver_id;
-                            },
-                            ServerEvent::ElectionStateChange {
-                                election_state: new_election_state,
-                                term,
-                                voted_for
-                            } => {
-                                election_state = new_election_state;
-                                assert_eq!(
-                                    term,
-                                    args.term,
-                                    "wrong term in election state change (was {}, should be {})",
-                                    term,
-                                    args.term
-                                );
-                                assert!(matches!(voted_for, Some(id) if id == self.id),
-                                    "server voted for {:?}, not itself ({})",
-                                    voted_for,
-                                    self.id
-                                );
-                            },
-                            _ => {},
-                        }
-                    }
-                }
-                .boxed(),
+                self.expect_vote_request(
+                    expected_last_log_term,
+                    expected_last_log_index,
+                    expected_term,
+                ),
             )
             .await
             .expect("timeout waiting for vote request message");
@@ -250,14 +282,33 @@ impl Fixture {
                 receiver_id
             );
         }
-
-        // Make sure the server is a candidate once all vote requests
-        // have been sent.
-        assert_eq!(ElectionState::Candidate, election_state);
     }
 
-    async fn await_election_timeout_with_defaults(&mut self) {
-        self.await_election_timeout(AwaitElectionTimeoutArgs {
+    async fn await_election(
+        &mut self,
+        args: AwaitElectionTimeoutArgs,
+    ) {
+        // Expect the server to register an election timeout event with a
+        // duration within the configured range, and complete it.
+        let mut other_completers = Vec::new();
+        self.trigger_election_timeout(
+            args.expected_cancellations,
+            &mut other_completers,
+        )
+        .await;
+
+        // Wait on server stream until we receive all the expected
+        // vote requests.
+        self.expect_server_to_start_election(
+            args.last_log_term,
+            args.last_log_index,
+            args.term,
+        )
+        .await;
+    }
+
+    async fn await_election_with_defaults(&mut self) {
+        self.await_election(AwaitElectionTimeoutArgs {
             expected_cancellations: 2,
             last_log_term: 0,
             last_log_index: 0,
@@ -335,7 +386,7 @@ impl Fixture {
 
     async fn await_retransmission(
         &mut self,
-        id: usize,
+        expected_receiver_id: usize,
     ) -> Message<DummyCommand> {
         let mut other_completers = Vec::new();
         let (retransmit_duration, completer) =
@@ -376,7 +427,7 @@ impl Fixture {
                         message,
                         receiver_id,
                     } => {
-                        if receiver_id == id {
+                        if receiver_id == expected_receiver_id {
                             break message;
                         }
                     },
