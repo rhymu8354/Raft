@@ -391,6 +391,21 @@ impl Fixture {
         }
     }
 
+    async fn expect_no_election_state_changes(&mut self) {
+        while let Some(event) = self.server.next().now_or_never() {
+            if let ServerEvent::ElectionStateChange {
+                election_state,
+                ..
+            } = event.expect("unexpected end of server events")
+            {
+                panic!(
+                    "unexpected election state change to {:?}",
+                    election_state
+                );
+            }
+        }
+    }
+
     async fn cast_vote(
         &mut self,
         args: CastVoteArgs,

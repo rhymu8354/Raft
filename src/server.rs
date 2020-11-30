@@ -258,6 +258,10 @@ impl<T: Clone> OnlineState<T> {
         vote_granted: bool,
         server_event_sender: &ServerEventSender<T>,
     ) -> bool {
+        if self.election_state != ElectionState::Candidate {
+            println!("Received EXTRA vote {} from {}", vote_granted, sender_id);
+            return false;
+        }
         println!("Received vote {} from {}", vote_granted, sender_id);
         if let Some(peer_state) = self.peer_states.get_mut(&sender_id) {
             peer_state.vote = Some(vote_granted);
@@ -269,7 +273,7 @@ impl<T: Clone> OnlineState<T> {
             .values()
             .filter(|peer_state| matches!(peer_state.vote, Some(vote) if vote))
             .count()
-            + 1;
+            + 1; // we always vote for ourselves (it's implicit)
         if votes > self.cluster.len() - votes {
             self.change_election_state(
                 ElectionState::Leader,

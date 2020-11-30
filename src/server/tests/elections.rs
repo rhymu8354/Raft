@@ -74,6 +74,45 @@ fn elected_leader_non_unanimous_majority() {
 }
 
 #[test]
+fn elected_leader_does_not_process_extra_votes() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.await_election_with_defaults().await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 2,
+                seq: 1,
+                term: 1,
+                vote: true,
+            })
+            .await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 6,
+                seq: 1,
+                term: 1,
+                vote: true,
+            })
+            .await;
+        fixture
+            .await_assume_leadership(AwaitAssumeLeadershipArgs {
+                term: 1,
+            })
+            .await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 11,
+                seq: 1,
+                term: 1,
+                vote: true,
+            })
+            .await;
+        fixture.expect_no_election_state_changes().await;
+    });
+}
+
+#[test]
 fn not_elected_leader_because_no_majority_votes() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
