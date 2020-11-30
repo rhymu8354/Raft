@@ -68,49 +68,10 @@ fn elected_leader_non_unanimous_majority() {
 
 #[test]
 fn server_retransmits_request_vote_for_slow_voters_in_election() {
-    // In this scenario, the server is a candidate, and receives
-    // one less than the minimum number of votes required to
-    // be leader.  One peer (2) has not yet cast their vote.
-    //
-    // The server will retransmit a vote request to peer 2, but it should
-    // not do so until the retransmission time (rpcTimeout) has elapsed.
-    //
-    // peer IDs:       {2, 6, 7, 11}
-    // voting for:               ^
-    // voting against:     ^  ^
-    // didn't vote:     ^
     let mut fixture = Fixture::new();
     fixture.mobilize_server();
     executor::block_on(fixture.await_election_timeout_with_defaults());
-    executor::block_on(fixture.cast_vote(6, 1, false));
-    executor::block_on(fixture.cast_vote(7, 1, false));
-    executor::block_on(fixture.cast_vote(11, 1, true));
-    let (retransmit_duration, completer) = executor::block_on(async {
-        timeout(REASONABLE_FAST_OPERATION_TIMEOUT, async {
-            loop {
-                let event_with_completer = fixture
-                    .scheduled_event_receiver
-                    .next()
-                    .await
-                    .expect("no retransmit timer registered");
-                if let ScheduledEventWithCompleter {
-                    scheduled_event: ScheduledEvent::Retransmit(peer_id),
-                    duration,
-                    completer,
-                } = event_with_completer
-                {
-                    if peer_id == 2 {
-                        break (duration, completer);
-                    }
-                }
-            }
-        })
-        .await
-        .expect("timeout waiting for retransmission timer registration")
-    });
-    assert_eq!(fixture.configuration.rpc_timeout, retransmit_duration);
-    completer.send(()).expect("server dropped retransmission future");
-    let retransmission = executor::block_on(fixture.expect_retransmission(2));
+    let retransmission = executor::block_on(fixture.await_retransmission(2));
     if let MessageContent::<DummyCommand>::RequestVote {
         candidate_id,
         last_log_index,
@@ -143,4 +104,22 @@ fn server_retransmits_request_vote_for_slow_voters_in_election() {
             retransmission
         );
     }
+}
+
+#[test]
+fn timeout_before_majority_vote_or_new_leader_heart_beat() {
+    let mut fixture = Fixture::new();
+    fixture.mobilize_server();
+    executor::block_on(fixture.await_election_timeout_with_defaults());
+    executor::block_on(fixture.cast_vote(6, 1, false));
+    executor::block_on(fixture.cast_vote(7, 1, false));
+    executor::block_on(fixture.cast_vote(11, 1, true));
+    executor::block_on(fixture.await_election_timeout(
+        AwaitElectionTimeoutArgs {
+            expected_cancellations: 0,
+            last_log_term: 0,
+            last_log_index: 0,
+            term: 2,
+        },
+    ));
 }

@@ -99,12 +99,14 @@ impl Fixture {
     ) {
         // Expect the server to register an election timeout event with a
         // duration within the configured range, and complete it.
+        let mut other_completers = Vec::new();
         let (election_timeout_duration, mut election_timeout_completers) =
             timeout(
                 REASONABLE_FAST_OPERATION_TIMEOUT,
                 async {
-                    let mut completers = Vec::new();
-                    completers.reserve(args.expected_cancellations + 1);
+                    let mut election_timeout_completers = Vec::new();
+                    election_timeout_completers
+                        .reserve(args.expected_cancellations + 1);
                     loop {
                         let event_with_completer = self
                             .scheduled_event_receiver
@@ -117,15 +119,18 @@ impl Fixture {
                             completer,
                         } = event_with_completer
                         {
-                            completers.push(completer);
+                            election_timeout_completers.push(completer);
                             if let Some(remaining_expected_cancellations) =
                                 args.expected_cancellations.checked_sub(1)
                             {
                                 args.expected_cancellations =
                                     remaining_expected_cancellations;
                             } else {
-                                break (duration, completers);
+                                break (duration, election_timeout_completers);
                             }
+                        } else {
+                            other_completers
+                                .push(event_with_completer.completer);
                         }
                     }
                 }
@@ -322,10 +327,37 @@ impl Fixture {
         self.configured = true;
     }
 
-    async fn expect_retransmission(
+    async fn await_retransmission(
         &mut self,
         id: usize,
     ) -> Message<DummyCommand> {
+        let mut other_completers = Vec::new();
+        let (retransmit_duration, completer) =
+            timeout(REASONABLE_FAST_OPERATION_TIMEOUT, async {
+                loop {
+                    let event_with_completer = self
+                        .scheduled_event_receiver
+                        .next()
+                        .await
+                        .expect("no retransmit timer registered");
+                    if let ScheduledEventWithCompleter {
+                        scheduled_event: ScheduledEvent::Retransmit(peer_id),
+                        duration,
+                        completer,
+                    } = event_with_completer
+                    {
+                        if peer_id == 2 {
+                            break (duration, completer);
+                        }
+                    } else {
+                        other_completers.push(event_with_completer.completer);
+                    }
+                }
+            })
+            .await
+            .expect("timeout waiting for retransmission timer registration");
+        assert_eq!(self.configuration.rpc_timeout, retransmit_duration);
+        completer.send(()).expect("server dropped retransmission future");
         timeout(REASONABLE_FAST_OPERATION_TIMEOUT, async {
             loop {
                 let event = self
@@ -351,7 +383,6 @@ impl Fixture {
                             election_state
                         );
                     },
-                    _ => {},
                 }
             }
         })
