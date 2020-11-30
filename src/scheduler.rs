@@ -1,9 +1,9 @@
-use futures::FutureExt;
-use futures_timer::Delay;
-use std::{
-    pin::Pin,
-    time::Duration,
+use futures::{
+    future::BoxFuture,
+    FutureExt,
 };
+use futures_timer::Delay;
+use std::time::Duration;
 
 pub struct Scheduler {}
 
@@ -15,7 +15,7 @@ impl Scheduler {
     pub fn schedule(
         &self,
         duration: Duration,
-    ) -> Pin<Box<dyn futures::Future<Output = ()> + Send>> {
+    ) -> BoxFuture<'static, ()> {
         Delay::new(duration).boxed()
     }
 }

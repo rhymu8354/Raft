@@ -3,12 +3,10 @@ use futures::{
         mpsc,
         oneshot,
     },
+    future::BoxFuture,
     FutureExt,
 };
-use std::{
-    pin::Pin,
-    time::Duration,
-};
+use std::time::Duration;
 
 #[derive(Debug)]
 pub enum ScheduledEvent {
@@ -50,7 +48,7 @@ impl Scheduler {
         &self,
         event: ScheduledEvent,
         duration: Duration,
-    ) -> Pin<Box<dyn futures::Future<Output = ()> + Send>> {
+    ) -> BoxFuture<'static, ()> {
         println!("Scheduling {:?} in {:?}", event, duration);
         let (sender, receiver) = oneshot::channel();
         let _ = self.sender.unbounded_send(ScheduledEventWithCompleter {

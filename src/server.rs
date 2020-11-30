@@ -21,6 +21,7 @@ use futures::{
     },
     executor,
     future,
+    future::BoxFuture,
     FutureExt as _,
     Sink,
     Stream,
@@ -135,8 +136,7 @@ struct PeerState<T> {
     cancel_retransmission: Option<oneshot::Sender<()>>,
     last_message: Option<Message<T>>,
     last_seq: usize,
-    retransmission_future:
-        Option<Pin<Box<dyn futures::Future<Output = FutureKind>>>>,
+    retransmission_future: Option<BoxFuture<'static, FutureKind>>,
     vote: Option<bool>,
 }
 
@@ -450,7 +450,7 @@ async fn await_cancellation(cancel: oneshot::Receiver<()>) {
 
 async fn await_cancellable_timeout(
     future_kind: FutureKind,
-    timeout: Pin<Box<dyn futures::Future<Output = ()> + Send>>,
+    timeout: BoxFuture<'static, ()>,
     cancel: oneshot::Receiver<()>,
 ) -> FutureKind {
     futures::select! {
@@ -464,7 +464,7 @@ fn make_cancellable_timeout_future(
     duration: Duration,
     #[cfg(test)] scheduled_event: ScheduledEvent,
     scheduler: &Scheduler,
-) -> (Pin<Box<dyn futures::Future<Output = FutureKind>>>, oneshot::Sender<()>) {
+) -> (BoxFuture<'static, FutureKind>, oneshot::Sender<()>) {
     let (sender, receiver) = oneshot::channel();
     let timeout = scheduler.schedule(
         #[cfg(test)]
@@ -537,7 +537,7 @@ async fn upkeep_election_timeout_future<T: Clone>(
     state: &Mutex<State<T>>,
     cancel_election_timeout: &mut Option<oneshot::Sender<()>>,
     rng: &mut StdRng,
-    futures: &mut Vec<Pin<Box<dyn futures::Future<Output = FutureKind>>>>,
+    futures: &mut Vec<BoxFuture<'static, FutureKind>>,
     scheduler: &Scheduler,
 ) {
     let state = state.lock().await;
@@ -573,8 +573,7 @@ async fn process_futures<T: Clone>(
     let mut need_state_change_receiver_future = true;
     let mut cancel_election_timeout = None;
     let mut rng = StdRng::from_entropy();
-    let mut futures: Vec<Pin<Box<dyn futures::Future<Output = FutureKind>>>> =
-        Vec::new();
+    let mut futures: Vec<BoxFuture<'static, FutureKind>> = Vec::new();
     loop {
         // Make state change receiver future if we don't have one.
         if need_state_change_receiver_future {
