@@ -124,7 +124,7 @@ impl OnlineState {
                 },
                 receiver_id: *id,
                 seq: 0,
-                term: 0,
+                term: self.persistent_storage.term(),
             };
             let _ = server_event_sender
                 .unbounded_send(ServerEvent::SendMessage(message));
@@ -136,15 +136,17 @@ impl OnlineState {
         new_election_state: ElectionState,
         server_event_sender: &ServerEventSender<T>,
     ) {
+        let term = self.persistent_storage.term() + 1;
+        self.persistent_storage.update(term, Some(self.id));
         println!(
-            "State: {:?} -> {:?}",
-            self.election_state, new_election_state
+            "State: {:?} -> {:?} (term {})",
+            self.election_state, new_election_state, term
         );
         self.election_state = new_election_state;
         let _ = server_event_sender.unbounded_send(
             ServerEvent::ElectionStateChange {
                 election_state: self.election_state,
-                term: 0,
+                term: self.persistent_storage.term(),
                 voted_for: Some(self.id),
             },
         );

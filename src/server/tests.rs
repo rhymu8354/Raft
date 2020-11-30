@@ -69,6 +69,7 @@ struct AwaitElectionTimeoutArgs {
     expected_cancellations: usize,
     last_log_term: usize,
     last_log_index: usize,
+    term: usize,
 }
 
 struct Fixture {
@@ -165,6 +166,7 @@ impl Fixture {
                                             last_log_term,
                                         },
                                     receiver_id,
+                                    term,
                                     ..
                                 },
                                 ..,
@@ -190,13 +192,33 @@ impl Fixture {
                                     last_log_index,
                                     args.last_log_index
                                 );
+                                assert_eq!(
+                                    term,
+                                    args.term,
+                                    "wrong term in vote request (was {}, should be {})",
+                                    term,
+                                    args.term
+                                );
                                 break receiver_id;
                             },
                             ServerEvent::ElectionStateChange {
                                 election_state: new_election_state,
-                                ..
+                                term,
+                                voted_for
                             } => {
                                 election_state = new_election_state;
+                                assert_eq!(
+                                    term,
+                                    args.term,
+                                    "wrong term in election state change (was {}, should be {})",
+                                    term,
+                                    args.term
+                                );
+                                assert!(matches!(voted_for, Some(id) if id == self.id),
+                                    "server voted for {:?}, not itself ({})",
+                                    voted_for,
+                                    self.id
+                                );
                             },
                             _ => {},
                         }

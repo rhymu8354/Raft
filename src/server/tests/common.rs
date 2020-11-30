@@ -48,7 +48,7 @@ fn persistent_state_released_on_demobilize() {
             .await
             .expect("timeout waiting for demobilize to complete")
     });
-    assert!(mock_persistent_storage_back_end
-        .dropped
-        .load(std::sync::atomic::Ordering::SeqCst));
+    let mock_persistent_storage_back_end =
+        mock_persistent_storage_back_end.shared.lock().unwrap();
+    assert!(mock_persistent_storage_back_end.dropped);
 }
