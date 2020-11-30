@@ -9,6 +9,9 @@ use serde_json::Value as JsonValue;
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum MessageContent<T> {
     RequestVote {
+        // TODO: Possibly remove this field, because the receiver
+        // already should know the ID of the sender, and the only
+        // legal value here is the sender ID.
         candidate_id: usize,
         last_log_index: usize,
         last_log_term: usize,

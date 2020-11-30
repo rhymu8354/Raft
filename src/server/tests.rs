@@ -99,6 +99,28 @@ struct CastVoteArgs {
     vote: bool,
 }
 
+struct ReceiveVoteRequestArgs {
+    sender_id: usize,
+    last_log_term: usize,
+    last_log_index: usize,
+    seq: usize,
+    term: usize,
+}
+
+struct AwaitVoteArgs {
+    receiver_id: usize,
+    seq: usize,
+    term: usize,
+    vote_granted: bool,
+}
+
+struct VerifyVoteArgs<'a> {
+    message: &'a Message<DummyCommand>,
+    expected_seq: usize,
+    expected_term: usize,
+    expected_vote: bool,
+}
+
 struct Fixture {
     cluster: HashSet<usize>,
     configuration: Configuration,
@@ -401,6 +423,105 @@ impl Fixture {
         .expect("timeout waiting for leadership assumption");
     }
 
+    fn verify_vote(
+        &self,
+        args: VerifyVoteArgs,
+    ) -> Result<(), ()> {
+        // Prefer '&' over '*' despite what Clippy says, because reasons.
+        #[allow(clippy::match_ref_pats)]
+        if let &MessageContent::<DummyCommand>::RequestVoteResults {
+            vote_granted,
+        } = &args.message.content
+        {
+            assert_eq!(
+                vote_granted, args.expected_vote,
+                "unexpected vote (was {}, should be {})",
+                vote_granted, args.expected_vote
+            );
+            assert_eq!(
+                args.message.term, args.expected_term,
+                "wrong term in vote (was {}, should be {})",
+                args.message.term, args.expected_term
+            );
+            assert_eq!(
+                args.message.seq, args.expected_seq,
+                "wrong sequence number in vote (was {}, should be {})",
+                args.message.seq, args.expected_seq
+            );
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    async fn expect_vote(
+        &mut self,
+        args: AwaitVoteArgs,
+    ) {
+        loop {
+            let event = self
+                .server
+                .next()
+                .await
+                .expect("unexpected end of server events");
+            match event {
+                ServerEvent::SendMessage {
+                    message,
+                    receiver_id,
+                } => {
+                    if self
+                        .verify_vote(VerifyVoteArgs {
+                            message: &message,
+                            expected_seq: args.seq,
+                            expected_term: args.term,
+                            expected_vote: args.vote_granted,
+                        })
+                        .is_ok()
+                    {
+                        assert_eq!(args.receiver_id, receiver_id,
+                            "vote sent to wrong receiver (was {}, should be {})",
+                            receiver_id, args.receiver_id
+                        );
+                        break;
+                    }
+                },
+                ServerEvent::ElectionStateChange {
+                    election_state: new_election_state,
+                    term,
+                    voted_for,
+                } => {
+                    assert_eq!(ElectionState::Follower, new_election_state);
+                    assert_eq!(
+                        term,
+                        args.term,
+                        "wrong term in election state change (was {}, should be {})",
+                        term,
+                        args.term
+                    );
+                    if args.vote_granted {
+                        assert_eq!(
+                            voted_for,
+                            Some(args.receiver_id),
+                            "server voted for {:?}, not the receiver ({})",
+                            voted_for,
+                            args.receiver_id
+                        );
+                    }
+                    break;
+                },
+            }
+        }
+    }
+
+    async fn await_vote(
+        &mut self,
+        args: AwaitVoteArgs,
+    ) {
+        timeout(REASONABLE_FAST_OPERATION_TIMEOUT, self.expect_vote(args))
+            .await
+            .expect("timeout waiting for vote");
+    }
+
     fn expect_election_state(
         &mut self,
         election_state: ElectionState,
@@ -436,6 +557,13 @@ impl Fixture {
         args: CastVoteArgs,
     ) {
         cast_vote(&mut self.server, args).await;
+    }
+
+    async fn receive_vote_request(
+        &mut self,
+        args: ReceiveVoteRequestArgs,
+    ) {
+        receive_vote_request(&mut self.server, args).await;
     }
 
     async fn cast_votes(
@@ -658,6 +786,32 @@ async fn cast_vote(
         Message {
             content: MessageContent::RequestVoteResults {
                 vote_granted: vote,
+            },
+            seq,
+            term,
+        },
+        sender_id,
+    )
+    .await;
+}
+
+async fn receive_vote_request(
+    server: &mut Server<DummyCommand>,
+    ReceiveVoteRequestArgs {
+        sender_id,
+        last_log_term,
+        last_log_index,
+        seq,
+        term,
+    }: ReceiveVoteRequestArgs,
+) {
+    send_server_message(
+        server,
+        Message {
+            content: MessageContent::RequestVote {
+                candidate_id: sender_id,
+                last_log_index,
+                last_log_term,
             },
             seq,
             term,

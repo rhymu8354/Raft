@@ -181,8 +181,8 @@ impl<T: Clone> OnlineState<T> {
         for (&peer_id, peer_state) in &mut self.peer_states {
             peer_state.vote = None;
             peer_state.last_seq += 1;
-            let message = Message::<T> {
-                content: MessageContent::RequestVote::<T> {
+            let message = Message {
+                content: MessageContent::RequestVote {
                     candidate_id: self.id,
                     last_log_index: self.last_log_index,
                     last_log_term: self.last_log_term,
@@ -291,6 +291,29 @@ impl<T: Clone> OnlineState<T> {
         }
     }
 
+    fn process_request_vote(
+        &mut self,
+        sender_id: usize,
+        seq: usize,
+        term: usize,
+        _last_log_index: usize,
+        _last_log_term: usize,
+        server_event_sender: &ServerEventSender<T>,
+    ) -> bool {
+        let message = Message {
+            content: MessageContent::RequestVoteResults {
+                vote_granted: true,
+            },
+            seq,
+            term,
+        };
+        let _ = server_event_sender.unbounded_send(ServerEvent::SendMessage {
+            message,
+            receiver_id: sender_id,
+        });
+        false
+    }
+
     fn process_receive_message(
         &mut self,
         message: Message<T>,
@@ -316,6 +339,18 @@ impl<T: Clone> OnlineState<T> {
                     server_event_sender,
                 )
             },
+            MessageContent::RequestVote {
+                last_log_index,
+                last_log_term,
+                ..
+            } => self.process_request_vote(
+                sender_id,
+                message.seq,
+                message.term,
+                last_log_index,
+                last_log_term,
+                server_event_sender,
+            ),
             _ => todo!(),
         }
     }
