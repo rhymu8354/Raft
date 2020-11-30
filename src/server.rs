@@ -77,6 +77,10 @@ pub enum ServerSinkItem<T> {
     ReceiveMessage {
         message: Message<T>,
         sender_id: usize,
+        // TODO: Consider using a future instead of an optional channel.
+        // The real code could provide a no-op future, whereas
+        // test code could provide a future which the test waits on.
+        received: Option<oneshot::Sender<()>>,
     },
 }
 
@@ -191,6 +195,19 @@ impl<T: Clone> OnlineState<T> {
         }
     }
 
+    fn cancel_retransmission(
+        &mut self,
+        peer_id: usize,
+    ) {
+        if let Some(cancel_retransmission) = self
+            .peer_states
+            .get_mut(&peer_id)
+            .and_then(|peer_state| peer_state.cancel_retransmission.take())
+        {
+            let _ = cancel_retransmission.send(());
+        }
+    }
+
     fn change_election_state(
         &mut self,
         new_election_state: ElectionState,
@@ -235,7 +252,7 @@ impl<T: Clone> OnlineState<T> {
         }
     }
 
-    fn process_vote_request(
+    fn process_request_vote_results(
         &mut self,
         sender_id: usize,
         vote_granted: bool,
@@ -271,11 +288,22 @@ impl<T: Clone> OnlineState<T> {
         match message.content {
             MessageContent::RequestVoteResults {
                 vote_granted,
-            } => self.process_vote_request(
-                sender_id,
-                vote_granted,
-                server_event_sender,
-            ),
+            } => {
+                if self
+                    .peer_states
+                    .get(&sender_id)
+                    .filter(|peer_state| peer_state.last_seq == message.seq)
+                    .is_none()
+                {
+                    return false;
+                }
+                self.cancel_retransmission(sender_id);
+                self.process_request_vote_results(
+                    sender_id,
+                    vote_granted,
+                    server_event_sender,
+                )
+            },
             _ => todo!(),
         }
     }
@@ -289,11 +317,18 @@ impl<T: Clone> OnlineState<T> {
             ServerSinkItem::ReceiveMessage {
                 message,
                 sender_id,
-            } => self.process_receive_message(
-                message,
-                sender_id,
-                server_event_sender,
-            ),
+                received,
+            } => {
+                let state_changed = self.process_receive_message(
+                    message,
+                    sender_id,
+                    server_event_sender,
+                );
+                if let Some(received) = received {
+                    let _ = received.send(());
+                }
+                state_changed
+            },
         }
     }
 }

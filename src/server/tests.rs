@@ -94,6 +94,7 @@ struct AwaitAssumeLeadershipArgs {
 
 struct CastVoteArgs {
     sender_id: usize,
+    seq: usize,
     term: usize,
     vote: bool,
 }
@@ -375,6 +376,21 @@ impl Fixture {
         .expect("timeout waiting for leadership assumption");
     }
 
+    async fn expect_election_state(
+        &mut self,
+        election_state: ElectionState,
+    ) {
+        while let Some(event) = self.server.next().now_or_never() {
+            if let ServerEvent::ElectionStateChange {
+                election_state: new_election_state,
+                ..
+            } = event.expect("unexpected end of server events")
+            {
+                assert_eq!(election_state, new_election_state);
+            }
+        }
+    }
+
     async fn cast_vote(
         &mut self,
         args: CastVoteArgs,
@@ -384,6 +400,7 @@ impl Fixture {
 
     async fn cast_votes(
         &mut self,
+        seq: usize,
         term: usize,
     ) {
         for &id in self.cluster.iter() {
@@ -392,6 +409,7 @@ impl Fixture {
             }
             cast_vote(&mut self.server, CastVoteArgs {
                 sender_id: id,
+                seq,
                 term,
                 vote: true,
             })
@@ -574,19 +592,23 @@ async fn send_server_message(
     message: Message<DummyCommand>,
     sender_id: usize,
 ) {
+    let (completed_sender, completed_receiver) = oneshot::channel();
     server
         .send(ServerSinkItem::ReceiveMessage {
             message,
             sender_id,
+            received: Some(completed_sender),
         })
         .await
         .unwrap();
+    let _ = completed_receiver.await;
 }
 
 async fn cast_vote(
     server: &mut Server<DummyCommand>,
     CastVoteArgs {
         sender_id,
+        seq,
         term,
         vote,
     }: CastVoteArgs,
@@ -597,7 +619,7 @@ async fn cast_vote(
             content: MessageContent::RequestVoteResults {
                 vote_granted: vote,
             },
-            seq: 0,
+            seq,
             term,
         },
         sender_id,
