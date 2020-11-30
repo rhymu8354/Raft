@@ -246,5 +246,11 @@ fn timeout_before_majority_vote_or_new_leader_heart_beat() {
                 term: 2,
             })
             .await;
+        fixture.cast_votes(2, 2).await;
+        fixture
+            .await_assume_leadership(AwaitAssumeLeadershipArgs {
+                term: 2,
+            })
+            .await;
     });
 }
