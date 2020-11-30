@@ -97,6 +97,8 @@ type ServerEventSender<T> = mpsc::UnboundedSender<ServerEvent<T>>;
 enum ServerCommand<T> {
     Configure(Configuration),
     Demobilize(oneshot::Sender<()>),
+    #[cfg(test)]
+    FetchElectionTimeoutCounter(oneshot::Sender<usize>),
     Mobilize(MobilizeArgs),
     ProcessSinkItem(ServerSinkItem<T>),
     Stop,
@@ -110,6 +112,10 @@ impl<T: Debug> Debug for ServerCommand<T> {
         match self {
             ServerCommand::Configure(_) => write!(f, "Configure"),
             ServerCommand::Demobilize(_) => write!(f, "Demobilize"),
+            #[cfg(test)]
+            ServerCommand::FetchElectionTimeoutCounter(_) => {
+                write!(f, "FetchElectionTimeoutCounter")
+            },
             ServerCommand::Mobilize(_) => write!(f, "Mobilize"),
             ServerCommand::ProcessSinkItem(sink_item) => {
                 write!(f, "ProcessSinkItem({:?})", sink_item)
@@ -279,8 +285,10 @@ impl<T: Clone> OnlineState<T> {
                 ElectionState::Leader,
                 server_event_sender,
             );
+            true
+        } else {
+            false
         }
-        false
     }
 
     fn process_receive_message(
@@ -339,9 +347,11 @@ impl<T: Clone> OnlineState<T> {
 
 struct State<T> {
     configuration: Configuration,
+    #[cfg(test)]
+    election_timeout_counter: usize,
+    online: Option<OnlineState<T>>,
     server_event_sender: ServerEventSender<T>,
     state_change_sender: StateChangeSender,
-    online: Option<OnlineState<T>>,
 }
 
 impl<T: Clone> State<T> {
@@ -490,6 +500,12 @@ async fn process_server_commands<T>(
                     let _ = completed.send(());
                     true
                 },
+                #[cfg(test)]
+                ServerCommand::FetchElectionTimeoutCounter(response_sender) => {
+                    let _ =
+                        response_sender.send(state.election_timeout_counter);
+                    false
+                },
                 ServerCommand::Mobilize(mobilize_args) => {
                     println!("Received Mobilize");
                     state.online = Some(OnlineState::new(mobilize_args));
@@ -610,6 +626,10 @@ async fn process_futures<T: Clone>(
                 println!("*** Election timeout! ***");
                 cancel_election_timeout.take();
                 let mut state = state.lock().await;
+                #[cfg(test)]
+                {
+                    state.election_timeout_counter += 1;
+                }
                 let is_not_leader =
                     !matches!(state.election_state(), ElectionState::Leader);
                 if is_not_leader {
@@ -646,9 +666,11 @@ async fn serve<T>(
     let (state_change_sender, state_change_receiver) = mpsc::unbounded();
     let state = Mutex::new(State {
         configuration: Configuration::default(),
+        #[cfg(test)]
+        election_timeout_counter: 0,
+        online: None,
         server_event_sender,
         state_change_sender,
-        online: None,
     });
     let server_command_processor =
         process_server_commands(server_command_receiver, &state);
@@ -687,6 +709,17 @@ where
             .unbounded_send(ServerCommand::Demobilize(sender))
             .expect("server command receiver dropped prematurely");
         receiver.await.expect("server dropped demobilize results sender");
+    }
+
+    #[cfg(test)]
+    pub async fn election_timeout_count(&self) -> usize {
+        let (sender, receiver) = oneshot::channel();
+        self.server_command_sender
+            .unbounded_send(ServerCommand::FetchElectionTimeoutCounter(sender))
+            .expect("server command receiver dropped prematurely");
+        receiver.await.expect(
+            "server dropped fetch election timeout counter results sender",
+        )
     }
 
     pub fn mobilize(

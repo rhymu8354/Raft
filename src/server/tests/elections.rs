@@ -40,6 +40,20 @@ fn elected_leader_unanimously() {
                 term: 1,
             })
             .await;
+        let mut other_completers = Vec::new();
+        let (_election_timeout_duration, mut election_timeout_completers) =
+            fixture
+                .await_election_timer_registrations(1, &mut other_completers)
+                .await;
+        fixture.expect_election_timer_registrations(0);
+        election_timeout_completers
+            .pop()
+            .expect("no election timeout completers received")
+            .send(())
+            .expect_err("server did not cancel last election timeout");
+        fixture.cast_votes(2, 2).await;
+        fixture.expect_no_election_state_changes();
+        assert_eq!(1, fixture.server.election_timeout_count().await);
     });
 }
 
@@ -108,7 +122,7 @@ fn elected_leader_does_not_process_extra_votes() {
                 vote: true,
             })
             .await;
-        fixture.expect_no_election_state_changes().await;
+        fixture.expect_no_election_state_changes();
     });
 }
 
@@ -134,7 +148,7 @@ fn not_elected_leader_because_no_majority_votes() {
                 vote: false,
             })
             .await;
-        fixture.expect_election_state(ElectionState::Candidate).await;
+        fixture.expect_election_state(ElectionState::Candidate);
     });
 }
 

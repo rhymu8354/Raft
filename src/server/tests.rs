@@ -144,6 +144,31 @@ impl Fixture {
         }
     }
 
+    fn expect_election_timer_registrations(
+        &mut self,
+        mut num_timers_to_expect: usize,
+    ) {
+        while let Some(event_with_completer) =
+            self.scheduled_event_receiver.next().now_or_never()
+        {
+            if let ScheduledEventWithCompleter {
+                scheduled_event: ScheduledEvent::ElectionTimeout,
+                ..
+            } =
+                event_with_completer.expect("unexpected end of server events")
+            {
+                let timers_remaining = num_timers_to_expect
+                    .checked_sub(1)
+                    .expect("too many election timers registered");
+                num_timers_to_expect = timers_remaining;
+            }
+        }
+        assert_eq!(
+            0, num_timers_to_expect,
+            "too few election timers registered"
+        );
+    }
+
     async fn trigger_election_timeout(
         &mut self,
         num_timers_to_skip: usize,
@@ -376,7 +401,7 @@ impl Fixture {
         .expect("timeout waiting for leadership assumption");
     }
 
-    async fn expect_election_state(
+    fn expect_election_state(
         &mut self,
         election_state: ElectionState,
     ) {
@@ -391,7 +416,7 @@ impl Fixture {
         }
     }
 
-    async fn expect_no_election_state_changes(&mut self) {
+    fn expect_no_election_state_changes(&mut self) {
         while let Some(event) = self.server.next().now_or_never() {
             if let ServerEvent::ElectionStateChange {
                 election_state,
