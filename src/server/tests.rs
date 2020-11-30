@@ -12,9 +12,11 @@ use crate::{
     ScheduledEvent,
     ScheduledEventReceiver,
     ScheduledEventWithCompleter,
+    ServerSinkItem,
 };
 use futures::{
     FutureExt as _,
+    SinkExt,
     StreamExt as _,
 };
 use maplit::hashset;
@@ -69,6 +71,10 @@ struct AwaitElectionTimeoutArgs {
     expected_cancellations: usize,
     last_log_term: usize,
     last_log_index: usize,
+    term: usize,
+}
+
+struct AwaitAssumeLeadershipArgs {
     term: usize,
 }
 
@@ -157,20 +163,19 @@ impl Fixture {
                             .await
                             .expect("unexpected end of server events");
                         match event {
-                            ServerEvent::SendMessage(
-                                Message::<DummyCommand> {
+                            ServerEvent::SendMessage{
+                                message: Message::<DummyCommand> {
                                     content:
                                         MessageContent::<DummyCommand>::RequestVote {
                                             candidate_id,
                                             last_log_index,
                                             last_log_term,
                                         },
-                                    receiver_id,
                                     term,
                                     ..
                                 },
-                                ..,
-                            ) => {
+                                receiver_id
+                            } => {
                                 assert_eq!(
                                     candidate_id,
                                     self.id,
@@ -238,6 +243,71 @@ impl Fixture {
         // Make sure the server is a candidate once all vote requests
         // have been sent.
         assert_eq!(ElectionState::Candidate, election_state);
+    }
+
+    async fn await_assume_leadership(
+        &mut self,
+        args: AwaitAssumeLeadershipArgs,
+    ) {
+        timeout(
+            REASONABLE_FAST_OPERATION_TIMEOUT,
+            async {
+                loop {
+                    let event = self
+                        .server
+                        .next()
+                        .await
+                        .expect("unexpected end of server events");
+                    if let ServerEvent::ElectionStateChange {
+                        election_state: new_election_state,
+                        term,
+                        voted_for
+                    } = event {
+                        assert_eq!(ElectionState::Leader, new_election_state);
+                        assert_eq!(
+                            term,
+                            args.term,
+                            "wrong term in election state change (was {}, should be {})",
+                            term,
+                            args.term
+                        );
+                        assert!(matches!(voted_for, Some(id) if id == self.id),
+                            "server voted for {:?}, not itself ({})",
+                            voted_for,
+                            self.id
+                        );
+                        break;
+                    }
+                }
+            }
+            .boxed(),
+        )
+        .await
+        .expect("timeout waiting for leadership assumption");
+    }
+
+    async fn cast_votes(
+        &mut self,
+        term: usize,
+    ) {
+        for &id in self.cluster.iter() {
+            if id == self.id {
+                continue;
+            }
+            self.server
+                .send(ServerSinkItem::ReceiveMessage {
+                    message: Message {
+                        content: MessageContent::RequestVoteResults {
+                            vote_granted: true,
+                        },
+                        seq: 0,
+                        term,
+                    },
+                    sender_id: id,
+                })
+                .await
+                .unwrap();
+        }
     }
 
     fn configure_server(&mut self) {

@@ -38,3 +38,23 @@ fn new_election() {
         ));
     }
 }
+
+#[test]
+fn elected_leader_unanimously() {
+    let mut fixture = Fixture::new();
+    fixture.mobilize_server();
+    executor::block_on(fixture.await_election_timeout(
+        AwaitElectionTimeoutArgs {
+            expected_cancellations: 2,
+            last_log_term: 0,
+            last_log_index: 0,
+            term: 1,
+        },
+    ));
+    executor::block_on(fixture.cast_votes(1));
+    executor::block_on(fixture.await_assume_leadership(
+        AwaitAssumeLeadershipArgs {
+            term: 1,
+        },
+    ));
+}

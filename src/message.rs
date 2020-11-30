@@ -40,7 +40,6 @@ pub enum MessageContent<T> {
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Message<T> {
     pub content: MessageContent<T>,
-    pub receiver_id: usize,
     pub seq: usize,
     pub term: usize,
 }
@@ -108,7 +107,6 @@ mod tests {
                 last_log_index: 11,
                 last_log_term: 3,
             },
-            receiver_id: 2,
             seq: 7,
             term: 42,
         };
@@ -124,7 +122,6 @@ mod tests {
             content: MessageContent::RequestVoteResults {
                 vote_granted: true,
             },
-            receiver_id: 2,
             seq: 8,
             term: 16,
         };
@@ -143,7 +140,6 @@ mod tests {
                 prev_log_term: 1,
                 log: vec![],
             },
-            receiver_id: 2,
             seq: 7,
             term: 8,
         };
@@ -175,7 +171,6 @@ mod tests {
                 prev_log_term: 6,
                 log: entries,
             },
-            receiver_id: 2,
             seq: 9,
             term: 8,
         };
@@ -200,7 +195,6 @@ mod tests {
                 match_index: 10,
                 success: false,
             },
-            receiver_id: 2,
             seq: 4,
             term: 5,
         };
@@ -220,7 +214,6 @@ mod tests {
                     "foo": "bar"
                 }),
             },
-            receiver_id: 2,
             seq: 2,
             term: 8,
         };
@@ -236,7 +229,6 @@ mod tests {
             content: MessageContent::InstallSnapshotResults {
                 match_index: 100,
             },
-            receiver_id: 2,
             seq: 17,
             term: 8,
         };

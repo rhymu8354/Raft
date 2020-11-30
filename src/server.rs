@@ -5,6 +5,7 @@ mod tests;
 use crate::ScheduledEvent;
 use crate::{
     Configuration,
+    Error,
     Log,
     LogEntryCustomCommand,
     Message,
@@ -21,6 +22,7 @@ use futures::{
     executor,
     future,
     FutureExt as _,
+    Sink,
     Stream,
     StreamExt as _,
 };
@@ -30,9 +32,13 @@ use rand::{
     SeedableRng,
 };
 use std::{
-    collections::HashSet,
+    collections::{
+        HashMap,
+        HashSet,
+    },
     fmt::Debug,
     pin::Pin,
+    task::Poll,
     thread,
     time::Duration,
 };
@@ -55,7 +61,10 @@ pub struct MobilizeArgs {
 }
 
 pub enum ServerEvent<T> {
-    SendMessage(Message<T>),
+    SendMessage {
+        message: Message<T>,
+        receiver_id: usize,
+    },
     ElectionStateChange {
         election_state: ElectionState,
         term: usize,
@@ -63,17 +72,26 @@ pub enum ServerEvent<T> {
     },
 }
 
+#[derive(Debug)]
+pub enum ServerSinkItem<T> {
+    ReceiveMessage {
+        message: Message<T>,
+        sender_id: usize,
+    },
+}
+
 type ServerEventReceiver<T> = mpsc::UnboundedReceiver<ServerEvent<T>>;
 type ServerEventSender<T> = mpsc::UnboundedSender<ServerEvent<T>>;
 
-enum ServerCommand {
+enum ServerCommand<T> {
     Configure(Configuration),
     Demobilize(oneshot::Sender<()>),
     Mobilize(MobilizeArgs),
+    ProcessSinkItem(ServerSinkItem<T>),
     Stop,
 }
 
-impl Debug for ServerCommand {
+impl<T: Debug> Debug for ServerCommand<T> {
     fn fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
@@ -82,16 +100,31 @@ impl Debug for ServerCommand {
             ServerCommand::Configure(_) => write!(f, "Configure"),
             ServerCommand::Demobilize(_) => write!(f, "Demobilize"),
             ServerCommand::Mobilize(_) => write!(f, "Mobilize"),
+            ServerCommand::ProcessSinkItem(sink_item) => {
+                write!(f, "ProcessSinkItem({:?})", sink_item)
+            },
             ServerCommand::Stop => write!(f, "Stop"),
         }
     }
 }
 
-type ServerCommandReceiver = mpsc::UnboundedReceiver<ServerCommand>;
-type ServerCommandSender = mpsc::UnboundedSender<ServerCommand>;
+type ServerCommandReceiver<T> = mpsc::UnboundedReceiver<ServerCommand<T>>;
+type ServerCommandSender<T> = mpsc::UnboundedSender<ServerCommand<T>>;
 
 type StateChangeSender = mpsc::UnboundedSender<()>;
 type StateChangeReceiver = mpsc::UnboundedReceiver<()>;
+
+struct PeerState {
+    vote: Option<bool>,
+}
+
+impl Default for PeerState {
+    fn default() -> Self {
+        PeerState {
+            vote: None,
+        }
+    }
+}
 
 struct OnlineState {
     cluster: HashSet<usize>,
@@ -100,6 +133,7 @@ struct OnlineState {
     last_log_index: usize,
     last_log_term: usize,
     log: Box<dyn Log>,
+    peer_states: HashMap<usize, PeerState>,
     persistent_storage: Box<dyn PersistentStorage>,
 }
 
@@ -108,26 +142,28 @@ impl OnlineState {
         &mut self,
         server_event_sender: &ServerEventSender<T>,
     ) {
+        let term = self.persistent_storage.term() + 1;
+        self.persistent_storage.update(term, Some(self.id));
         self.change_election_state(
             ElectionState::Candidate,
             server_event_sender,
         );
-        for id in &self.cluster {
-            if *id == self.id {
-                continue;
-            }
+        for (&peer_id, peer_state) in &mut self.peer_states {
+            peer_state.vote = None;
             let message = Message::<T> {
                 content: MessageContent::RequestVote::<T> {
                     candidate_id: self.id,
                     last_log_index: self.last_log_index,
                     last_log_term: self.last_log_term,
                 },
-                receiver_id: *id,
                 seq: 0,
                 term: self.persistent_storage.term(),
             };
-            let _ = server_event_sender
-                .unbounded_send(ServerEvent::SendMessage(message));
+            let _ =
+                server_event_sender.unbounded_send(ServerEvent::SendMessage {
+                    message,
+                    receiver_id: peer_id,
+                });
         }
     }
 
@@ -136,8 +172,7 @@ impl OnlineState {
         new_election_state: ElectionState,
         server_event_sender: &ServerEventSender<T>,
     ) {
-        let term = self.persistent_storage.term() + 1;
-        self.persistent_storage.update(term, Some(self.id));
+        let term = self.persistent_storage.term();
         println!(
             "State: {:?} -> {:?} (term {})",
             self.election_state, new_election_state, term
@@ -146,13 +181,24 @@ impl OnlineState {
         let _ = server_event_sender.unbounded_send(
             ServerEvent::ElectionStateChange {
                 election_state: self.election_state,
-                term: self.persistent_storage.term(),
+                term,
                 voted_for: Some(self.id),
             },
         );
     }
 
     fn new(mobilize_args: MobilizeArgs) -> Self {
+        let peer_states = mobilize_args
+            .cluster
+            .iter()
+            .filter_map(|&id| {
+                if id != mobilize_args.id {
+                    Some((id, PeerState::default()))
+                } else {
+                    None
+                }
+            })
+            .collect();
         Self {
             cluster: mobilize_args.cluster,
             election_state: ElectionState::Follower,
@@ -160,7 +206,70 @@ impl OnlineState {
             last_log_index: mobilize_args.log.base_index(),
             last_log_term: mobilize_args.log.base_term(),
             log: mobilize_args.log,
+            peer_states,
             persistent_storage: mobilize_args.persistent_storage,
+        }
+    }
+
+    fn process_vote_request<T>(
+        &mut self,
+        sender_id: usize,
+        vote_granted: bool,
+        server_event_sender: &ServerEventSender<T>,
+    ) -> bool {
+        println!("Received vote {} from {}", vote_granted, sender_id);
+        if let Some(peer_state) = self.peer_states.get_mut(&sender_id) {
+            peer_state.vote = Some(vote_granted);
+        } else {
+            return false;
+        }
+        let votes = self
+            .peer_states
+            .values()
+            .filter(|peer_state| matches!(peer_state.vote, Some(vote) if vote))
+            .count()
+            + 1;
+        if votes > self.cluster.len() - votes {
+            self.change_election_state(
+                ElectionState::Leader,
+                server_event_sender,
+            );
+        }
+        false
+    }
+
+    fn process_receive_message<T>(
+        &mut self,
+        message: Message<T>,
+        sender_id: usize,
+        server_event_sender: &ServerEventSender<T>,
+    ) -> bool {
+        match message.content {
+            MessageContent::RequestVoteResults {
+                vote_granted,
+            } => self.process_vote_request(
+                sender_id,
+                vote_granted,
+                server_event_sender,
+            ),
+            _ => todo!(),
+        }
+    }
+
+    fn process_sink_item<T>(
+        &mut self,
+        sink_item: ServerSinkItem<T>,
+        server_event_sender: &ServerEventSender<T>,
+    ) -> bool {
+        match sink_item {
+            ServerSinkItem::ReceiveMessage {
+                message,
+                sender_id,
+            } => self.process_receive_message(
+                message,
+                sender_id,
+                server_event_sender,
+            ),
         }
     }
 }
@@ -191,6 +300,17 @@ impl<T> State<T> {
         self.state_change_sender
             .unbounded_send(())
             .expect("state change receiver unexpectedly dropped");
+    }
+
+    fn process_sink_item(
+        &mut self,
+        sink_item: ServerSinkItem<T>,
+    ) -> bool {
+        if let Some(state) = &mut self.online {
+            state.process_sink_item(sink_item, &self.server_event_sender)
+        } else {
+            false
+        }
     }
 }
 
@@ -233,9 +353,11 @@ fn make_cancellable_timeout_future(
 }
 
 async fn process_server_commands<T>(
-    server_command_receiver: ServerCommandReceiver,
+    server_command_receiver: ServerCommandReceiver<T>,
     state: &Mutex<State<T>>,
-) {
+) where
+    T: Debug,
+{
     server_command_receiver
         .take_while(|command| {
             future::ready(!matches!(command, ServerCommand::Stop))
@@ -258,6 +380,10 @@ async fn process_server_commands<T>(
                     println!("Received Mobilize");
                     state.online = Some(OnlineState::new(mobilize_args));
                     true
+                },
+                ServerCommand::ProcessSinkItem(sink_item) => {
+                    println!("Received SinkItem({:?})", sink_item);
+                    state.process_sink_item(sink_item)
                 },
                 ServerCommand::Stop => unreachable!(),
             };
@@ -379,10 +505,12 @@ async fn process_futures<T>(
 }
 
 async fn serve<T>(
-    server_command_receiver: ServerCommandReceiver,
+    server_command_receiver: ServerCommandReceiver<T>,
     server_event_sender: ServerEventSender<T>,
     scheduler: Scheduler,
-) {
+) where
+    T: Debug,
+{
     let (state_change_sender, state_change_receiver) = mpsc::unbounded();
     let state = Mutex::new(State {
         configuration: Configuration::default(),
@@ -402,13 +530,13 @@ async fn serve<T>(
 
 pub struct Server<T> {
     thread_join_handle: Option<thread::JoinHandle<()>>,
-    server_command_sender: ServerCommandSender,
+    server_command_sender: ServerCommandSender<T>,
     server_event_receiver: ServerEventReceiver<T>,
 }
 
 impl<T> Server<T>
 where
-    T: LogEntryCustomCommand + Send + Sync + 'static,
+    T: LogEntryCustomCommand + Debug + Send + Sync + 'static,
 {
     pub fn configure<C>(
         &self,
@@ -471,7 +599,7 @@ where
 #[cfg(not(test))]
 impl<T> Default for Server<T>
 where
-    T: LogEntryCustomCommand + Send + Sync + 'static,
+    T: LogEntryCustomCommand + Debug + Send + Sync + 'static,
 {
     fn default() -> Self {
         Self::new()
@@ -495,7 +623,42 @@ impl<T> Stream for Server<T> {
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
+    ) -> Poll<Option<Self::Item>> {
         self.server_event_receiver.poll_next_unpin(cx)
+    }
+}
+
+impl<T> Sink<ServerSinkItem<T>> for Server<T> {
+    type Error = Error;
+
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        self.server_command_sender.poll_ready(cx).map(|_| Ok(()))
+    }
+
+    fn start_send(
+        mut self: Pin<&mut Self>,
+        item: ServerSinkItem<T>,
+    ) -> Result<(), Self::Error> {
+        self.server_command_sender
+            .start_send(ServerCommand::ProcessSinkItem(item))
+            .expect("server command receiver unexpectedly dropped");
+        Ok(())
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(
+        self: Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 }

@@ -1,4 +1,5 @@
 mod configuration;
+mod error;
 mod json_encoding;
 mod log;
 mod log_entry;
@@ -11,6 +12,7 @@ mod scheduler;
 mod server;
 
 pub use configuration::Configuration;
+pub use error::Error;
 pub use log::Log;
 pub use log_entry::CustomCommand as LogEntryCustomCommand;
 pub use message::{
@@ -27,4 +29,7 @@ use mock_scheduler::{
 pub use persistent_storage::PersistentStorage;
 #[cfg(not(test))]
 use scheduler::Scheduler;
-pub use server::Server;
+pub use server::{
+    Server,
+    ServerSinkItem,
+};
