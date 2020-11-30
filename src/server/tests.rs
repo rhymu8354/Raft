@@ -38,7 +38,7 @@ use std::{
     time::Duration,
 };
 
-const REASONABLE_FAST_OPERATION_TIMEOUT: Duration = Duration::from_millis(200);
+const REASONABLE_FAST_OPERATION_TIMEOUT: Duration = Duration::from_millis(1000);
 
 pub async fn timeout<F, T>(
     max_time: std::time::Duration,
