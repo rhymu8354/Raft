@@ -14,7 +14,7 @@ use std::{
 pub enum ScheduledEvent {
     ElectionTimeout,
     Heartbeat,
-    Retransmit,
+    Retransmit(usize),
 }
 
 pub struct ScheduledEventWithCompleter {

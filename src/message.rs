@@ -6,7 +6,7 @@ use serde::{
 };
 use serde_json::Value as JsonValue;
 
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum MessageContent<T> {
     RequestVote {
         candidate_id: usize,
@@ -37,7 +37,7 @@ pub enum MessageContent<T> {
     },
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Message<T> {
     pub content: MessageContent<T>,
     pub seq: usize,

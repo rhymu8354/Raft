@@ -47,7 +47,7 @@ where
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 struct DummyCommand {}
 
 impl LogEntryCustomCommand for DummyCommand {
@@ -245,6 +245,16 @@ impl Fixture {
         assert_eq!(ElectionState::Candidate, election_state);
     }
 
+    async fn await_election_timeout_with_defaults(&mut self) {
+        self.await_election_timeout(AwaitElectionTimeoutArgs {
+            expected_cancellations: 2,
+            last_log_term: 0,
+            last_log_index: 0,
+            term: 1,
+        })
+        .await
+    }
+
     async fn await_assume_leadership(
         &mut self,
         args: AwaitAssumeLeadershipArgs,
@@ -286,6 +296,15 @@ impl Fixture {
         .expect("timeout waiting for leadership assumption");
     }
 
+    async fn cast_vote(
+        &mut self,
+        id: usize,
+        term: usize,
+        vote: bool,
+    ) {
+        cast_vote(&mut self.server, id, term, vote).await;
+    }
+
     async fn cast_votes(
         &mut self,
         term: usize,
@@ -294,25 +313,50 @@ impl Fixture {
             if id == self.id {
                 continue;
             }
-            self.server
-                .send(ServerSinkItem::ReceiveMessage {
-                    message: Message {
-                        content: MessageContent::RequestVoteResults {
-                            vote_granted: true,
-                        },
-                        seq: 0,
-                        term,
-                    },
-                    sender_id: id,
-                })
-                .await
-                .unwrap();
+            cast_vote(&mut self.server, id, term, true).await;
         }
     }
 
     fn configure_server(&mut self) {
         self.server.configure(self.configuration.clone());
         self.configured = true;
+    }
+
+    async fn expect_retransmission(
+        &mut self,
+        id: usize,
+    ) -> Message<DummyCommand> {
+        timeout(REASONABLE_FAST_OPERATION_TIMEOUT, async {
+            loop {
+                let event = self
+                    .server
+                    .next()
+                    .await
+                    .expect("unexpected end of server events");
+                match event {
+                    ServerEvent::SendMessage {
+                        message,
+                        receiver_id,
+                    } => {
+                        if receiver_id == id {
+                            break message;
+                        }
+                    },
+                    ServerEvent::ElectionStateChange {
+                        election_state,
+                        ..
+                    } => {
+                        panic!(
+                            "Unexpected state transition to {:?}",
+                            election_state
+                        );
+                    },
+                    _ => {},
+                }
+            }
+        })
+        .await
+        .expect("timeout waiting for retransmission")
     }
 
     fn new() -> Self {
@@ -376,4 +420,38 @@ impl Fixture {
             persistent_storage,
         );
     }
+}
+
+async fn send_server_message(
+    server: &mut Server<DummyCommand>,
+    message: Message<DummyCommand>,
+    sender_id: usize,
+) {
+    server
+        .send(ServerSinkItem::ReceiveMessage {
+            message,
+            sender_id,
+        })
+        .await
+        .unwrap();
+}
+
+async fn cast_vote(
+    server: &mut Server<DummyCommand>,
+    sender_id: usize,
+    term: usize,
+    vote: bool,
+) {
+    send_server_message(
+        server,
+        Message {
+            content: MessageContent::RequestVoteResults {
+                vote_granted: vote,
+            },
+            seq: 0,
+            term,
+        },
+        sender_id,
+    )
+    .await;
 }
