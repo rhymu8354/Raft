@@ -49,8 +49,20 @@ fn elected_leader_non_unanimous_majority() {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
         fixture.await_election_with_defaults().await;
-        fixture.cast_vote(2, 1, true).await;
-        fixture.cast_vote(6, 1, true).await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 2,
+                term: 1,
+                vote: true,
+            })
+            .await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 6,
+                term: 1,
+                vote: true,
+            })
+            .await;
         fixture
             .await_assume_leadership(AwaitAssumeLeadershipArgs {
                 term: 1,
@@ -89,9 +101,27 @@ fn timeout_before_majority_vote_or_new_leader_heart_beat() {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
         fixture.await_election_with_defaults().await;
-        fixture.cast_vote(6, 1, false).await;
-        fixture.cast_vote(7, 1, false).await;
-        fixture.cast_vote(11, 1, true).await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 6,
+                term: 1,
+                vote: false,
+            })
+            .await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 7,
+                term: 1,
+                vote: false,
+            })
+            .await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 11,
+                term: 1,
+                vote: true,
+            })
+            .await;
         fixture
             .await_election(AwaitElectionTimeoutArgs {
                 expected_cancellations: 0,

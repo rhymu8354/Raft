@@ -92,6 +92,12 @@ struct AwaitAssumeLeadershipArgs {
     term: usize,
 }
 
+struct CastVoteArgs {
+    sender_id: usize,
+    term: usize,
+    vote: bool,
+}
+
 struct Fixture {
     cluster: HashSet<usize>,
     configuration: Configuration,
@@ -371,11 +377,9 @@ impl Fixture {
 
     async fn cast_vote(
         &mut self,
-        id: usize,
-        term: usize,
-        vote: bool,
+        args: CastVoteArgs,
     ) {
-        cast_vote(&mut self.server, id, term, vote).await;
+        cast_vote(&mut self.server, args).await;
     }
 
     async fn cast_votes(
@@ -386,7 +390,12 @@ impl Fixture {
             if id == self.id {
                 continue;
             }
-            cast_vote(&mut self.server, id, term, true).await;
+            cast_vote(&mut self.server, CastVoteArgs {
+                sender_id: id,
+                term,
+                vote: true,
+            })
+            .await;
         }
     }
 
@@ -576,9 +585,11 @@ async fn send_server_message(
 
 async fn cast_vote(
     server: &mut Server<DummyCommand>,
-    sender_id: usize,
-    term: usize,
-    vote: bool,
+    CastVoteArgs {
+        sender_id,
+        term,
+        vote,
+    }: CastVoteArgs,
 ) {
     send_server_message(
         server,
