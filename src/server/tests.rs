@@ -20,8 +20,14 @@ use futures::{
     StreamExt as _,
 };
 use maplit::hashset;
-use mock_log::MockLog;
-use mock_persistent_storage::MockPersistentStorage;
+use mock_log::{
+    MockLog,
+    MockLogBackEnd,
+};
+use mock_persistent_storage::{
+    MockPersistentStorage,
+    MockPersistentStorageBackEnd,
+};
 use serde::{
     Deserialize,
     Serialize,
@@ -451,6 +457,45 @@ impl Fixture {
             persistent_storage,
         );
     }
+}
+
+fn new_mock_log_with_non_defaults(
+    base_term: usize,
+    base_index: usize,
+) -> (MockLog, MockLogBackEnd) {
+    let (mock_log, mock_log_back_end) = MockLog::new();
+    {
+        let mut log_shared = mock_log_back_end.shared.lock().unwrap();
+        log_shared.base_term = base_term;
+        log_shared.base_index = base_index;
+    }
+    (mock_log, mock_log_back_end)
+}
+
+fn new_mock_persistent_storage_with_non_defaults(
+    term: usize,
+    voted_for: Option<usize>,
+) -> (MockPersistentStorage, MockPersistentStorageBackEnd) {
+    let (mock_persistent_storage, mock_persistent_storage_back_end) =
+        MockPersistentStorage::new();
+    {
+        let mut persistent_storage_shared =
+            mock_persistent_storage_back_end.shared.lock().unwrap();
+        persistent_storage_shared.term = term;
+        persistent_storage_shared.voted_for = voted_for;
+    }
+    (mock_persistent_storage, mock_persistent_storage_back_end)
+}
+
+fn verify_persistent_storage(
+    mock_persistent_storage_back_end: &MockPersistentStorageBackEnd,
+    term: usize,
+    voted_for: Option<usize>,
+) {
+    let persistent_storage_shared =
+        mock_persistent_storage_back_end.shared.lock().unwrap();
+    assert_eq!(term, persistent_storage_shared.term);
+    assert_eq!(voted_for, persistent_storage_shared.voted_for);
 }
 
 async fn send_server_message(

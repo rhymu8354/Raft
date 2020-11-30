@@ -4,19 +4,10 @@ use super::*;
 fn new_election() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
-        let (mock_log, mock_log_back_end) = MockLog::new();
+        let (mock_log, _mock_log_back_end) =
+            new_mock_log_with_non_defaults(7, 42);
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
-            MockPersistentStorage::new();
-        {
-            let mut log_shared = mock_log_back_end.shared.lock().unwrap();
-            log_shared.base_term = 7;
-            log_shared.base_index = 42;
-        }
-        {
-            let mut persistent_storage_shared =
-                mock_persistent_storage_back_end.shared.lock().unwrap();
-            persistent_storage_shared.term = 9;
-        }
+            new_mock_persistent_storage_with_non_defaults(9, None);
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
@@ -29,15 +20,11 @@ fn new_election() {
                 term: 10,
             })
             .await;
-        {
-            let persistent_storage_shared =
-                mock_persistent_storage_back_end.shared.lock().unwrap();
-            assert_eq!(10, persistent_storage_shared.term);
-            assert!(matches!(
-                persistent_storage_shared.voted_for,
-                Some(id) if id == fixture.id
-            ));
-        }
+        verify_persistent_storage(
+            &mock_persistent_storage_back_end,
+            10,
+            Some(fixture.id),
+        );
     });
 }
 
