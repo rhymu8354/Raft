@@ -71,7 +71,7 @@ fn server_retransmits_request_vote_for_slow_voters_in_election() {
                 message: &retransmission,
                 expected_last_log_term: 0,
                 expected_last_log_index: 0,
-                expected_seq: None,
+                expected_seq: Some(1),
                 expected_term: 1,
             })
             .unwrap_or_else(|_| {

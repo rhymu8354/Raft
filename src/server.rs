@@ -124,16 +124,20 @@ type StateChangeReceiver = mpsc::UnboundedReceiver<()>;
 struct PeerState<T> {
     cancel_retransmission: Option<oneshot::Sender<()>>,
     last_message: Option<Message<T>>,
+    last_seq: usize,
     retransmission_future:
         Option<Pin<Box<dyn futures::Future<Output = FutureKind>>>>,
     vote: Option<bool>,
 }
 
+// We can't #[derive(Default)] without constraining `T: Default`,
+// so let's just implement it ourselves.
 impl<T> Default for PeerState<T> {
     fn default() -> Self {
         PeerState {
             cancel_retransmission: None,
             last_message: None,
+            last_seq: 0,
             retransmission_future: None,
             vote: None,
         }
@@ -166,13 +170,14 @@ impl<T: Clone> OnlineState<T> {
         );
         for (&peer_id, peer_state) in &mut self.peer_states {
             peer_state.vote = None;
+            peer_state.last_seq += 1;
             let message = Message::<T> {
                 content: MessageContent::RequestVote::<T> {
                     candidate_id: self.id,
                     last_log_index: self.last_log_index,
                     last_log_term: self.last_log_term,
                 },
-                seq: 0,
+                seq: peer_state.last_seq,
                 term: self.persistent_storage.term(),
             };
             send_request(
