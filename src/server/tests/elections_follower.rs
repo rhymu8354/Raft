@@ -24,7 +24,7 @@ mod tests {
                 })
                 .await;
             fixture
-                .await_vote(AwaitVoteArgs {
+                .expect_vote(AwaitVoteArgs {
                     expect_state_change: false,
                     receiver_id: 6,
                     seq: 1,
@@ -59,7 +59,7 @@ mod tests {
                 })
                 .await;
             fixture
-                .await_vote(AwaitVoteArgs {
+                .expect_vote(AwaitVoteArgs {
                     expect_state_change: false,
                     receiver_id: 6,
                     seq: 1,
@@ -94,7 +94,7 @@ mod tests {
                 })
                 .await;
             fixture
-                .await_vote(AwaitVoteArgs {
+                .expect_vote(AwaitVoteArgs {
                     expect_state_change: false,
                     receiver_id: 6,
                     seq: 1,
@@ -129,7 +129,7 @@ mod tests {
                 })
                 .await;
             fixture
-                .await_vote(AwaitVoteArgs {
+                .expect_vote(AwaitVoteArgs {
                     expect_state_change: false,
                     receiver_id: 6,
                     seq: 1,
@@ -154,7 +154,7 @@ mod tests {
             fixture.mobilize_server_with_persistent_storage(Box::new(
                 mock_persistent_storage,
             ));
-            fixture.await_election_with_defaults().await;
+            fixture.expect_election_with_defaults().await;
             fixture
                 .receive_vote_request(ReceiveVoteRequestArgs {
                     sender_id: 6,
@@ -165,7 +165,7 @@ mod tests {
                 })
                 .await;
             fixture
-                .await_vote(AwaitVoteArgs {
+                .expect_vote(AwaitVoteArgs {
                     expect_state_change: false,
                     receiver_id: 6,
                     seq: 1,
@@ -190,7 +190,7 @@ mod tests {
             fixture.mobilize_server_with_persistent_storage(Box::new(
                 mock_persistent_storage,
             ));
-            fixture.await_election_with_defaults().await;
+            fixture.expect_election_with_defaults().await;
             fixture
                 .receive_vote_request(ReceiveVoteRequestArgs {
                     sender_id: 6,
@@ -201,7 +201,7 @@ mod tests {
                 })
                 .await;
             fixture
-                .await_vote(AwaitVoteArgs {
+                .expect_vote(AwaitVoteArgs {
                     expect_state_change: true,
                     receiver_id: 6,
                     seq: 1,
@@ -215,15 +215,9 @@ mod tests {
                 Some(6),
             );
             let mut other_completers = Vec::new();
-            timeout(
-                REASONABLE_FAST_OPERATION_TIMEOUT,
-                fixture.await_election_timer_registrations(
-                    2,
-                    &mut other_completers,
-                ),
-            )
-            .await
-            .expect("timeout waiting for election timer registration");
+            fixture
+                .expect_election_timer_registrations(2, &mut other_completers)
+                .await;
         });
     }
 
@@ -247,7 +241,7 @@ mod tests {
                     })
                     .await;
                 fixture
-                    .await_vote(AwaitVoteArgs {
+                    .expect_vote(AwaitVoteArgs {
                         expect_state_change: false,
                         receiver_id: 6,
                         seq: 1,

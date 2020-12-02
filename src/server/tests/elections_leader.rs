@@ -13,7 +13,7 @@ fn new_election() {
             Box::new(mock_persistent_storage),
         );
         fixture
-            .await_election(AwaitElectionTimeoutArgs {
+            .expect_election(AwaitElectionTimeoutArgs {
                 expected_cancellations: 2,
                 last_log_term: 7,
                 last_log_index: 42,
@@ -33,19 +33,19 @@ fn elected_leader_unanimously() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
-        fixture.await_election_with_defaults().await;
+        fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
         fixture
-            .await_assume_leadership(AwaitAssumeLeadershipArgs {
+            .expect_assume_leadership(AwaitAssumeLeadershipArgs {
                 term: 1,
             })
             .await;
         let mut other_completers = Vec::new();
         let (_election_timeout_duration, mut election_timeout_completers) =
             fixture
-                .await_election_timer_registrations(1, &mut other_completers)
+                .expect_election_timer_registrations(1, &mut other_completers)
                 .await;
-        fixture.expect_election_timer_registrations(0);
+        fixture.expect_election_timer_registrations_now(0);
         election_timeout_completers
             .pop()
             .expect("no election timeout completers received")
@@ -62,7 +62,7 @@ fn elected_leader_non_unanimous_majority() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
-        fixture.await_election_with_defaults().await;
+        fixture.expect_election_with_defaults().await;
         fixture
             .cast_vote(CastVoteArgs {
                 sender_id: 2,
@@ -80,7 +80,7 @@ fn elected_leader_non_unanimous_majority() {
             })
             .await;
         fixture
-            .await_assume_leadership(AwaitAssumeLeadershipArgs {
+            .expect_assume_leadership(AwaitAssumeLeadershipArgs {
                 term: 1,
             })
             .await;
@@ -92,7 +92,7 @@ fn elected_leader_does_not_process_extra_votes() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
-        fixture.await_election_with_defaults().await;
+        fixture.expect_election_with_defaults().await;
         fixture
             .cast_vote(CastVoteArgs {
                 sender_id: 2,
@@ -110,7 +110,7 @@ fn elected_leader_does_not_process_extra_votes() {
             })
             .await;
         fixture
-            .await_assume_leadership(AwaitAssumeLeadershipArgs {
+            .expect_assume_leadership(AwaitAssumeLeadershipArgs {
                 term: 1,
             })
             .await;
@@ -131,7 +131,7 @@ fn not_elected_leader_because_no_majority_votes() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
-        fixture.await_election_with_defaults().await;
+        fixture.expect_election_with_defaults().await;
         fixture
             .cast_vote(CastVoteArgs {
                 sender_id: 2,
@@ -156,7 +156,7 @@ fn server_retransmits_request_vote_for_slow_voters_in_election() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
-        fixture.await_election_with_defaults().await;
+        fixture.expect_election_with_defaults().await;
         let retransmission = fixture.await_retransmission(2).await;
         fixture
             .verify_vote_request(VerifyVoteRequestArgs {
@@ -180,7 +180,7 @@ fn server_retransmits_request_vote_if_vote_had_wrong_seq() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
-        fixture.await_election_with_defaults().await;
+        fixture.expect_election_with_defaults().await;
         fixture
             .cast_vote(CastVoteArgs {
                 sender_id: 2,
@@ -212,7 +212,7 @@ fn timeout_before_majority_vote_or_new_leader_heart_beat() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
-        fixture.await_election_with_defaults().await;
+        fixture.expect_election_with_defaults().await;
         fixture
             .cast_vote(CastVoteArgs {
                 sender_id: 6,
@@ -238,7 +238,7 @@ fn timeout_before_majority_vote_or_new_leader_heart_beat() {
             })
             .await;
         fixture
-            .await_election(AwaitElectionTimeoutArgs {
+            .expect_election(AwaitElectionTimeoutArgs {
                 expected_cancellations: 0,
                 last_log_term: 0,
                 last_log_index: 0,
@@ -247,7 +247,7 @@ fn timeout_before_majority_vote_or_new_leader_heart_beat() {
             .await;
         fixture.cast_votes(2, 2).await;
         fixture
-            .await_assume_leadership(AwaitAssumeLeadershipArgs {
+            .expect_assume_leadership(AwaitAssumeLeadershipArgs {
                 term: 2,
             })
             .await;

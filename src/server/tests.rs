@@ -168,7 +168,23 @@ impl Fixture {
         }
     }
 
-    fn expect_election_timer_registrations(
+    async fn expect_election_timer_registrations(
+        &mut self,
+        num_timers_to_await: usize,
+        other_timer_completers: &mut Vec<oneshot::Sender<()>>,
+    ) -> (Duration, Vec<oneshot::Sender<()>>) {
+        timeout(
+            REASONABLE_FAST_OPERATION_TIMEOUT,
+            self.await_election_timer_registrations(
+                num_timers_to_await,
+                other_timer_completers,
+            ),
+        )
+        .await
+        .expect("timeout waiting for election timer registration")
+    }
+
+    fn expect_election_timer_registrations_now(
         &mut self,
         mut num_timers_to_expect: usize,
     ) {
@@ -198,16 +214,12 @@ impl Fixture {
         num_timers_to_skip: usize,
         other_completers: &mut Vec<oneshot::Sender<()>>,
     ) {
-        let (election_timeout_duration, mut election_timeout_completers) =
-            timeout(
-                REASONABLE_FAST_OPERATION_TIMEOUT,
-                self.await_election_timer_registrations(
-                    num_timers_to_skip + 1,
-                    other_completers,
-                ),
+        let (election_timeout_duration, mut election_timeout_completers) = self
+            .expect_election_timer_registrations(
+                num_timers_to_skip + 1,
+                other_completers,
             )
-            .await
-            .expect("timeout waiting for election timer registration");
+            .await;
         assert!(
             self.configuration
                 .election_timeout
@@ -268,7 +280,7 @@ impl Fixture {
         }
     }
 
-    async fn expect_vote_request(
+    async fn await_vote_request(
         &mut self,
         expected_last_log_term: usize,
         expected_last_log_index: usize,
@@ -323,6 +335,26 @@ impl Fixture {
         }
     }
 
+    async fn expect_vote_request(
+        &mut self,
+        expected_last_log_term: usize,
+        expected_last_log_index: usize,
+        expected_seq: Option<usize>,
+        expected_term: usize,
+    ) -> usize {
+        timeout(
+            REASONABLE_FAST_OPERATION_TIMEOUT,
+            self.await_vote_request(
+                expected_last_log_term,
+                expected_last_log_index,
+                expected_seq,
+                expected_term,
+            ),
+        )
+        .await
+        .expect("timeout waiting for vote request message")
+    }
+
     async fn expect_server_to_start_election(
         &mut self,
         expected_last_log_term: usize,
@@ -332,17 +364,14 @@ impl Fixture {
         let mut awaiting_vote_requests = self.cluster.clone();
         awaiting_vote_requests.remove(&self.id);
         while !awaiting_vote_requests.is_empty() {
-            let receiver_id = timeout(
-                REASONABLE_FAST_OPERATION_TIMEOUT,
-                self.expect_vote_request(
+            let receiver_id = self
+                .expect_vote_request(
                     expected_last_log_term,
                     expected_last_log_index,
                     None,
                     expected_term,
-                ),
-            )
-            .await
-            .expect("timeout waiting for vote request message");
+                )
+                .await;
             assert!(
                 awaiting_vote_requests.remove(&receiver_id),
                 "Unexpected vote request from {} sent",
@@ -351,7 +380,7 @@ impl Fixture {
         }
     }
 
-    async fn await_election(
+    async fn expect_election(
         &mut self,
         args: AwaitElectionTimeoutArgs,
     ) {
@@ -374,8 +403,8 @@ impl Fixture {
         .await;
     }
 
-    async fn await_election_with_defaults(&mut self) {
-        self.await_election(AwaitElectionTimeoutArgs {
+    async fn expect_election_with_defaults(&mut self) {
+        self.expect_election(AwaitElectionTimeoutArgs {
             expected_cancellations: 2,
             last_log_term: 0,
             last_log_index: 0,
@@ -388,38 +417,44 @@ impl Fixture {
         &mut self,
         args: AwaitAssumeLeadershipArgs,
     ) {
+        loop {
+            let event = self
+                .server
+                .next()
+                .await
+                .expect("unexpected end of server events");
+            if let ServerEvent::ElectionStateChange {
+                election_state: new_election_state,
+                term,
+                voted_for,
+            } = event
+            {
+                assert_eq!(ElectionState::Leader, new_election_state);
+                assert_eq!(
+                    term,
+                    args.term,
+                    "wrong term in election state change (was {}, should be {})",
+                    term,
+                    args.term
+                );
+                assert!(
+                    matches!(voted_for, Some(id) if id == self.id),
+                    "server voted for {:?}, not itself ({})",
+                    voted_for,
+                    self.id
+                );
+                break;
+            }
+        }
+    }
+
+    async fn expect_assume_leadership(
+        &mut self,
+        args: AwaitAssumeLeadershipArgs,
+    ) {
         timeout(
             REASONABLE_FAST_OPERATION_TIMEOUT,
-            async {
-                loop {
-                    let event = self
-                        .server
-                        .next()
-                        .await
-                        .expect("unexpected end of server events");
-                    if let ServerEvent::ElectionStateChange {
-                        election_state: new_election_state,
-                        term,
-                        voted_for
-                    } = event {
-                        assert_eq!(ElectionState::Leader, new_election_state);
-                        assert_eq!(
-                            term,
-                            args.term,
-                            "wrong term in election state change (was {}, should be {})",
-                            term,
-                            args.term
-                        );
-                        assert!(matches!(voted_for, Some(id) if id == self.id),
-                            "server voted for {:?}, not itself ({})",
-                            voted_for,
-                            self.id
-                        );
-                        break;
-                    }
-                }
-            }
-            .boxed(),
+            self.await_assume_leadership(args),
         )
         .await
         .expect("timeout waiting for leadership assumption");
@@ -456,11 +491,12 @@ impl Fixture {
         }
     }
 
-    async fn expect_vote(
+    async fn await_vote(
         &mut self,
         args: AwaitVoteArgs,
     ) {
         let mut state_changed = false;
+        let mut vote_received = false;
         loop {
             let event = self
                 .server
@@ -481,6 +517,7 @@ impl Fixture {
                         })
                         .is_ok()
                     {
+                        vote_received = true;
                         assert_eq!(args.receiver_id, receiver_id,
                             "vote sent to wrong receiver (was {}, should be {})",
                             receiver_id, args.receiver_id
@@ -511,20 +548,20 @@ impl Fixture {
                             args.receiver_id
                         );
                     }
-                    break;
                 },
             }
         }
         if args.expect_state_change {
             assert!(state_changed, "server did not change election state");
         }
+        assert!(vote_received, "did not receive expected vote");
     }
 
-    async fn await_vote(
+    async fn expect_vote(
         &mut self,
         args: AwaitVoteArgs,
     ) {
-        timeout(REASONABLE_FAST_OPERATION_TIMEOUT, self.expect_vote(args))
+        timeout(REASONABLE_FAST_OPERATION_TIMEOUT, self.await_vote(args))
             .await
             .expect("timeout waiting for vote");
     }
@@ -599,67 +636,106 @@ impl Fixture {
         self.configured = true;
     }
 
+    async fn await_retransmission_timer_registration(
+        &mut self,
+        expected_receiver_id: usize,
+        other_completers: &mut Vec<oneshot::Sender<()>>,
+    ) -> (Duration, oneshot::Sender<()>) {
+        loop {
+            let event_with_completer = self
+                .scheduled_event_receiver
+                .next()
+                .await
+                .expect("no retransmit timer registered");
+            if let ScheduledEventWithCompleter {
+                scheduled_event: ScheduledEvent::Retransmit(peer_id),
+                duration,
+                completer,
+            } = event_with_completer
+            {
+                if peer_id == expected_receiver_id {
+                    return (duration, completer);
+                }
+            } else {
+                other_completers.push(event_with_completer.completer);
+            }
+        }
+    }
+
+    async fn expect_retransmission_timer_registration(
+        &mut self,
+        expected_receiver_id: usize,
+        other_completers: &mut Vec<oneshot::Sender<()>>,
+    ) -> (Duration, oneshot::Sender<()>) {
+        timeout(
+            REASONABLE_FAST_OPERATION_TIMEOUT,
+            self.await_retransmission_timer_registration(
+                expected_receiver_id,
+                other_completers,
+            ),
+        )
+        .await
+        .expect("timeout waiting for retransmission timer registration")
+    }
+
+    async fn await_message(
+        &mut self,
+        expected_receiver_id: usize,
+    ) -> Message<DummyCommand> {
+        loop {
+            let event = self
+                .server
+                .next()
+                .await
+                .expect("unexpected end of server events");
+            match event {
+                ServerEvent::SendMessage {
+                    message,
+                    receiver_id,
+                } => {
+                    if receiver_id == expected_receiver_id {
+                        return message;
+                    }
+                },
+                ServerEvent::ElectionStateChange {
+                    election_state,
+                    ..
+                } => {
+                    panic!(
+                        "Unexpected state transition to {:?}",
+                        election_state
+                    );
+                },
+            }
+        }
+    }
+
+    async fn expect_message(
+        &mut self,
+        receiver_id: usize,
+    ) -> Message<DummyCommand> {
+        timeout(
+            REASONABLE_FAST_OPERATION_TIMEOUT,
+            self.await_message(receiver_id),
+        )
+        .await
+        .expect("timeout waiting for message")
+    }
+
     async fn await_retransmission(
         &mut self,
         expected_receiver_id: usize,
     ) -> Message<DummyCommand> {
         let mut other_completers = Vec::new();
-        let (retransmit_duration, completer) =
-            timeout(REASONABLE_FAST_OPERATION_TIMEOUT, async {
-                loop {
-                    let event_with_completer = self
-                        .scheduled_event_receiver
-                        .next()
-                        .await
-                        .expect("no retransmit timer registered");
-                    if let ScheduledEventWithCompleter {
-                        scheduled_event: ScheduledEvent::Retransmit(peer_id),
-                        duration,
-                        completer,
-                    } = event_with_completer
-                    {
-                        if peer_id == 2 {
-                            break (duration, completer);
-                        }
-                    } else {
-                        other_completers.push(event_with_completer.completer);
-                    }
-                }
-            })
-            .await
-            .expect("timeout waiting for retransmission timer registration");
+        let (retransmit_duration, completer) = self
+            .expect_retransmission_timer_registration(
+                expected_receiver_id,
+                &mut other_completers,
+            )
+            .await;
         assert_eq!(self.configuration.rpc_timeout, retransmit_duration);
         completer.send(()).expect("server dropped retransmission future");
-        timeout(REASONABLE_FAST_OPERATION_TIMEOUT, async {
-            loop {
-                let event = self
-                    .server
-                    .next()
-                    .await
-                    .expect("unexpected end of server events");
-                match event {
-                    ServerEvent::SendMessage {
-                        message,
-                        receiver_id,
-                    } => {
-                        if receiver_id == expected_receiver_id {
-                            break message;
-                        }
-                    },
-                    ServerEvent::ElectionStateChange {
-                        election_state,
-                        ..
-                    } => {
-                        panic!(
-                            "Unexpected state transition to {:?}",
-                            election_state
-                        );
-                    },
-                }
-            }
-        })
-        .await
-        .expect("timeout waiting for retransmission")
+        self.expect_message(expected_receiver_id).await
     }
 
     fn new() -> Self {
