@@ -1,7 +1,8 @@
 use super::*;
 
 mod common;
-mod elections;
+mod elections_follower;
+mod elections_leader;
 mod mock_log;
 mod mock_persistent_storage;
 
