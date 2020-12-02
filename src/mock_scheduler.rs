@@ -30,7 +30,9 @@ pub struct Scheduler {
 }
 
 async fn await_receiver(receiver: oneshot::Receiver<()>) {
-    let _ = receiver.await;
+    if receiver.await.is_err() {
+        futures::future::pending().await
+    }
 }
 
 impl Scheduler {

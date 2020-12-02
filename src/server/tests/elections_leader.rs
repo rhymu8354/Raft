@@ -40,11 +40,8 @@ fn elected_leader_unanimously() {
                 term: 1,
             })
             .await;
-        let mut other_completers = Vec::new();
         let (_election_timeout_duration, mut election_timeout_completers) =
-            fixture
-                .expect_election_timer_registrations(1, &mut other_completers)
-                .await;
+            fixture.expect_election_timer_registrations(1).await;
         fixture.expect_election_timer_registrations_now(0);
         election_timeout_completers
             .pop()

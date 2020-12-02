@@ -141,7 +141,6 @@ impl Fixture {
     async fn await_election_timer_registrations(
         &mut self,
         mut num_timers_to_await: usize,
-        other_timer_completers: &mut Vec<oneshot::Sender<()>>,
     ) -> (Duration, Vec<oneshot::Sender<()>>) {
         let mut election_timeout_completers = Vec::new();
         election_timeout_completers.reserve(num_timers_to_await);
@@ -162,8 +161,6 @@ impl Fixture {
                 if num_timers_to_await == 0 {
                     break (duration, election_timeout_completers);
                 }
-            } else {
-                other_timer_completers.push(event_with_completer.completer);
             }
         }
     }
@@ -171,14 +168,10 @@ impl Fixture {
     async fn expect_election_timer_registrations(
         &mut self,
         num_timers_to_await: usize,
-        other_timer_completers: &mut Vec<oneshot::Sender<()>>,
     ) -> (Duration, Vec<oneshot::Sender<()>>) {
         timeout(
             REASONABLE_FAST_OPERATION_TIMEOUT,
-            self.await_election_timer_registrations(
-                num_timers_to_await,
-                other_timer_completers,
-            ),
+            self.await_election_timer_registrations(num_timers_to_await),
         )
         .await
         .expect("timeout waiting for election timer registration")
@@ -212,13 +205,9 @@ impl Fixture {
     async fn trigger_election_timeout(
         &mut self,
         num_timers_to_skip: usize,
-        other_completers: &mut Vec<oneshot::Sender<()>>,
     ) {
         let (election_timeout_duration, mut election_timeout_completers) = self
-            .expect_election_timer_registrations(
-                num_timers_to_skip + 1,
-                other_completers,
-            )
+            .expect_election_timer_registrations(num_timers_to_skip + 1)
             .await;
         assert!(
             self.configuration
@@ -386,12 +375,7 @@ impl Fixture {
     ) {
         // Expect the server to register an election timeout event with a
         // duration within the configured range, and complete it.
-        let mut other_completers = Vec::new();
-        self.trigger_election_timeout(
-            args.expected_cancellations,
-            &mut other_completers,
-        )
-        .await;
+        self.trigger_election_timeout(args.expected_cancellations).await;
 
         // Wait on server stream until we receive all the expected
         // vote requests.

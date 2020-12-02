@@ -214,10 +214,7 @@ mod tests {
                 2,
                 Some(6),
             );
-            let mut other_completers = Vec::new();
-            fixture
-                .expect_election_timer_registrations(2, &mut other_completers)
-                .await;
+            fixture.expect_election_timer_registrations(2).await;
         });
     }
 
