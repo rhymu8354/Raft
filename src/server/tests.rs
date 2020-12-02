@@ -117,10 +117,11 @@ struct AwaitVoteArgs {
 }
 
 struct VerifyVoteArgs<'a> {
-    message: &'a Message<DummyCommand>,
-    expected_seq: usize,
-    expected_term: usize,
-    expected_vote: bool,
+    seq: usize,
+    term: usize,
+    vote: bool,
+    receiver_id: usize,
+    expected: &'a AwaitVoteArgs,
 }
 
 struct Fixture {
@@ -447,31 +448,51 @@ impl Fixture {
     fn verify_vote(
         &self,
         args: VerifyVoteArgs,
-    ) -> Result<(), ()> {
+    ) {
+        assert_eq!(
+            args.vote, args.expected.vote_granted,
+            "unexpected vote (was {}, should be {})",
+            args.vote, args.expected.vote_granted
+        );
+        assert_eq!(
+            args.term, args.expected.term,
+            "wrong term in vote (was {}, should be {})",
+            args.term, args.expected.term
+        );
+        assert_eq!(
+            args.seq, args.expected.seq,
+            "wrong sequence number in vote (was {}, should be {})",
+            args.seq, args.expected.seq
+        );
+        assert_eq!(
+            args.receiver_id, args.expected.receiver_id,
+            "vote sent to wrong receiver (was {}, should be {})",
+            args.receiver_id, args.expected.receiver_id
+        );
+    }
+
+    fn check_vote(
+        &self,
+        message: &Message<DummyCommand>,
+        receiver_id: usize,
+        args: &AwaitVoteArgs,
+    ) -> bool {
         // Prefer '&' over '*' despite what Clippy says, because reasons.
         #[allow(clippy::match_ref_pats)]
         if let &MessageContent::<DummyCommand>::RequestVoteResults {
             vote_granted,
-        } = &args.message.content
+        } = &message.content
         {
-            assert_eq!(
-                vote_granted, args.expected_vote,
-                "unexpected vote (was {}, should be {})",
-                vote_granted, args.expected_vote
-            );
-            assert_eq!(
-                args.message.term, args.expected_term,
-                "wrong term in vote (was {}, should be {})",
-                args.message.term, args.expected_term
-            );
-            assert_eq!(
-                args.message.seq, args.expected_seq,
-                "wrong sequence number in vote (was {}, should be {})",
-                args.message.seq, args.expected_seq
-            );
-            Ok(())
+            self.verify_vote(VerifyVoteArgs {
+                seq: message.seq,
+                term: message.term,
+                vote: vote_granted,
+                receiver_id,
+                expected: args,
+            });
+            true
         } else {
-            Err(())
+            false
         }
     }
 
@@ -491,45 +512,29 @@ impl Fixture {
                     message,
                     receiver_id,
                 } => {
-                    if self
-                        .verify_vote(VerifyVoteArgs {
-                            message: &message,
-                            expected_seq: args.seq,
-                            expected_term: args.term,
-                            expected_vote: args.vote_granted,
-                        })
-                        .is_ok()
-                    {
-                        assert_eq!(args.receiver_id, receiver_id,
-                            "vote sent to wrong receiver (was {}, should be {})",
-                            receiver_id, args.receiver_id
-                        );
+                    if self.check_vote(&message, receiver_id, &args) {
                         break;
                     }
                 },
                 ServerEvent::ElectionStateChange {
-                    election_state: new_election_state,
+                    election_state,
                     term,
                     voted_for,
                 } => {
                     state_changed = true;
-                    assert_eq!(ElectionState::Follower, new_election_state);
+                    assert_eq!(election_state, ElectionState::Follower);
                     assert_eq!(
-                        term,
-                        args.term,
+                        term, args.term,
                         "wrong term in election state change (was {}, should be {})",
-                        term,
-                        args.term
+                        term, args.term
                     );
-                    if args.vote_granted {
-                        assert_eq!(
-                            voted_for,
-                            Some(args.receiver_id),
-                            "server voted for {:?}, not the receiver ({})",
-                            voted_for,
-                            args.receiver_id
-                        );
-                    }
+                    assert_eq!(
+                        voted_for,
+                        Some(args.receiver_id),
+                        "server vote was {:?}, while we expected {:?}",
+                        voted_for,
+                        Some(args.receiver_id)
+                    );
                 },
             }
         }
