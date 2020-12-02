@@ -726,6 +726,8 @@ fn new_mock_log_with_non_defaults(
         let mut log_shared = mock_log_back_end.shared.lock().unwrap();
         log_shared.base_term = base_term;
         log_shared.base_index = base_index;
+        log_shared.last_term = base_term;
+        log_shared.last_index = base_index;
     }
     (mock_log, mock_log_back_end)
 }

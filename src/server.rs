@@ -33,6 +33,7 @@ use rand::{
     SeedableRng,
 };
 use std::{
+    cmp::Ordering,
     collections::{
         HashMap,
         HashSet,
@@ -291,21 +292,58 @@ impl<T: Clone> OnlineState<T> {
         }
     }
 
+    fn decide_vote_grant(
+        &mut self,
+        candidate_id: usize,
+        candidate_term: usize,
+        candidate_last_log_term: usize,
+        candidate_last_log_index: usize,
+    ) -> bool {
+        match candidate_term.cmp(&self.persistent_storage.term()) {
+            Ordering::Less => return false,
+            Ordering::Equal => {
+                if let Some(voted_for_id) = self.persistent_storage.voted_for()
+                {
+                    if voted_for_id != candidate_id {
+                        return false;
+                    }
+                }
+            },
+            Ordering::Greater => (),
+        };
+        match candidate_last_log_term.cmp(&self.log.last_term()) {
+            Ordering::Less => return false,
+            Ordering::Equal => {
+                if candidate_last_log_index < self.log.last_index() {
+                    return false;
+                }
+            },
+            Ordering::Greater => (),
+        }
+        self.persistent_storage.update(candidate_term, Some(candidate_id));
+        true
+    }
+
     fn process_request_vote(
         &mut self,
         sender_id: usize,
         seq: usize,
         term: usize,
-        _last_log_index: usize,
-        _last_log_term: usize,
+        last_log_index: usize,
+        last_log_term: usize,
         server_event_sender: &ServerEventSender<T>,
     ) -> bool {
         let message = Message {
             content: MessageContent::RequestVoteResults {
-                vote_granted: true,
+                vote_granted: self.decide_vote_grant(
+                    sender_id,
+                    term,
+                    last_log_term,
+                    last_log_index,
+                ),
             },
             seq,
-            term,
+            term: self.persistent_storage.term(),
         };
         let _ = server_event_sender.unbounded_send(ServerEvent::SendMessage {
             message,
