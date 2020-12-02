@@ -496,7 +496,6 @@ impl Fixture {
         args: AwaitVoteArgs,
     ) {
         let mut state_changed = false;
-        let mut vote_received = false;
         loop {
             let event = self
                 .server
@@ -517,7 +516,6 @@ impl Fixture {
                         })
                         .is_ok()
                     {
-                        vote_received = true;
                         assert_eq!(args.receiver_id, receiver_id,
                             "vote sent to wrong receiver (was {}, should be {})",
                             receiver_id, args.receiver_id
@@ -554,7 +552,6 @@ impl Fixture {
         if args.expect_state_change {
             assert!(state_changed, "server did not change election state");
         }
-        assert!(vote_received, "did not receive expected vote");
     }
 
     async fn expect_vote(
