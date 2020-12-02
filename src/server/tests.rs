@@ -471,7 +471,7 @@ impl Fixture {
         );
     }
 
-    fn check_vote(
+    fn is_verified_vote(
         &self,
         message: &Message<DummyCommand>,
         receiver_id: usize,
@@ -512,7 +512,7 @@ impl Fixture {
                     message,
                     receiver_id,
                 } => {
-                    if self.check_vote(&message, receiver_id, &args) {
+                    if self.is_verified_vote(&message, receiver_id, &args) {
                         break;
                     }
                 },
