@@ -148,7 +148,6 @@ fn not_elected_leader_because_no_majority_votes() {
                 vote: false,
             })
             .await;
-        fixture.expect_election_state(ElectionState::Candidate);
     });
 }
 

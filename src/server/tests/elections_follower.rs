@@ -25,13 +25,13 @@ mod tests {
                 .await;
             fixture
                 .await_vote(AwaitVoteArgs {
+                    expect_state_change: false,
                     receiver_id: 6,
                     seq: 1,
                     term: 1,
                     vote_granted: true,
                 })
                 .await;
-            fixture.expect_election_state(ElectionState::Follower);
             verify_persistent_storage(
                 &mock_persistent_storage_back_end,
                 1,
@@ -60,13 +60,13 @@ mod tests {
                 .await;
             fixture
                 .await_vote(AwaitVoteArgs {
+                    expect_state_change: false,
                     receiver_id: 6,
                     seq: 1,
                     term: 1,
                     vote_granted: false,
                 })
                 .await;
-            fixture.expect_election_state(ElectionState::Follower);
             verify_persistent_storage(
                 &mock_persistent_storage_back_end,
                 1,
@@ -95,13 +95,13 @@ mod tests {
                 .await;
             fixture
                 .await_vote(AwaitVoteArgs {
+                    expect_state_change: false,
                     receiver_id: 6,
                     seq: 1,
                     term: 1,
                     vote_granted: true,
                 })
                 .await;
-            fixture.expect_election_state(ElectionState::Follower);
             verify_persistent_storage(
                 &mock_persistent_storage_back_end,
                 1,
@@ -130,13 +130,13 @@ mod tests {
                 .await;
             fixture
                 .await_vote(AwaitVoteArgs {
+                    expect_state_change: false,
                     receiver_id: 6,
                     seq: 1,
                     term: 2,
                     vote_granted: false,
                 })
                 .await;
-            fixture.expect_election_state(ElectionState::Follower);
             verify_persistent_storage(
                 &mock_persistent_storage_back_end,
                 2,
@@ -166,18 +166,64 @@ mod tests {
                 .await;
             fixture
                 .await_vote(AwaitVoteArgs {
+                    expect_state_change: false,
                     receiver_id: 6,
                     seq: 1,
                     term: 1,
                     vote_granted: false,
                 })
                 .await;
-            fixture.expect_election_state(ElectionState::Follower);
             verify_persistent_storage(
                 &mock_persistent_storage_back_end,
                 1,
                 Some(fixture.id),
             );
+        });
+    }
+
+    #[test]
+    fn non_follower_revert_to_follower_and_vote_for_new_term_candidate() {
+        executor::block_on(async {
+            let mut fixture = Fixture::new();
+            let (mock_persistent_storage, mock_persistent_storage_back_end) =
+                new_mock_persistent_storage_with_non_defaults(0, None);
+            fixture.mobilize_server_with_persistent_storage(Box::new(
+                mock_persistent_storage,
+            ));
+            fixture.await_election_with_defaults().await;
+            fixture
+                .receive_vote_request(ReceiveVoteRequestArgs {
+                    sender_id: 6,
+                    last_log_term: 7,
+                    last_log_index: 42,
+                    seq: 1,
+                    term: 2,
+                })
+                .await;
+            fixture
+                .await_vote(AwaitVoteArgs {
+                    expect_state_change: true,
+                    receiver_id: 6,
+                    seq: 1,
+                    term: 2,
+                    vote_granted: true,
+                })
+                .await;
+            verify_persistent_storage(
+                &mock_persistent_storage_back_end,
+                2,
+                Some(6),
+            );
+            let mut other_completers = Vec::new();
+            timeout(
+                REASONABLE_FAST_OPERATION_TIMEOUT,
+                fixture.await_election_timer_registrations(
+                    2,
+                    &mut other_completers,
+                ),
+            )
+            .await
+            .expect("timeout waiting for election timer registration");
         });
     }
 
@@ -202,13 +248,13 @@ mod tests {
                     .await;
                 fixture
                     .await_vote(AwaitVoteArgs {
+                        expect_state_change: false,
                         receiver_id: 6,
                         seq: 1,
                         term: 0,
                         vote_granted: false,
                     })
                     .await;
-                fixture.expect_election_state(ElectionState::Follower);
             }
         });
     }

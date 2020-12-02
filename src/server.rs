@@ -230,7 +230,7 @@ impl<T: Clone> OnlineState<T> {
             ServerEvent::ElectionStateChange {
                 election_state: self.election_state,
                 term,
-                voted_for: Some(self.id),
+                voted_for: self.persistent_storage.voted_for(),
             },
         );
     }
@@ -298,6 +298,7 @@ impl<T: Clone> OnlineState<T> {
         candidate_term: usize,
         candidate_last_log_term: usize,
         candidate_last_log_index: usize,
+        server_event_sender: &ServerEventSender<T>,
     ) -> bool {
         match candidate_term.cmp(&self.persistent_storage.term()) {
             Ordering::Less => return false,
@@ -321,6 +322,12 @@ impl<T: Clone> OnlineState<T> {
             Ordering::Greater => (),
         }
         self.persistent_storage.update(candidate_term, Some(candidate_id));
+        if self.election_state != ElectionState::Follower {
+            self.change_election_state(
+                ElectionState::Follower,
+                server_event_sender,
+            );
+        }
         true
     }
 
@@ -333,14 +340,16 @@ impl<T: Clone> OnlineState<T> {
         last_log_term: usize,
         server_event_sender: &ServerEventSender<T>,
     ) -> bool {
+        let vote_granted = self.decide_vote_grant(
+            sender_id,
+            term,
+            last_log_term,
+            last_log_index,
+            server_event_sender,
+        );
         let message = Message {
             content: MessageContent::RequestVoteResults {
-                vote_granted: self.decide_vote_grant(
-                    sender_id,
-                    term,
-                    last_log_term,
-                    last_log_index,
-                ),
+                vote_granted,
             },
             seq,
             term: self.persistent_storage.term(),
@@ -349,7 +358,7 @@ impl<T: Clone> OnlineState<T> {
             message,
             receiver_id: sender_id,
         });
-        false
+        vote_granted
     }
 
     fn process_receive_message(

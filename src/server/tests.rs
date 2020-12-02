@@ -109,6 +109,7 @@ struct ReceiveVoteRequestArgs {
 }
 
 struct AwaitVoteArgs {
+    expect_state_change: bool,
     receiver_id: usize,
     seq: usize,
     term: usize,
@@ -459,6 +460,7 @@ impl Fixture {
         &mut self,
         args: AwaitVoteArgs,
     ) {
+        let mut state_changed = false;
         loop {
             let event = self
                 .server
@@ -491,6 +493,7 @@ impl Fixture {
                     term,
                     voted_for,
                 } => {
+                    state_changed = true;
                     assert_eq!(ElectionState::Follower, new_election_state);
                     assert_eq!(
                         term,
@@ -512,6 +515,9 @@ impl Fixture {
                 },
             }
         }
+        if args.expect_state_change {
+            assert!(state_changed, "server did not change election state");
+        }
     }
 
     async fn await_vote(
@@ -523,7 +529,7 @@ impl Fixture {
             .expect("timeout waiting for vote");
     }
 
-    fn expect_election_state(
+    fn expect_election_state_change(
         &mut self,
         election_state: ElectionState,
     ) {
@@ -534,8 +540,10 @@ impl Fixture {
             } = event.expect("unexpected end of server events")
             {
                 assert_eq!(election_state, new_election_state);
+                return;
             }
         }
+        panic!("server did not change election state")
     }
 
     fn expect_no_election_state_changes(&mut self) {
