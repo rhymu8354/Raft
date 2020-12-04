@@ -5,8 +5,11 @@ mod elections_follower;
 mod elections_leader;
 mod mock_log;
 mod mock_persistent_storage;
+mod replication_follower;
+mod replication_leader;
 
 use crate::{
+    LogEntry,
     LogEntryCustomCommand,
     Message,
     MessageContent,
@@ -124,6 +127,25 @@ struct VerifyVoteArgs<'a> {
     expected: &'a AwaitVoteArgs,
 }
 
+#[derive(Clone)]
+struct AwaitAppendEntriesArgs {
+    term: usize,
+    leader_commit: usize,
+    prev_log_term: usize,
+    prev_log_index: usize,
+    log: Vec<LogEntry<DummyCommand>>,
+}
+
+struct VerifyAppendEntriesArgs<'a, 'b> {
+    message: &'a Message<DummyCommand>,
+    expected_leader_commit: usize,
+    expected_prev_log_index: usize,
+    expected_prev_log_term: usize,
+    expected_log: &'b Vec<LogEntry<DummyCommand>>,
+    expected_seq: Option<usize>,
+    expected_term: usize,
+}
+
 struct Fixture {
     cluster: HashSet<usize>,
     configuration: Configuration,
@@ -225,17 +247,15 @@ impl Fixture {
             .expect("server dropped election timeout future");
     }
 
-    fn verify_vote_request(
+    fn is_verified_vote_request(
         &self,
         args: VerifyVoteRequestArgs,
-    ) -> Result<(), ()> {
-        // Prefer '&' over '*' despite what Clippy says, because reasons.
-        #[allow(clippy::match_ref_pats)]
-        if let &MessageContent::<DummyCommand>::RequestVote {
+    ) -> bool {
+        if let MessageContent::<DummyCommand>::RequestVote {
             candidate_id,
             last_log_index,
             last_log_term,
-        } = &args.message.content
+        } = args.message.content
         {
             assert_eq!(
                 candidate_id, self.id,
@@ -264,9 +284,9 @@ impl Fixture {
                     args.message.seq, expected_seq
                 );
             }
-            Ok(())
+            true
         } else {
-            Err(())
+            false
         }
     }
 
@@ -288,16 +308,13 @@ impl Fixture {
                     message,
                     receiver_id,
                 } => {
-                    if self
-                        .verify_vote_request(VerifyVoteRequestArgs {
-                            message: &message,
-                            expected_last_log_term,
-                            expected_last_log_index,
-                            expected_seq,
-                            expected_term,
-                        })
-                        .is_ok()
-                    {
+                    if self.is_verified_vote_request(VerifyVoteRequestArgs {
+                        message: &message,
+                        expected_last_log_term,
+                        expected_last_log_index,
+                        expected_seq,
+                        expected_term,
+                    }) {
                         break receiver_id;
                     }
                 },
@@ -477,11 +494,9 @@ impl Fixture {
         receiver_id: usize,
         args: &AwaitVoteArgs,
     ) -> bool {
-        // Prefer '&' over '*' despite what Clippy says, because reasons.
-        #[allow(clippy::match_ref_pats)]
-        if let &MessageContent::<DummyCommand>::RequestVoteResults {
+        if let MessageContent::<DummyCommand>::RequestVoteResults {
             vote_granted,
-        } = &message.content
+        } = message.content
         {
             self.verify_vote(VerifyVoteArgs {
                 seq: message.seq,
@@ -784,6 +799,125 @@ impl Fixture {
             Box::new(mock_log),
             persistent_storage,
         );
+    }
+
+    fn is_verified_append_entries(
+        &self,
+        args: VerifyAppendEntriesArgs,
+    ) -> bool {
+        if let MessageContent::<DummyCommand>::AppendEntries {
+            leader_commit,
+            prev_log_index,
+            prev_log_term,
+            log,
+        } = &args.message.content
+        {
+            assert_eq!(
+                *leader_commit, args.expected_leader_commit,
+                "wrong leader commit in append entries (was {}, should be {})",
+                *leader_commit, args.expected_leader_commit
+            );
+            assert_eq!(
+                *prev_log_index, args.expected_prev_log_index,
+                "wrong previous log index in append entries (was {}, should be {})",
+                *prev_log_index, args.expected_prev_log_index
+            );
+            assert_eq!(
+                *prev_log_term, args.expected_prev_log_term,
+                "wrong previous log term in append entries (was {}, should be {})",
+                *prev_log_term, args.expected_prev_log_term
+            );
+            assert_eq!(
+                log, args.expected_log,
+                "wrong log in append entries (was {:?}, should be {:?})",
+                log, args.expected_log
+            );
+            assert_eq!(
+                args.message.term, args.expected_term,
+                "wrong term in append entries (was {}, should be {})",
+                args.message.term, args.expected_term
+            );
+            if let Some(expected_seq) = args.expected_seq {
+                assert_eq!(
+                    args.message.seq, expected_seq,
+                    "wrong sequence number in append entries (was {}, should be {})",
+                    args.message.seq, expected_seq
+                );
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    async fn await_append_entries(
+        &mut self,
+        args: &AwaitAppendEntriesArgs,
+    ) -> usize {
+        loop {
+            let event = self
+                .server
+                .next()
+                .await
+                .expect("unexpected end of server events");
+            match event {
+                ServerEvent::SendMessage {
+                    message,
+                    receiver_id,
+                } => {
+                    if self.is_verified_append_entries(
+                        VerifyAppendEntriesArgs {
+                            message: &message,
+                            expected_leader_commit: args.leader_commit,
+                            expected_prev_log_index: args.prev_log_index,
+                            expected_prev_log_term: args.prev_log_term,
+                            expected_log: &args.log,
+                            expected_seq: None,
+                            expected_term: args.term,
+                        },
+                    ) {
+                        break receiver_id;
+                    }
+                },
+                ServerEvent::ElectionStateChange {
+                    election_state,
+                    ..
+                } => {
+                    panic!(
+                        "unexpected election state change to {:?}",
+                        election_state
+                    );
+                },
+            }
+        }
+    }
+
+    async fn expect_append_entries(
+        &mut self,
+        args: &AwaitAppendEntriesArgs,
+    ) -> usize {
+        timeout(
+            REASONABLE_FAST_OPERATION_TIMEOUT,
+            self.await_append_entries(args),
+        )
+        .await
+        .expect("timeout waiting for append entries")
+    }
+
+    async fn expect_log_entries_broadcast(
+        &mut self,
+        args: AwaitAppendEntriesArgs,
+    ) {
+        let mut recipients = self.cluster.clone();
+        recipients.remove(&self.id);
+        while !recipients.is_empty() {
+            let recipient_id = self.expect_append_entries(&args).await;
+            assert!(
+                recipients.remove(&recipient_id),
+                "Unexpected append entries sent to {}",
+                recipient_id
+            );
+        }
     }
 }
 

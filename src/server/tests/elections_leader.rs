@@ -155,20 +155,17 @@ fn server_retransmits_request_vote_for_slow_voters_in_election() {
         fixture.mobilize_server();
         fixture.expect_election_with_defaults().await;
         let retransmission = fixture.await_retransmission(2).await;
-        fixture
-            .verify_vote_request(VerifyVoteRequestArgs {
+        assert!(
+            fixture.is_verified_vote_request(VerifyVoteRequestArgs {
                 message: &retransmission,
                 expected_last_log_term: 0,
                 expected_last_log_index: 0,
                 expected_seq: Some(1),
                 expected_term: 1,
-            })
-            .unwrap_or_else(|_| {
-                panic!(
-                    "Expected request vote message, got {:?} instead",
-                    retransmission
-                )
-            });
+            }),
+            "Expected request vote message, got {:?} instead",
+            retransmission
+        );
     });
 }
 
@@ -187,20 +184,17 @@ fn server_retransmits_request_vote_if_vote_had_wrong_seq() {
             })
             .await;
         let retransmission = fixture.await_retransmission(2).await;
-        fixture
-            .verify_vote_request(VerifyVoteRequestArgs {
+        assert!(
+            fixture.is_verified_vote_request(VerifyVoteRequestArgs {
                 message: &retransmission,
                 expected_last_log_term: 0,
                 expected_last_log_index: 0,
                 expected_seq: Some(1),
                 expected_term: 1,
-            })
-            .unwrap_or_else(|_| {
-                panic!(
-                    "Expected request vote message, got {:?} instead",
-                    retransmission
-                )
-            });
+            }),
+            "Expected request vote message, got {:?} instead",
+            retransmission
+        );
     });
 }
 

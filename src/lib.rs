@@ -15,6 +15,7 @@ pub use configuration::Configuration;
 pub use error::Error;
 pub use log::Log;
 pub use log_entry::CustomCommand as LogEntryCustomCommand;
+use log_entry::LogEntry;
 pub use message::{
     Message,
     MessageContent,
