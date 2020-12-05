@@ -16,7 +16,6 @@ exclude = [
 ]
 
 [dependencies]
-async-mutex = "1.4"
 futures = "0.3"
 futures-timer = "3.0"
 rand = "0.7"

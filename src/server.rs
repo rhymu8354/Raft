@@ -15,7 +15,6 @@ use crate::{
     PersistentStorage,
     Scheduler,
 };
-use async_mutex::Mutex;
 use futures::{
     channel::{
         mpsc,
@@ -670,14 +669,13 @@ async fn process_server_command_receiver<T: 'static + Clone + Debug + Send>(
     }
 }
 
-async fn upkeep_election_timeout_future<T: 'static + Clone + Debug + Send>(
-    state: &Mutex<State<T>>,
+fn upkeep_election_timeout_future<T: 'static + Clone + Debug + Send>(
+    state: &State<T>,
     cancel_election_timeout: &mut Option<oneshot::Sender<()>>,
     rng: &mut StdRng,
     futures: &mut Vec<BoxFuture<'static, FutureKind<T>>>,
     scheduler: &Scheduler,
 ) {
-    let state = state.lock().await;
     if state.online.is_none() {
         return;
     }
@@ -704,11 +702,20 @@ async fn upkeep_election_timeout_future<T: 'static + Clone + Debug + Send>(
     }
 }
 
-async fn process_futures<T: 'static + Clone + Debug + Send>(
+async fn serve<T>(
     server_command_receiver: ServerCommandReceiver<T>,
+    server_event_sender: ServerEventSender<T>,
     scheduler: Scheduler,
-    state: Mutex<State<T>>,
-) {
+) where
+    T: 'static + Clone + Debug + Send,
+{
+    let mut state = State {
+        configuration: Configuration::default(),
+        #[cfg(test)]
+        election_timeout_counter: 0,
+        online: None,
+        server_event_sender,
+    };
     let mut server_command_receiver = Some(server_command_receiver);
     let mut cancel_election_timeout = None;
     let mut rng = StdRng::from_entropy();
@@ -730,19 +737,13 @@ async fn process_futures<T: 'static + Clone + Debug + Send>(
             &mut rng,
             &mut futures,
             &scheduler,
-        )
-        .await;
+        );
 
         // Add any RPC timeout futures that have been set up.
-        {
-            let mut state = state.lock().await;
-            if let Some(state) = &mut state.online {
-                for peer_state in state.peer_states.values_mut() {
-                    if let Some(future) =
-                        peer_state.retransmission_future.take()
-                    {
-                        futures.push(future);
-                    }
+        if let Some(state) = &mut state.online {
+            for peer_state in state.peer_states.values_mut() {
+                if let Some(future) = peer_state.retransmission_future.take() {
+                    futures.push(future);
                 }
             }
         }
@@ -763,7 +764,6 @@ async fn process_futures<T: 'static + Clone + Debug + Send>(
             FutureKind::ElectionTimeout => {
                 println!("*** Election timeout! ***");
                 cancel_election_timeout.take();
-                let mut state = state.lock().await;
                 #[cfg(test)]
                 {
                     state.election_timeout_counter += 1;
@@ -776,7 +776,6 @@ async fn process_futures<T: 'static + Clone + Debug + Send>(
             },
             FutureKind::RpcTimeout(peer_id) => {
                 println!("*** RPC timeout ({})! ***", peer_id);
-                let mut state = state.lock().await;
                 state.retransmit(peer_id, &scheduler);
             },
             FutureKind::ServerCommand {
@@ -784,7 +783,6 @@ async fn process_futures<T: 'static + Clone + Debug + Send>(
                 server_command_receiver: server_command_receiver_out,
             } => {
                 println!("ServerCommand: {:?}", command);
-                let mut state = state.lock().await;
                 let cancel_election_timer = match command {
                     ServerCommand::Configure(configuration) => {
                         state.configuration = configuration;
@@ -824,23 +822,6 @@ async fn process_futures<T: 'static + Clone + Debug + Send>(
         // Move remaining futures back to await again in the next loop.
         futures = futures_remaining;
     }
-}
-
-async fn serve<T>(
-    server_command_receiver: ServerCommandReceiver<T>,
-    server_event_sender: ServerEventSender<T>,
-    scheduler: Scheduler,
-) where
-    T: 'static + Clone + Debug + Send,
-{
-    let state = Mutex::new(State {
-        configuration: Configuration::default(),
-        #[cfg(test)]
-        election_timeout_counter: 0,
-        online: None,
-        server_event_sender,
-    });
-    process_futures(server_command_receiver, scheduler, state).await;
 }
 
 pub struct Server<T> {
