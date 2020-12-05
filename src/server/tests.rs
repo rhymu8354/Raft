@@ -296,7 +296,7 @@ impl Fixture {
                 .await
                 .expect("unexpected end of server events");
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -310,7 +310,7 @@ impl Fixture {
                         break receiver_id;
                     }
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     election_state,
                     term,
                     voted_for,
@@ -416,7 +416,7 @@ impl Fixture {
                 .next()
                 .await
                 .expect("unexpected end of server events");
-            if let ServerEvent::ElectionStateChange {
+            if let Event::ElectionStateChange {
                 election_state: new_election_state,
                 term,
                 voted_for,
@@ -514,7 +514,7 @@ impl Fixture {
                 .await
                 .expect("unexpected end of server events");
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -522,7 +522,7 @@ impl Fixture {
                         break;
                     }
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     election_state,
                     term,
                     voted_for,
@@ -563,7 +563,7 @@ impl Fixture {
         election_state: ElectionState,
     ) {
         while let Some(event) = self.server.next().now_or_never() {
-            if let ServerEvent::ElectionStateChange {
+            if let Event::ElectionStateChange {
                 election_state: new_election_state,
                 ..
             } = event.expect("unexpected end of server events")
@@ -577,7 +577,7 @@ impl Fixture {
 
     fn expect_no_election_state_changes(&mut self) {
         while let Some(event) = self.server.next().now_or_never() {
-            if let ServerEvent::ElectionStateChange {
+            if let Event::ElectionStateChange {
                 election_state,
                 ..
             } = event.expect("unexpected end of server events")
@@ -681,7 +681,7 @@ impl Fixture {
                 .await
                 .expect("unexpected end of server events");
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -689,7 +689,7 @@ impl Fixture {
                         return message;
                     }
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     election_state,
                     ..
                 } => {
@@ -852,7 +852,7 @@ impl Fixture {
                 .await
                 .expect("unexpected end of server events");
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -870,7 +870,7 @@ impl Fixture {
                         break receiver_id;
                     }
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     election_state,
                     ..
                 } => {

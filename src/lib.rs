@@ -33,5 +33,5 @@ pub use persistent_storage::PersistentStorage;
 use scheduler::Scheduler;
 pub use server::{
     Server,
-    ServerSinkItem,
+    SinkItem as ServerSinkItem,
 };

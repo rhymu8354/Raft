@@ -9,7 +9,6 @@ use crate::{
     Error,
     Log,
     LogEntry,
-    LogEntryCustomCommand,
     Message,
     MessageContent,
     PersistentStorage,
@@ -30,8 +29,8 @@ use futures::{
 };
 use rand::{
     rngs::StdRng,
-    Rng,
-    SeedableRng,
+    Rng as _,
+    SeedableRng as _,
 };
 use std::{
     cmp::Ordering,
@@ -63,7 +62,7 @@ pub struct MobilizeArgs {
     pub persistent_storage: Box<dyn PersistentStorage>,
 }
 
-pub enum ServerEvent<T> {
+pub enum Event<T> {
     SendMessage {
         message: Message<T>,
         receiver_id: usize,
@@ -75,11 +74,11 @@ pub enum ServerEvent<T> {
     },
 }
 
-type ServerEventReceiver<T> = mpsc::UnboundedReceiver<ServerEvent<T>>;
-type ServerEventSender<T> = mpsc::UnboundedSender<ServerEvent<T>>;
+type EventReceiver<T> = mpsc::UnboundedReceiver<Event<T>>;
+type EventSender<T> = mpsc::UnboundedSender<Event<T>>;
 
 #[derive(Debug)]
-pub enum ServerSinkItem<T> {
+pub enum SinkItem<T> {
     ReceiveMessage {
         message: Message<T>,
         sender_id: usize,
@@ -90,13 +89,13 @@ pub enum ServerSinkItem<T> {
     },
 }
 
-enum ServerCommand<T> {
+enum Command<T> {
     Configure(Configuration),
     Demobilize(oneshot::Sender<()>),
     #[cfg(test)]
     FetchElectionTimeoutCounter(oneshot::Sender<usize>),
     Mobilize(MobilizeArgs),
-    ProcessSinkItem(ServerSinkItem<T>),
+    ProcessSinkItem(SinkItem<T>),
 }
 
 #[derive(Debug)]
@@ -107,37 +106,37 @@ enum FutureKind<T> {
     Cancelled,
     ElectionTimeout,
     RpcTimeout(usize),
-    ServerCommand {
-        command: ServerCommand<T>,
-        server_command_receiver: ServerCommandReceiver<T>,
+    Command {
+        command: Command<T>,
+        command_receiver: CommandReceiver<T>,
     },
     Stop,
 }
 
-impl<T: Debug> Debug for ServerCommand<T> {
+impl<T: Debug> Debug for Command<T> {
     fn fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         match self {
-            ServerCommand::Configure(_) => write!(f, "Configure"),
-            ServerCommand::Demobilize(_) => write!(f, "Demobilize"),
+            Command::Configure(_) => write!(f, "Configure"),
+            Command::Demobilize(_) => write!(f, "Demobilize"),
             #[cfg(test)]
-            ServerCommand::FetchElectionTimeoutCounter(_) => {
+            Command::FetchElectionTimeoutCounter(_) => {
                 write!(f, "FetchElectionTimeoutCounter")
             },
-            ServerCommand::Mobilize(_) => write!(f, "Mobilize"),
-            ServerCommand::ProcessSinkItem(sink_item) => {
+            Command::Mobilize(_) => write!(f, "Mobilize"),
+            Command::ProcessSinkItem(sink_item) => {
                 write!(f, "ProcessSinkItem({:?})", sink_item)
             },
         }
     }
 }
 
-type ServerCommandReceiver<T> = mpsc::UnboundedReceiver<ServerCommand<T>>;
-type ServerCommandSender<T> = mpsc::UnboundedSender<ServerCommand<T>>;
+type CommandReceiver<T> = mpsc::UnboundedReceiver<Command<T>>;
+type CommandSender<T> = mpsc::UnboundedSender<Command<T>>;
 
-struct PeerState<T> {
+struct Peer<T> {
     cancel_retransmission: Option<oneshot::Sender<()>>,
     last_message: Option<Message<T>>,
     last_seq: usize,
@@ -145,12 +144,12 @@ struct PeerState<T> {
     vote: Option<bool>,
 }
 
-impl<T: 'static + Clone + Debug + Send> PeerState<T> {
+impl<T: 'static + Clone + Debug + Send> Peer<T> {
     fn send_request(
         &mut self,
         message: Message<T>,
         peer_id: usize,
-        server_event_sender: &ServerEventSender<T>,
+        event_sender: &EventSender<T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) {
@@ -165,7 +164,7 @@ impl<T: 'static + Clone + Debug + Send> PeerState<T> {
         self.retransmission_future = Some(future);
         self.cancel_retransmission = Some(cancel_future);
         println!("Sending message to {}: {:?}", peer_id, message);
-        let _ = server_event_sender.unbounded_send(ServerEvent::SendMessage {
+        let _ = event_sender.unbounded_send(Event::SendMessage {
             message,
             receiver_id: peer_id,
         });
@@ -176,7 +175,7 @@ impl<T: 'static + Clone + Debug + Send> PeerState<T> {
         content: MessageContent<T>,
         peer_id: usize,
         term: usize,
-        server_event_sender: &ServerEventSender<T>,
+        event_sender: &EventSender<T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) {
@@ -190,7 +189,7 @@ impl<T: 'static + Clone + Debug + Send> PeerState<T> {
         self.send_request(
             message,
             peer_id,
-            server_event_sender,
+            event_sender,
             rpc_timeout,
             scheduler,
         );
@@ -199,9 +198,9 @@ impl<T: 'static + Clone + Debug + Send> PeerState<T> {
 
 // We can't #[derive(Default)] without constraining `T: Default`,
 // so let's just implement it ourselves.
-impl<T> Default for PeerState<T> {
+impl<T> Default for Peer<T> {
     fn default() -> Self {
-        PeerState {
+        Peer {
             cancel_retransmission: None,
             last_message: None,
             last_seq: 0,
@@ -211,37 +210,38 @@ impl<T> Default for PeerState<T> {
     }
 }
 
-struct OnlineState<T> {
+struct Mobilization<T> {
+    cancel_election_timeout: Option<oneshot::Sender<()>>,
     cluster: HashSet<usize>,
     election_state: ElectionState,
+    #[cfg(test)]
+    election_timeout_counter: usize,
     id: usize,
     last_log_index: usize,
     last_log_term: usize,
     log: Box<dyn Log>,
-    peer_states: HashMap<usize, PeerState<T>>,
+    peers: HashMap<usize, Peer<T>>,
     persistent_storage: Box<dyn PersistentStorage>,
+    rng: StdRng,
 }
 
-impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
+impl<T: 'static + Clone + Debug + Send> Mobilization<T> {
     fn become_candidate(
         &mut self,
-        server_event_sender: &ServerEventSender<T>,
+        event_sender: &EventSender<T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) {
         let term = self.persistent_storage.term() + 1;
         self.persistent_storage.update(term, Some(self.id));
-        self.change_election_state(
-            ElectionState::Candidate,
-            server_event_sender,
-        );
+        self.change_election_state(ElectionState::Candidate, event_sender);
         self.send_new_message_broadcast(
             MessageContent::RequestVote {
                 candidate_id: self.id,
                 last_log_index: self.last_log_index,
                 last_log_term: self.last_log_term,
             },
-            server_event_sender,
+            event_sender,
             rpc_timeout,
             scheduler,
         );
@@ -249,11 +249,11 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
 
     fn become_leader(
         &mut self,
-        server_event_sender: &ServerEventSender<T>,
+        event_sender: &EventSender<T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) {
-        self.change_election_state(ElectionState::Leader, server_event_sender);
+        self.change_election_state(ElectionState::Leader, event_sender);
         self.send_new_message_broadcast(
             MessageContent::AppendEntries(AppendEntriesContent {
                 leader_commit: 0, // TODO: track last commit
@@ -264,7 +264,7 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
                     command: None,
                 }],
             }),
-            server_event_sender,
+            event_sender,
             rpc_timeout,
             scheduler,
         );
@@ -275,9 +275,9 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
         peer_id: usize,
     ) {
         if let Some(cancel_retransmission) = self
-            .peer_states
+            .peers
             .get_mut(&peer_id)
-            .and_then(|peer_state| peer_state.cancel_retransmission.take())
+            .and_then(|peer| peer.cancel_retransmission.take())
         {
             let _ = cancel_retransmission.send(());
         }
@@ -286,7 +286,7 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
     fn change_election_state(
         &mut self,
         new_election_state: ElectionState,
-        server_event_sender: &ServerEventSender<T>,
+        event_sender: &EventSender<T>,
     ) {
         let term = self.persistent_storage.term();
         println!(
@@ -294,36 +294,38 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
             self.election_state, new_election_state, term
         );
         self.election_state = new_election_state;
-        let _ = server_event_sender.unbounded_send(
-            ServerEvent::ElectionStateChange {
-                election_state: self.election_state,
-                term,
-                voted_for: self.persistent_storage.voted_for(),
-            },
-        );
+        let _ = event_sender.unbounded_send(Event::ElectionStateChange {
+            election_state: self.election_state,
+            term,
+            voted_for: self.persistent_storage.voted_for(),
+        });
     }
 
     fn new(mobilize_args: MobilizeArgs) -> Self {
-        let peer_states = mobilize_args
+        let peers = mobilize_args
             .cluster
             .iter()
             .filter_map(|&id| {
                 if id == mobilize_args.id {
                     None
                 } else {
-                    Some((id, PeerState::default()))
+                    Some((id, Peer::default()))
                 }
             })
             .collect();
         Self {
+            cancel_election_timeout: None,
             cluster: mobilize_args.cluster,
             election_state: ElectionState::Follower,
+            #[cfg(test)]
+            election_timeout_counter: 0,
             id: mobilize_args.id,
             last_log_index: mobilize_args.log.base_index(),
             last_log_term: mobilize_args.log.base_term(),
             log: mobilize_args.log,
-            peer_states,
+            peers,
             persistent_storage: mobilize_args.persistent_storage,
+            rng: StdRng::from_entropy(),
         }
     }
 
@@ -331,7 +333,7 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
         &mut self,
         sender_id: usize,
         vote_granted: bool,
-        server_event_sender: &ServerEventSender<T>,
+        event_sender: &EventSender<T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) -> bool {
@@ -343,19 +345,19 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
             return false;
         }
         println!("Received vote {} from {}", vote_granted, sender_id);
-        if let Some(peer_state) = self.peer_states.get_mut(&sender_id) {
-            peer_state.vote = Some(vote_granted);
+        if let Some(peer) = self.peers.get_mut(&sender_id) {
+            peer.vote = Some(vote_granted);
         } else {
             return false;
         }
         let votes = self
-            .peer_states
+            .peers
             .values()
-            .filter(|peer_state| matches!(peer_state.vote, Some(vote) if vote))
+            .filter(|peer| matches!(peer.vote, Some(vote) if vote))
             .count()
             + 1; // we always vote for ourselves (it's implicit)
         if votes > self.cluster.len() - votes {
-            self.become_leader(server_event_sender, rpc_timeout, scheduler);
+            self.become_leader(event_sender, rpc_timeout, scheduler);
             true
         } else {
             false
@@ -368,7 +370,7 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
         candidate_term: usize,
         candidate_last_log_term: usize,
         candidate_last_log_index: usize,
-        server_event_sender: &ServerEventSender<T>,
+        event_sender: &EventSender<T>,
     ) -> bool {
         match candidate_term.cmp(&self.persistent_storage.term()) {
             Ordering::Less => return false,
@@ -393,10 +395,7 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
         }
         self.persistent_storage.update(candidate_term, Some(candidate_id));
         if self.election_state != ElectionState::Follower {
-            self.change_election_state(
-                ElectionState::Follower,
-                server_event_sender,
-            );
+            self.change_election_state(ElectionState::Follower, event_sender);
         }
         true
     }
@@ -408,14 +407,14 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
         term: usize,
         last_log_index: usize,
         last_log_term: usize,
-        server_event_sender: &ServerEventSender<T>,
+        event_sender: &EventSender<T>,
     ) -> bool {
         let vote_granted = self.decide_vote_grant(
             sender_id,
             term,
             last_log_term,
             last_log_index,
-            server_event_sender,
+            event_sender,
         );
         let message = Message {
             content: MessageContent::RequestVoteResults {
@@ -425,7 +424,7 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
             term: self.persistent_storage.term(),
         };
         println!("Sending message to {}: {:?}", sender_id, message);
-        let _ = server_event_sender.unbounded_send(ServerEvent::SendMessage {
+        let _ = event_sender.unbounded_send(Event::SendMessage {
             message,
             receiver_id: sender_id,
         });
@@ -448,7 +447,7 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
         &mut self,
         message: Message<T>,
         sender_id: usize,
-        server_event_sender: &ServerEventSender<T>,
+        event_sender: &EventSender<T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) -> bool {
@@ -457,9 +456,9 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
                 vote_granted,
             } => {
                 if self
-                    .peer_states
+                    .peers
                     .get(&sender_id)
-                    .filter(|peer_state| peer_state.last_seq == message.seq)
+                    .filter(|peer| peer.last_seq == message.seq)
                     .is_none()
                 {
                     println!("Received old vote");
@@ -469,7 +468,7 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
                 self.process_request_vote_results(
                     sender_id,
                     vote_granted,
-                    server_event_sender,
+                    event_sender,
                     rpc_timeout,
                     scheduler,
                 )
@@ -484,7 +483,7 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
                 message.term,
                 last_log_index,
                 last_log_term,
-                server_event_sender,
+                event_sender,
             ),
             MessageContent::AppendEntries(append_entries) => self
                 .process_append_entries(
@@ -499,13 +498,13 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
 
     fn process_sink_item(
         &mut self,
-        sink_item: ServerSinkItem<T>,
-        server_event_sender: &ServerEventSender<T>,
+        sink_item: SinkItem<T>,
+        event_sender: &EventSender<T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) -> bool {
         match sink_item {
-            ServerSinkItem::ReceiveMessage {
+            SinkItem::ReceiveMessage {
                 message,
                 sender_id,
                 received,
@@ -513,7 +512,7 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
                 let cancel_election_timer = self.process_receive_message(
                     message,
                     sender_id,
-                    server_event_sender,
+                    event_sender,
                     rpc_timeout,
                     scheduler,
                 );
@@ -528,17 +527,17 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
     fn send_new_message_broadcast(
         &mut self,
         content: MessageContent<T>,
-        server_event_sender: &ServerEventSender<T>,
+        event_sender: &EventSender<T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) {
         let term = self.persistent_storage.term();
-        for (&peer_id, peer_state) in &mut self.peer_states {
-            peer_state.send_new_request(
+        for (&peer_id, peer) in &mut self.peers {
+            peer.send_new_request(
                 content.clone(),
                 peer_id,
                 term,
-                server_event_sender,
+                event_sender,
                 rpc_timeout,
                 scheduler,
             );
@@ -548,43 +547,21 @@ impl<T: 'static + Clone + Debug + Send> OnlineState<T> {
 
 struct State<T> {
     configuration: Configuration,
-    #[cfg(test)]
-    election_timeout_counter: usize,
-    online: Option<OnlineState<T>>,
-    server_event_sender: ServerEventSender<T>,
+    mobilization: Option<Mobilization<T>>,
+    command_receiver: Option<CommandReceiver<T>>,
+    event_sender: EventSender<T>,
 }
 
 impl<T: 'static + Clone + Debug + Send> State<T> {
-    fn become_candidate(
-        &mut self,
-        scheduler: &Scheduler,
-    ) {
-        if let Some(state) = &mut self.online {
-            state.become_candidate(
-                &self.server_event_sender,
-                self.configuration.rpc_timeout,
-                scheduler,
-            );
-        }
-    }
-
-    fn election_state(&self) -> ElectionState {
-        if let Some(state) = &self.online {
-            state.election_state
-        } else {
-            ElectionState::Follower
-        }
-    }
-
     fn process_sink_item(
         &mut self,
-        sink_item: ServerSinkItem<T>,
+        sink_item: SinkItem<T>,
         scheduler: &Scheduler,
     ) -> bool {
-        if let Some(state) = &mut self.online {
-            state.process_sink_item(
+        if let Some(mobilization) = &mut self.mobilization {
+            mobilization.process_sink_item(
                 sink_item,
-                &self.server_event_sender,
+                &self.event_sender,
                 self.configuration.rpc_timeout,
                 scheduler,
             )
@@ -598,20 +575,169 @@ impl<T: 'static + Clone + Debug + Send> State<T> {
         peer_id: usize,
         scheduler: &Scheduler,
     ) {
-        if let Some(state) = &mut self.online {
-            if let Some(peer_state) = state.peer_states.get_mut(&peer_id) {
-                peer_state.cancel_retransmission.take();
-                let message = peer_state
+        if let Some(mobilization) = &mut self.mobilization {
+            if let Some(peer) = mobilization.peers.get_mut(&peer_id) {
+                peer.cancel_retransmission.take();
+                let message = peer
                     .last_message
                     .take()
                     .expect("lost message that needs to be retransmitted");
-                peer_state.send_request(
+                peer.send_request(
                     message,
                     peer_id,
-                    &self.server_event_sender,
+                    &self.event_sender,
                     self.configuration.rpc_timeout,
                     scheduler,
                 )
+            }
+        }
+    }
+
+    async fn serve(
+        &mut self,
+        scheduler: Scheduler,
+    ) where
+        T: 'static + Clone + Debug + Send,
+    {
+        let mut futures = Vec::new();
+        loop {
+            // Make server command receiver future if we don't have one.
+            if let Some(command_receiver) = self.command_receiver.take() {
+                futures
+                    .push(process_command_receiver(command_receiver).boxed());
+            }
+
+            // Make election timeout future if we don't have one and we are
+            // not the leader of the cluster.
+            self.upkeep_election_timeout_future(&mut futures, &scheduler);
+
+            // Add any RPC timeout futures that have been set up.
+            if let Some(mobilization) = &mut self.mobilization {
+                for peer in mobilization.peers.values_mut() {
+                    if let Some(future) = peer.retransmission_future.take() {
+                        futures.push(future);
+                    }
+                }
+            }
+
+            // Wait for the next future to complete.
+            let futures_in = futures;
+            let (future_kind, _, futures_remaining) =
+                future::select_all(futures_in).await;
+            match future_kind {
+                #[cfg(test)]
+                FutureKind::Cancelled(future_kind) => {
+                    println!("Completed canceled future: {}", future_kind);
+                },
+                #[cfg(not(test))]
+                FutureKind::Cancelled => {
+                    println!("Completed canceled future");
+                },
+                FutureKind::ElectionTimeout => {
+                    println!("*** Election timeout! ***");
+                    if let Some(mobilization) = &mut self.mobilization {
+                        mobilization.cancel_election_timeout.take();
+                        #[cfg(test)]
+                        {
+                            mobilization.election_timeout_counter += 1;
+                        }
+                        let is_not_leader = !matches!(
+                            mobilization.election_state,
+                            ElectionState::Leader
+                        );
+                        if is_not_leader {
+                            mobilization.become_candidate(
+                                &self.event_sender,
+                                self.configuration.rpc_timeout,
+                                &scheduler,
+                            );
+                        }
+                    }
+                },
+                FutureKind::RpcTimeout(peer_id) => {
+                    println!("*** RPC timeout ({})! ***", peer_id);
+                    self.retransmit(peer_id, &scheduler);
+                },
+                FutureKind::Command {
+                    command,
+                    command_receiver: command_receiver_out,
+                } => {
+                    println!("Command: {:?}", command);
+                    let cancel_election_timer = match command {
+                        Command::Configure(configuration) => {
+                            self.configuration = configuration;
+                            self.mobilization.is_some()
+                        },
+                        Command::Demobilize(completed) => {
+                            self.mobilization = None;
+                            let _ = completed.send(());
+                            true
+                        },
+                        #[cfg(test)]
+                        Command::FetchElectionTimeoutCounter(
+                            response_sender,
+                        ) => {
+                            if let Some(mobilization) = &self.mobilization {
+                                let _ = response_sender.send(
+                                    mobilization.election_timeout_counter,
+                                );
+                            }
+                            false
+                        },
+                        Command::Mobilize(mobilize_args) => {
+                            self.mobilization =
+                                Some(Mobilization::new(mobilize_args));
+                            true
+                        },
+                        Command::ProcessSinkItem(sink_item) => {
+                            self.process_sink_item(sink_item, &scheduler)
+                        },
+                    };
+                    if cancel_election_timer {
+                        if let Some(mobilization) = &mut self.mobilization {
+                            if let Some(cancel) =
+                                mobilization.cancel_election_timeout.take()
+                            {
+                                let _ = cancel.send(());
+                            }
+                        }
+                    }
+                    self.command_receiver.replace(command_receiver_out);
+                },
+                FutureKind::Stop => break,
+            }
+
+            // Move remaining futures back to await again in the next loop.
+            futures = futures_remaining;
+        }
+    }
+
+    fn upkeep_election_timeout_future(
+        &mut self,
+        futures: &mut Vec<BoxFuture<'static, FutureKind<T>>>,
+        scheduler: &Scheduler,
+    ) {
+        if let Some(mobilization) = &mut self.mobilization {
+            let is_not_leader =
+                !matches!(mobilization.election_state, ElectionState::Leader);
+            if is_not_leader && mobilization.cancel_election_timeout.is_none() {
+                let timeout_duration = mobilization.rng.gen_range(
+                    self.configuration.election_timeout.start,
+                    self.configuration.election_timeout.end,
+                );
+                println!(
+                    "Setting election timer to {:?} ({:?})",
+                    timeout_duration, self.configuration.election_timeout
+                );
+                let (future, cancel_future) = make_cancellable_timeout_future(
+                    FutureKind::ElectionTimeout,
+                    timeout_duration,
+                    #[cfg(test)]
+                    ScheduledEvent::ElectionTimeout,
+                    &scheduler,
+                );
+                futures.push(future);
+                mobilization.cancel_election_timeout.replace(cancel_future);
             }
         }
     }
@@ -653,15 +779,14 @@ fn make_cancellable_timeout_future<T: 'static + Debug + Send>(
     (future, sender)
 }
 
-async fn process_server_command_receiver<T: 'static + Clone + Debug + Send>(
-    server_command_receiver: ServerCommandReceiver<T>
+async fn process_command_receiver<T: 'static + Clone + Debug + Send>(
+    command_receiver: CommandReceiver<T>
 ) -> FutureKind<T> {
-    let (command, server_command_receiver) =
-        server_command_receiver.into_future().await;
+    let (command, command_receiver) = command_receiver.into_future().await;
     if let Some(command) = command {
-        FutureKind::ServerCommand {
+        FutureKind::Command {
             command,
-            server_command_receiver,
+            command_receiver,
         }
     } else {
         println!("Server command channel closed");
@@ -669,170 +794,31 @@ async fn process_server_command_receiver<T: 'static + Clone + Debug + Send>(
     }
 }
 
-fn upkeep_election_timeout_future<T: 'static + Clone + Debug + Send>(
-    state: &State<T>,
-    cancel_election_timeout: &mut Option<oneshot::Sender<()>>,
-    rng: &mut StdRng,
-    futures: &mut Vec<BoxFuture<'static, FutureKind<T>>>,
-    scheduler: &Scheduler,
-) {
-    if state.online.is_none() {
-        return;
-    }
-    let is_not_leader =
-        !matches!(state.election_state(), ElectionState::Leader);
-    if is_not_leader && cancel_election_timeout.is_none() {
-        let timeout_duration = rng.gen_range(
-            state.configuration.election_timeout.start,
-            state.configuration.election_timeout.end,
-        );
-        println!(
-            "Setting election timer to {:?} ({:?})",
-            timeout_duration, state.configuration.election_timeout
-        );
-        let (future, cancel_future) = make_cancellable_timeout_future(
-            FutureKind::ElectionTimeout,
-            timeout_duration,
-            #[cfg(test)]
-            ScheduledEvent::ElectionTimeout,
-            &scheduler,
-        );
-        futures.push(future);
-        cancel_election_timeout.replace(cancel_future);
-    }
-}
-
 async fn serve<T>(
-    server_command_receiver: ServerCommandReceiver<T>,
-    server_event_sender: ServerEventSender<T>,
+    command_receiver: CommandReceiver<T>,
+    event_sender: EventSender<T>,
     scheduler: Scheduler,
 ) where
     T: 'static + Clone + Debug + Send,
 {
     let mut state = State {
         configuration: Configuration::default(),
-        #[cfg(test)]
-        election_timeout_counter: 0,
-        online: None,
-        server_event_sender,
+        mobilization: None,
+        command_receiver: Some(command_receiver),
+        event_sender,
     };
-    let mut server_command_receiver = Some(server_command_receiver);
-    let mut cancel_election_timeout = None;
-    let mut rng = StdRng::from_entropy();
-    let mut futures = Vec::new();
-    loop {
-        // Make server command receiver future if we don't have one.
-        if let Some(server_command_receiver) = server_command_receiver.take() {
-            futures.push(
-                process_server_command_receiver(server_command_receiver)
-                    .boxed(),
-            );
-        }
-
-        // Make election timeout future if we don't have one and we are
-        // not the leader of the cluster.
-        upkeep_election_timeout_future(
-            &state,
-            &mut cancel_election_timeout,
-            &mut rng,
-            &mut futures,
-            &scheduler,
-        );
-
-        // Add any RPC timeout futures that have been set up.
-        if let Some(state) = &mut state.online {
-            for peer_state in state.peer_states.values_mut() {
-                if let Some(future) = peer_state.retransmission_future.take() {
-                    futures.push(future);
-                }
-            }
-        }
-
-        // Wait for the next future to complete.
-        let futures_in = futures;
-        let (future_kind, _, futures_remaining) =
-            future::select_all(futures_in).await;
-        match future_kind {
-            #[cfg(test)]
-            FutureKind::Cancelled(future_kind) => {
-                println!("Completed canceled future: {}", future_kind);
-            },
-            #[cfg(not(test))]
-            FutureKind::Cancelled => {
-                println!("Completed canceled future");
-            },
-            FutureKind::ElectionTimeout => {
-                println!("*** Election timeout! ***");
-                cancel_election_timeout.take();
-                #[cfg(test)]
-                {
-                    state.election_timeout_counter += 1;
-                }
-                let is_not_leader =
-                    !matches!(state.election_state(), ElectionState::Leader);
-                if is_not_leader {
-                    state.become_candidate(&scheduler);
-                }
-            },
-            FutureKind::RpcTimeout(peer_id) => {
-                println!("*** RPC timeout ({})! ***", peer_id);
-                state.retransmit(peer_id, &scheduler);
-            },
-            FutureKind::ServerCommand {
-                command,
-                server_command_receiver: server_command_receiver_out,
-            } => {
-                println!("ServerCommand: {:?}", command);
-                let cancel_election_timer = match command {
-                    ServerCommand::Configure(configuration) => {
-                        state.configuration = configuration;
-                        state.online.is_some()
-                    },
-                    ServerCommand::Demobilize(completed) => {
-                        state.online = None;
-                        let _ = completed.send(());
-                        true
-                    },
-                    #[cfg(test)]
-                    ServerCommand::FetchElectionTimeoutCounter(
-                        response_sender,
-                    ) => {
-                        let _ = response_sender
-                            .send(state.election_timeout_counter);
-                        false
-                    },
-                    ServerCommand::Mobilize(mobilize_args) => {
-                        state.online = Some(OnlineState::new(mobilize_args));
-                        true
-                    },
-                    ServerCommand::ProcessSinkItem(sink_item) => {
-                        state.process_sink_item(sink_item, &scheduler)
-                    },
-                };
-                if cancel_election_timer {
-                    if let Some(cancel) = cancel_election_timeout.take() {
-                        let _ = cancel.send(());
-                    }
-                }
-                server_command_receiver.replace(server_command_receiver_out);
-            },
-            FutureKind::Stop => break,
-        }
-
-        // Move remaining futures back to await again in the next loop.
-        futures = futures_remaining;
-    }
+    state.serve(scheduler).await
 }
 
 pub struct Server<T> {
     thread_join_handle: Option<thread::JoinHandle<()>>,
-    server_command_sender: ServerCommandSender<T>,
-    server_event_receiver: ServerEventReceiver<T>,
+    command_sender: CommandSender<T>,
+    event_receiver: EventReceiver<T>,
 }
 
 impl<T> Server<T>
 where
-    T: LogEntryCustomCommand + Clone + Debug + Send + Sync + 'static,
+    T: Clone + Debug + Send + 'static,
 {
     pub fn configure<C>(
         &self,
@@ -840,15 +826,15 @@ where
     ) where
         C: Into<Configuration>,
     {
-        self.server_command_sender
-            .unbounded_send(ServerCommand::Configure(configuration.into()))
+        self.command_sender
+            .unbounded_send(Command::Configure(configuration.into()))
             .expect("server command receiver dropped prematurely");
     }
 
     pub async fn demobilize(&self) {
         let (sender, receiver) = oneshot::channel();
-        self.server_command_sender
-            .unbounded_send(ServerCommand::Demobilize(sender))
+        self.command_sender
+            .unbounded_send(Command::Demobilize(sender))
             .expect("server command receiver dropped prematurely");
         receiver.await.expect("server dropped demobilize results sender");
     }
@@ -856,8 +842,8 @@ where
     #[cfg(test)]
     pub async fn election_timeout_count(&self) -> usize {
         let (sender, receiver) = oneshot::channel();
-        self.server_command_sender
-            .unbounded_send(ServerCommand::FetchElectionTimeoutCounter(sender))
+        self.command_sender
+            .unbounded_send(Command::FetchElectionTimeoutCounter(sender))
             .expect("server command receiver dropped prematurely");
         receiver.await.expect(
             "server dropped fetch election timeout counter results sender",
@@ -868,8 +854,8 @@ where
         &self,
         args: MobilizeArgs,
     ) {
-        self.server_command_sender
-            .unbounded_send(ServerCommand::Mobilize(args))
+        self.command_sender
+            .unbounded_send(Command::Mobilize(args))
             .expect("server command receiver dropped prematurely");
     }
 
@@ -886,16 +872,15 @@ where
     }
 
     fn new_with_scheduler(scheduler: Scheduler) -> Self {
-        let (server_command_sender, server_command_receiver) =
-            mpsc::unbounded();
-        let (server_event_sender, server_event_receiver) = mpsc::unbounded();
+        let (command_sender, command_receiver) = mpsc::unbounded();
+        let (event_sender, event_receiver) = mpsc::unbounded();
         Self {
-            server_command_sender,
-            server_event_receiver,
+            command_sender,
+            event_receiver,
             thread_join_handle: Some(thread::spawn(move || {
                 executor::block_on(serve(
-                    server_command_receiver,
-                    server_event_sender,
+                    command_receiver,
+                    event_sender,
                     scheduler,
                 ))
             })),
@@ -906,7 +891,7 @@ where
 #[cfg(not(test))]
 impl<T> Default for Server<T>
 where
-    T: LogEntryCustomCommand + Clone + Debug + Send + Sync + 'static,
+    T: Clone + Debug + Send + Sync + 'static,
 {
     fn default() -> Self {
         Self::new()
@@ -915,7 +900,7 @@ where
 
 impl<T> Drop for Server<T> {
     fn drop(&mut self) {
-        let _ = self.server_command_sender.close_channel();
+        let _ = self.command_sender.close_channel();
         self.thread_join_handle
             .take()
             .expect("somehow the server thread join handle got lost before we could take it")
@@ -925,32 +910,32 @@ impl<T> Drop for Server<T> {
 }
 
 impl<T: Debug> Stream for Server<T> {
-    type Item = ServerEvent<T>;
+    type Item = Event<T>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        self.server_event_receiver.poll_next_unpin(cx)
+        self.event_receiver.poll_next_unpin(cx)
     }
 }
 
-impl<T> Sink<ServerSinkItem<T>> for Server<T> {
+impl<T> Sink<SinkItem<T>> for Server<T> {
     type Error = Error;
 
     fn poll_ready(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
-        self.server_command_sender.poll_ready(cx).map(|_| Ok(()))
+        self.command_sender.poll_ready(cx).map(|_| Ok(()))
     }
 
     fn start_send(
         mut self: Pin<&mut Self>,
-        item: ServerSinkItem<T>,
+        item: SinkItem<T>,
     ) -> Result<(), Self::Error> {
-        self.server_command_sender
-            .start_send(ServerCommand::ProcessSinkItem(item))
+        self.command_sender
+            .start_send(Command::ProcessSinkItem(item))
             .expect("server command receiver unexpectedly dropped");
         Ok(())
     }
