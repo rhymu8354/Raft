@@ -7,6 +7,14 @@ use serde::{
 use serde_json::Value as JsonValue;
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AppendEntriesContent<T> {
+    pub leader_commit: usize,
+    pub prev_log_index: usize,
+    pub prev_log_term: usize,
+    pub log: Vec<LogEntry<T>>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum MessageContent<T> {
     RequestVote {
         // TODO: Possibly remove this field, because the receiver
@@ -19,12 +27,7 @@ pub enum MessageContent<T> {
     RequestVoteResults {
         vote_granted: bool,
     },
-    AppendEntries {
-        leader_commit: usize,
-        prev_log_index: usize,
-        prev_log_term: usize,
-        log: Vec<LogEntry<T>>,
-    },
+    AppendEntries(AppendEntriesContent<T>),
     AppendEntriesResults {
         match_index: usize,
         success: bool,
@@ -104,7 +107,7 @@ mod tests {
 
     #[test]
     fn request_vote() {
-        let message_in = Message::<DummyCommand> {
+        let message_in = Message {
             content: MessageContent::RequestVote {
                 candidate_id: 5,
                 last_log_index: 11,
@@ -121,7 +124,7 @@ mod tests {
 
     #[test]
     fn request_vote_results() {
-        let message_in = Message::<DummyCommand> {
+        let message_in = Message {
             content: MessageContent::RequestVoteResults {
                 vote_granted: true,
             },
@@ -136,13 +139,13 @@ mod tests {
 
     #[test]
     fn heart_beat() {
-        let message_in = Message::<DummyCommand> {
-            content: MessageContent::AppendEntries {
+        let message_in = Message {
+            content: MessageContent::AppendEntries(AppendEntriesContent {
                 leader_commit: 18,
                 prev_log_index: 6,
                 prev_log_term: 1,
                 log: vec![],
-            },
+            }),
             seq: 7,
             term: 8,
         };
@@ -155,11 +158,11 @@ mod tests {
     #[test]
     fn append_entries_with_content() {
         let entries = vec![
-            LogEntry::<DummyCommand> {
+            LogEntry {
                 term: 7,
                 command: None,
             },
-            LogEntry::<DummyCommand> {
+            LogEntry {
                 term: 8,
                 command: Some(Command::SingleConfiguration {
                     old_configuration: hashset!(2, 5, 6, 7, 11),
@@ -168,12 +171,12 @@ mod tests {
             },
         ];
         let message_in = Message {
-            content: MessageContent::AppendEntries {
+            content: MessageContent::AppendEntries(AppendEntriesContent {
                 leader_commit: 33,
                 prev_log_index: 5,
                 prev_log_term: 6,
                 log: entries,
-            },
+            }),
             seq: 9,
             term: 8,
         };
@@ -193,7 +196,7 @@ mod tests {
 
     #[test]
     fn append_entries_results() {
-        let message_in = Message::<DummyCommand> {
+        let message_in = Message {
             content: MessageContent::AppendEntriesResults {
                 match_index: 10,
                 success: false,
@@ -209,7 +212,7 @@ mod tests {
 
     #[test]
     fn install_snapshot() {
-        let message_in = Message::<DummyCommand> {
+        let message_in = Message {
             content: MessageContent::InstallSnapshot {
                 last_included_index: 2,
                 last_included_term: 7,
@@ -228,7 +231,7 @@ mod tests {
 
     #[test]
     fn install_snapshot_results() {
-        let message_in = Message::<DummyCommand> {
+        let message_in = Message {
             content: MessageContent::InstallSnapshotResults {
                 match_index: 100,
             },

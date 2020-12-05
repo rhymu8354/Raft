@@ -14,7 +14,7 @@ fn leader_sends_no_op_log_entry_upon_election() {
                 leader_commit: 0,
                 prev_log_term: 0,
                 prev_log_index: 0,
-                log: vec![LogEntry::<DummyCommand> {
+                log: vec![LogEntry {
                     term: 1,
                     command: None,
                 }],

@@ -14,7 +14,6 @@ fn new_election() {
         );
         fixture
             .expect_election(AwaitElectionTimeoutArgs {
-                expected_cancellations: 2,
                 last_log_term: 7,
                 last_log_index: 42,
                 term: 10,
@@ -40,12 +39,9 @@ fn elected_leader_unanimously() {
                 term: 1,
             })
             .await;
-        let (_election_timeout_duration, mut election_timeout_completers) =
+        let (_election_timeout_duration, election_timeout_completer) =
             fixture.expect_election_timer_registrations(1).await;
-        fixture.expect_election_timer_registrations_now(0);
-        election_timeout_completers
-            .pop()
-            .expect("no election timeout completers received")
+        election_timeout_completer
             .send(())
             .expect_err("server did not cancel last election timeout");
         fixture.cast_votes(2, 2).await;
@@ -230,7 +226,6 @@ fn timeout_before_majority_vote_or_new_leader_heart_beat() {
             .await;
         fixture
             .expect_election(AwaitElectionTimeoutArgs {
-                expected_cancellations: 0,
                 last_log_term: 0,
                 last_log_index: 0,
                 term: 2,

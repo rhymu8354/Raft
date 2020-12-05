@@ -213,9 +213,9 @@ mod tests {
 
     #[test]
     fn single_configuration_command_to_json() {
-        let entry = LogEntry {
+        let entry = LogEntry::<DummyCommand> {
             term: 9,
-            command: Some(Command::<DummyCommand>::SingleConfiguration {
+            command: Some(Command::SingleConfiguration {
                 old_configuration: hashset!(5, 42, 85, 13531, 8354),
                 configuration: hashset!(42, 85, 13531, 8354),
             }),
@@ -254,7 +254,7 @@ mod tests {
         let log_entry = LogEntry::<DummyCommand>::from(&encoded_entry);
         assert_eq!(log_entry, LogEntry {
             term: 9,
-            command: Some(Command::<DummyCommand>::SingleConfiguration {
+            command: Some(Command::SingleConfiguration {
                 old_configuration: hashset!(5, 42, 85, 13531, 8354),
                 configuration: hashset!(42, 85, 13531, 8354),
             }),
@@ -265,7 +265,7 @@ mod tests {
     fn single_configuration_command_serialization() {
         let original_entry = LogEntry {
             term: 9,
-            command: Some(Command::<DummyCommand>::SingleConfiguration {
+            command: Some(Command::SingleConfiguration {
                 old_configuration: hashset!(5, 42, 85, 13531, 8354),
                 configuration: hashset!(42, 85, 13531, 8354),
             }),
@@ -278,9 +278,9 @@ mod tests {
 
     #[test]
     fn joint_configuration_command_to_json() {
-        let entry = LogEntry {
+        let entry = LogEntry::<DummyCommand> {
             term: 9,
-            command: Some(Command::<DummyCommand>::JointConfiguration {
+            command: Some(Command::JointConfiguration {
                 old_configuration: hashset!(5, 42, 85, 13531, 8354),
                 new_configuration: hashset!(42, 85, 13531, 8354),
             }),
@@ -319,7 +319,7 @@ mod tests {
         let log_entry = LogEntry::<DummyCommand>::from(&encoded_entry);
         assert_eq!(log_entry, LogEntry {
             term: 9,
-            command: Some(Command::<DummyCommand>::JointConfiguration {
+            command: Some(Command::JointConfiguration {
                 old_configuration: hashset!(5, 42, 85, 13531, 8354),
                 new_configuration: hashset!(42, 85, 13531, 8354),
             }),
@@ -330,7 +330,7 @@ mod tests {
     fn joint_configuration_command_serialization() {
         let original_entry = LogEntry {
             term: 9,
-            command: Some(Command::<DummyCommand>::JointConfiguration {
+            command: Some(Command::JointConfiguration {
                 old_configuration: hashset!(5, 42, 85, 13531, 8354),
                 new_configuration: hashset!(42, 85, 13531, 8354),
             }),

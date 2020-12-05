@@ -78,7 +78,6 @@ impl LogEntryCustomCommand for DummyCommand {
 }
 
 struct AwaitElectionTimeoutArgs {
-    expected_cancellations: usize,
     last_log_term: usize,
     last_log_index: usize,
     term: usize,
@@ -164,9 +163,7 @@ impl Fixture {
     async fn await_election_timer_registrations(
         &mut self,
         mut num_timers_to_await: usize,
-    ) -> (Duration, Vec<oneshot::Sender<()>>) {
-        let mut election_timeout_completers = Vec::new();
-        election_timeout_completers.reserve(num_timers_to_await);
+    ) -> (Duration, oneshot::Sender<()>) {
         loop {
             let event_with_completer = self
                 .scheduled_event_receiver
@@ -179,10 +176,9 @@ impl Fixture {
                 completer,
             } = event_with_completer
             {
-                election_timeout_completers.push(completer);
                 num_timers_to_await -= 1;
                 if num_timers_to_await == 0 {
-                    break (duration, election_timeout_completers);
+                    break (duration, completer);
                 }
             }
         }
@@ -191,13 +187,15 @@ impl Fixture {
     async fn expect_election_timer_registrations(
         &mut self,
         num_timers_to_await: usize,
-    ) -> (Duration, Vec<oneshot::Sender<()>>) {
-        timeout(
+    ) -> (Duration, oneshot::Sender<()>) {
+        let duration_and_completer = timeout(
             REASONABLE_FAST_OPERATION_TIMEOUT,
             self.await_election_timer_registrations(num_timers_to_await),
         )
         .await
-        .expect("timeout waiting for election timer registration")
+        .expect("timeout waiting for election timer registration");
+        self.expect_election_timer_registrations_now(0);
+        duration_and_completer
     }
 
     fn expect_election_timer_registrations_now(
@@ -225,13 +223,9 @@ impl Fixture {
         );
     }
 
-    async fn trigger_election_timeout(
-        &mut self,
-        num_timers_to_skip: usize,
-    ) {
-        let (election_timeout_duration, mut election_timeout_completers) = self
-            .expect_election_timer_registrations(num_timers_to_skip + 1)
-            .await;
+    async fn trigger_election_timeout(&mut self) {
+        let (election_timeout_duration, election_timeout_completer) =
+            self.expect_election_timer_registrations(1).await;
         assert!(
             self.configuration
                 .election_timeout
@@ -240,9 +234,7 @@ impl Fixture {
             election_timeout_duration,
             self.configuration.election_timeout
         );
-        election_timeout_completers
-            .pop()
-            .expect("no election timeout completers received")
+        election_timeout_completer
             .send(())
             .expect("server dropped election timeout future");
     }
@@ -251,7 +243,7 @@ impl Fixture {
         &self,
         args: VerifyVoteRequestArgs,
     ) -> bool {
-        if let MessageContent::<DummyCommand>::RequestVote {
+        if let MessageContent::RequestVote {
             candidate_id,
             last_log_index,
             last_log_term,
@@ -393,7 +385,7 @@ impl Fixture {
     ) {
         // Expect the server to register an election timeout event with a
         // duration within the configured range, and complete it.
-        self.trigger_election_timeout(args.expected_cancellations).await;
+        self.trigger_election_timeout().await;
 
         // Wait on server stream until we receive all the expected
         // vote requests.
@@ -407,7 +399,6 @@ impl Fixture {
 
     async fn expect_election_with_defaults(&mut self) {
         self.expect_election(AwaitElectionTimeoutArgs {
-            expected_cancellations: 2,
             last_log_term: 0,
             last_log_index: 0,
             term: 1,
@@ -494,7 +485,7 @@ impl Fixture {
         receiver_id: usize,
         args: &AwaitVoteArgs,
     ) -> bool {
-        if let MessageContent::<DummyCommand>::RequestVoteResults {
+        if let MessageContent::RequestVoteResults {
             vote_granted,
         } = message.content
         {
@@ -805,12 +796,12 @@ impl Fixture {
         &self,
         args: VerifyAppendEntriesArgs,
     ) -> bool {
-        if let MessageContent::<DummyCommand>::AppendEntries {
+        if let MessageContent::AppendEntries(AppendEntriesContent {
             leader_commit,
             prev_log_index,
             prev_log_term,
             log,
-        } = &args.message.content
+        }) = &args.message.content
         {
             assert_eq!(
                 *leader_commit, args.expected_leader_commit,
@@ -918,6 +909,14 @@ impl Fixture {
                 recipient_id
             );
         }
+    }
+
+    async fn send_server_message(
+        &mut self,
+        message: Message<DummyCommand>,
+        sender_id: usize,
+    ) {
+        send_server_message(&mut self.server, message, sender_id).await
     }
 }
 
