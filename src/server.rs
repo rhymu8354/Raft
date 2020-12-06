@@ -1,8 +1,6 @@
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-use crate::ScheduledEvent;
 use crate::{
     AppendEntriesContent,
     Configuration,
@@ -13,6 +11,11 @@ use crate::{
     MessageContent,
     PersistentStorage,
     Scheduler,
+};
+#[cfg(test)]
+use crate::{
+    ScheduledEvent,
+    ScheduledEventReceiver,
 };
 use futures::{
     channel::{
@@ -45,32 +48,43 @@ use std::{
     time::Duration,
 };
 
-#[cfg(test)]
-use crate::ScheduledEventReceiver;
-
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ElectionState {
-    Follower,
     Candidate,
+    Follower,
     Leader,
 }
 
+impl ElectionState {
+    pub fn is_candidate(&self) -> bool {
+        matches!(*self, ElectionState::Candidate)
+    }
+
+    pub fn is_follower(&self) -> bool {
+        matches!(*self, ElectionState::Follower)
+    }
+
+    pub fn is_leader(&self) -> bool {
+        matches!(*self, ElectionState::Leader)
+    }
+}
+
 pub struct MobilizeArgs {
-    pub id: usize,
     pub cluster: HashSet<usize>,
+    pub id: usize,
     pub log: Box<dyn Log>,
     pub persistent_storage: Box<dyn PersistentStorage>,
 }
 
 pub enum Event<T> {
-    SendMessage {
-        message: Message<T>,
-        receiver_id: usize,
-    },
     ElectionStateChange {
         election_state: ElectionState,
         term: usize,
         voted_for: Option<usize>,
+    },
+    SendMessage {
+        message: Message<T>,
+        receiver_id: usize,
     },
 }
 
@@ -81,11 +95,11 @@ type EventSender<T> = mpsc::UnboundedSender<Event<T>>;
 pub enum SinkItem<T> {
     ReceiveMessage {
         message: Message<T>,
-        sender_id: usize,
         // TODO: Consider using a future instead of an optional channel.
         // The real code could provide a no-op future, whereas
         // test code could provide a future which the test waits on.
         received: Option<oneshot::Sender<()>>,
+        sender_id: usize,
     },
 }
 
@@ -99,21 +113,26 @@ enum Command<T> {
 }
 
 #[derive(Debug)]
-enum FutureKind<T> {
+enum WorkItem<T> {
     #[cfg(test)]
     Cancelled(String),
     #[cfg(not(test))]
     Cancelled,
     ElectionTimeout,
-    RpcTimeout(usize),
     Command {
         command: Command<T>,
         command_receiver: CommandReceiver<T>,
     },
+    RpcTimeout(usize),
     Stop,
 }
 
-impl<T: Debug> Debug for Command<T> {
+type WorkItemFuture<T> = BoxFuture<'static, WorkItem<T>>;
+
+impl<T> Debug for Command<T>
+where
+    T: Debug,
+{
     fn fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
@@ -140,11 +159,14 @@ struct Peer<T> {
     cancel_retransmission: Option<oneshot::Sender<()>>,
     last_message: Option<Message<T>>,
     last_seq: usize,
-    retransmission_future: Option<BoxFuture<'static, FutureKind<T>>>,
+    retransmission_future: Option<WorkItemFuture<T>>,
     vote: Option<bool>,
 }
 
-impl<T: 'static + Clone + Debug + Send> Peer<T> {
+impl<T> Peer<T>
+where
+    T: 'static + Clone + Debug + Send,
+{
     fn send_request(
         &mut self,
         message: Message<T>,
@@ -155,7 +177,7 @@ impl<T: 'static + Clone + Debug + Send> Peer<T> {
     ) {
         self.last_message = Some(message.clone());
         let (future, cancel_future) = make_cancellable_timeout_future(
-            FutureKind::RpcTimeout(peer_id),
+            WorkItem::RpcTimeout(peer_id),
             rpc_timeout,
             #[cfg(test)]
             ScheduledEvent::Retransmit(peer_id),
@@ -225,7 +247,10 @@ struct Mobilization<T> {
     rng: StdRng,
 }
 
-impl<T: 'static + Clone + Debug + Send> Mobilization<T> {
+impl<T> Mobilization<T>
+where
+    T: 'static + Clone + Debug + Send,
+{
     fn become_candidate(
         &mut self,
         event_sender: &EventSender<T>,
@@ -552,7 +577,10 @@ struct Inner<T> {
     event_sender: EventSender<T>,
 }
 
-impl<T: 'static + Clone + Debug + Send> Inner<T> {
+impl<T> Inner<T>
+where
+    T: 'static + Clone + Debug + Send,
+{
     fn process_sink_item(
         &mut self,
         sink_item: SinkItem<T>,
@@ -614,26 +642,27 @@ impl<T: 'static + Clone + Debug + Send> Inner<T> {
             // Add any RPC timeout futures that have been set up.
             if let Some(mobilization) = &mut self.mobilization {
                 for peer in mobilization.peers.values_mut() {
-                    if let Some(future) = peer.retransmission_future.take() {
-                        futures.push(future);
+                    if let Some(work_item) = peer.retransmission_future.take() {
+                        futures.push(work_item);
                     }
                 }
             }
 
             // Wait for the next future to complete.
-            let futures_in = futures;
-            let (future_kind, _, futures_remaining) =
-                future::select_all(futures_in).await;
-            match future_kind {
+            // let futures_in = futures;
+            let (work_item, _, futures_remaining) =
+                future::select_all(futures).await;
+            futures = futures_remaining;
+            match work_item {
                 #[cfg(test)]
-                FutureKind::Cancelled(future_kind) => {
-                    println!("Completed canceled future: {}", future_kind);
+                WorkItem::Cancelled(work_item) => {
+                    println!("Completed canceled future: {}", work_item);
                 },
                 #[cfg(not(test))]
-                FutureKind::Cancelled => {
+                WorkItem::Cancelled => {
                     println!("Completed canceled future");
                 },
-                FutureKind::ElectionTimeout => {
+                WorkItem::ElectionTimeout => {
                     println!("*** Election timeout! ***");
                     if let Some(mobilization) = &mut self.mobilization {
                         mobilization.cancel_election_timeout.take();
@@ -641,11 +670,7 @@ impl<T: 'static + Clone + Debug + Send> Inner<T> {
                         {
                             mobilization.election_timeout_counter += 1;
                         }
-                        let is_not_leader = !matches!(
-                            mobilization.election_state,
-                            ElectionState::Leader
-                        );
-                        if is_not_leader {
+                        if !mobilization.election_state.is_leader() {
                             mobilization.become_candidate(
                                 &self.event_sender,
                                 self.configuration.rpc_timeout,
@@ -654,11 +679,11 @@ impl<T: 'static + Clone + Debug + Send> Inner<T> {
                         }
                     }
                 },
-                FutureKind::RpcTimeout(peer_id) => {
+                WorkItem::RpcTimeout(peer_id) => {
                     println!("*** RPC timeout ({})! ***", peer_id);
                     self.retransmit(peer_id, &scheduler);
                 },
-                FutureKind::Command {
+                WorkItem::Command {
                     command,
                     command_receiver: command_receiver_out,
                 } => {
@@ -704,23 +729,20 @@ impl<T: 'static + Clone + Debug + Send> Inner<T> {
                     }
                     self.command_receiver.replace(command_receiver_out);
                 },
-                FutureKind::Stop => break,
+                WorkItem::Stop => break,
             }
-
-            // Move remaining futures back to await again in the next loop.
-            futures = futures_remaining;
         }
     }
 
     fn upkeep_election_timeout_future(
         &mut self,
-        futures: &mut Vec<BoxFuture<'static, FutureKind<T>>>,
+        futures: &mut Vec<WorkItemFuture<T>>,
         scheduler: &Scheduler,
     ) {
         if let Some(mobilization) = &mut self.mobilization {
-            let is_not_leader =
-                !matches!(mobilization.election_state, ElectionState::Leader);
-            if is_not_leader && mobilization.cancel_election_timeout.is_none() {
+            if !mobilization.election_state.is_leader()
+                && mobilization.cancel_election_timeout.is_none()
+            {
                 let timeout_duration = mobilization.rng.gen_range(
                     self.configuration.election_timeout.start,
                     self.configuration.election_timeout.end,
@@ -730,7 +752,7 @@ impl<T: 'static + Clone + Debug + Send> Inner<T> {
                     timeout_duration, self.configuration.election_timeout
                 );
                 let (future, cancel_future) = make_cancellable_timeout_future(
-                    FutureKind::ElectionTimeout,
+                    WorkItem::ElectionTimeout,
                     timeout_duration,
                     #[cfg(test)]
                     ScheduledEvent::ElectionTimeout,
@@ -748,26 +770,26 @@ async fn await_cancellation(cancel: oneshot::Receiver<()>) {
 }
 
 async fn await_cancellable_timeout<T: Debug + Send>(
-    future_kind: FutureKind<T>,
+    work_item: WorkItem<T>,
     timeout: BoxFuture<'static, ()>,
     cancel: oneshot::Receiver<()>,
-) -> FutureKind<T> {
+) -> WorkItem<T> {
     #[cfg(test)]
-    let cancelled = FutureKind::Cancelled(format!("{:?}", future_kind));
+    let cancelled = WorkItem::Cancelled(format!("{:?}", work_item));
     #[cfg(not(test))]
-    let cancelled = FutureKind::Cancelled;
+    let cancelled = WorkItem::Cancelled;
     futures::select! {
-        _ = timeout.fuse() => future_kind,
+        _ = timeout.fuse() => work_item,
         _ = await_cancellation(cancel).fuse() => cancelled,
     }
 }
 
 fn make_cancellable_timeout_future<T: 'static + Debug + Send>(
-    future_kind: FutureKind<T>,
+    work_item: WorkItem<T>,
     duration: Duration,
     #[cfg(test)] scheduled_event: ScheduledEvent,
     scheduler: &Scheduler,
-) -> (BoxFuture<'static, FutureKind<T>>, oneshot::Sender<()>) {
+) -> (WorkItemFuture<T>, oneshot::Sender<()>) {
     let (sender, receiver) = oneshot::channel();
     let timeout = scheduler.schedule(
         #[cfg(test)]
@@ -775,22 +797,22 @@ fn make_cancellable_timeout_future<T: 'static + Debug + Send>(
         duration,
     );
     let future =
-        await_cancellable_timeout(future_kind, timeout, receiver).boxed();
+        await_cancellable_timeout(work_item, timeout, receiver).boxed();
     (future, sender)
 }
 
 async fn process_command_receiver<T: 'static + Clone + Debug + Send>(
     command_receiver: CommandReceiver<T>
-) -> FutureKind<T> {
+) -> WorkItem<T> {
     let (command, command_receiver) = command_receiver.into_future().await;
     if let Some(command) = command {
-        FutureKind::Command {
+        WorkItem::Command {
             command,
             command_receiver,
         }
     } else {
         println!("Server command channel closed");
-        FutureKind::Stop
+        WorkItem::Stop
     }
 }
 
@@ -895,7 +917,10 @@ impl<T> Drop for Server<T> {
     }
 }
 
-impl<T: Debug> Stream for Server<T> {
+impl<T> Stream for Server<T>
+where
+    T: Debug,
+{
     type Item = Event<T>;
 
     fn poll_next(
