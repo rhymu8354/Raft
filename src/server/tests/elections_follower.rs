@@ -1,4 +1,5 @@
 use super::*;
+use futures::executor;
 
 #[test]
 fn follower_votes_for_first_candidate() {

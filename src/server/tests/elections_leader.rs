@@ -1,4 +1,5 @@
 use super::*;
+use futures::executor;
 
 #[test]
 fn new_election() {

@@ -1,11 +1,12 @@
 use super::*;
+use futures::executor;
 
 #[test]
 fn mobilize_twice_does_not_crash() {
     let fixture = Fixture::new();
     let (mock_log, _) = MockLog::new();
     let (mock_persistent_storage, _) = MockPersistentStorage::new();
-    fixture.server.mobilize(MobilizeArgs {
+    fixture.server.mobilize(ServerMobilizeArgs {
         id: fixture.id,
         cluster: fixture.cluster.clone(),
         log: Box::new(mock_log),
@@ -13,7 +14,7 @@ fn mobilize_twice_does_not_crash() {
     });
     let (mock_log, _) = MockLog::new();
     let (mock_persistent_storage, _) = MockPersistentStorage::new();
-    fixture.server.mobilize(MobilizeArgs {
+    fixture.server.mobilize(ServerMobilizeArgs {
         id: fixture.id,
         cluster: fixture.cluster.clone(),
         log: Box::new(mock_log),

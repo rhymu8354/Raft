@@ -14,8 +14,10 @@ mod server;
 pub use configuration::Configuration;
 pub use error::Error;
 pub use log::Log;
-pub use log_entry::CustomCommand as LogEntryCustomCommand;
-use log_entry::LogEntry;
+pub use log_entry::{
+    CustomCommand as LogEntryCustomCommand,
+    LogEntry,
+};
 pub use message::{
     AppendEntriesContent,
     Message,
@@ -32,6 +34,9 @@ pub use persistent_storage::PersistentStorage;
 #[cfg(not(test))]
 use scheduler::Scheduler;
 pub use server::{
+    ElectionState as ServerElectionState,
+    Event as ServerEvent,
+    MobilizeArgs as ServerMobilizeArgs,
     Server,
     SinkItem as ServerSinkItem,
 };

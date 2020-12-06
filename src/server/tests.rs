@@ -1,5 +1,3 @@
-use super::*;
-
 mod common;
 mod elections_follower;
 mod elections_leader;
@@ -8,17 +6,26 @@ mod mock_persistent_storage;
 mod replication_follower;
 mod replication_leader;
 
+use super::Server;
 use crate::{
+    AppendEntriesContent,
+    Configuration,
+    Log,
     LogEntry,
     LogEntryCustomCommand,
     Message,
     MessageContent,
+    PersistentStorage,
     ScheduledEvent,
     ScheduledEventReceiver,
     ScheduledEventWithCompleter,
+    ServerElectionState,
+    ServerEvent,
+    ServerMobilizeArgs,
     ServerSinkItem,
 };
 use futures::{
+    channel::oneshot,
     FutureExt as _,
     SinkExt,
     StreamExt as _,
@@ -296,7 +303,7 @@ impl Fixture {
                 .await
                 .expect("unexpected end of server events");
             match event {
-                Event::SendMessage {
+                ServerEvent::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -310,12 +317,12 @@ impl Fixture {
                         break receiver_id;
                     }
                 },
-                Event::ElectionStateChange {
+                ServerEvent::ElectionStateChange {
                     election_state,
                     term,
                     voted_for,
                 } => {
-                    assert_eq!(ElectionState::Candidate, election_state);
+                    assert_eq!(ServerElectionState::Candidate, election_state);
                     assert_eq!(
                         term,
                         expected_term,
@@ -416,13 +423,13 @@ impl Fixture {
                 .next()
                 .await
                 .expect("unexpected end of server events");
-            if let Event::ElectionStateChange {
+            if let ServerEvent::ElectionStateChange {
                 election_state: new_election_state,
                 term,
                 voted_for,
             } = event
             {
-                assert_eq!(ElectionState::Leader, new_election_state);
+                assert_eq!(ServerElectionState::Leader, new_election_state);
                 assert_eq!(
                     term,
                     args.term,
@@ -514,7 +521,7 @@ impl Fixture {
                 .await
                 .expect("unexpected end of server events");
             match event {
-                Event::SendMessage {
+                ServerEvent::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -522,13 +529,13 @@ impl Fixture {
                         break;
                     }
                 },
-                Event::ElectionStateChange {
+                ServerEvent::ElectionStateChange {
                     election_state,
                     term,
                     voted_for,
                 } => {
                     state_changed = true;
-                    assert_eq!(election_state, ElectionState::Follower);
+                    assert_eq!(election_state, ServerElectionState::Follower);
                     assert_eq!(
                         term, args.term,
                         "wrong term in election state change (was {}, should be {})",
@@ -560,10 +567,10 @@ impl Fixture {
 
     fn expect_election_state_change(
         &mut self,
-        election_state: ElectionState,
+        election_state: ServerElectionState,
     ) {
         while let Some(event) = self.server.next().now_or_never() {
-            if let Event::ElectionStateChange {
+            if let ServerEvent::ElectionStateChange {
                 election_state: new_election_state,
                 ..
             } = event.expect("unexpected end of server events")
@@ -577,7 +584,7 @@ impl Fixture {
 
     fn expect_no_election_state_changes(&mut self) {
         while let Some(event) = self.server.next().now_or_never() {
-            if let Event::ElectionStateChange {
+            if let ServerEvent::ElectionStateChange {
                 election_state,
                 ..
             } = event.expect("unexpected end of server events")
@@ -681,7 +688,7 @@ impl Fixture {
                 .await
                 .expect("unexpected end of server events");
             match event {
-                Event::SendMessage {
+                ServerEvent::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -689,7 +696,7 @@ impl Fixture {
                         return message;
                     }
                 },
-                Event::ElectionStateChange {
+                ServerEvent::ElectionStateChange {
                     election_state,
                     ..
                 } => {
@@ -773,7 +780,7 @@ impl Fixture {
         if !self.configured {
             self.configure_server();
         }
-        self.server.mobilize(MobilizeArgs {
+        self.server.mobilize(ServerMobilizeArgs {
             id: self.id,
             cluster: self.cluster.clone(),
             log,
@@ -852,7 +859,7 @@ impl Fixture {
                 .await
                 .expect("unexpected end of server events");
             match event {
-                Event::SendMessage {
+                ServerEvent::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -870,7 +877,7 @@ impl Fixture {
                         break receiver_id;
                     }
                 },
-                Event::ElectionStateChange {
+                ServerEvent::ElectionStateChange {
                     election_state,
                     ..
                 } => {

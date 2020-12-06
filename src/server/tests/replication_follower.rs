@@ -1,4 +1,6 @@
 use super::*;
+use crate::AppendEntriesContent;
+use futures::executor;
 
 #[test]
 fn follower_receive_append_entries() {
