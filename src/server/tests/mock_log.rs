@@ -17,6 +17,28 @@ pub struct MockLogShared {
     pub last_index: usize,
 }
 
+impl MockLogShared {
+    fn append_one(
+        &mut self,
+        entry: LogEntry<DummyCommand>,
+    ) {
+        self.last_index += 1;
+        self.last_term = entry.term;
+        self.entries.push(entry);
+    }
+
+    fn append<T>(
+        &mut self,
+        entries: T,
+    ) where
+        T: IntoIterator<Item = LogEntry<DummyCommand>>,
+    {
+        for entry in entries.into_iter() {
+            self.append_one(entry);
+        }
+    }
+}
+
 pub struct MockLog {
     pub shared: Arc<Mutex<MockLogShared>>,
 }
@@ -49,14 +71,20 @@ impl MockLog {
 impl Log for MockLog {
     type Command = DummyCommand;
 
-    fn append(
+    fn append_one(
         &mut self,
         entry: LogEntry<Self::Command>,
     ) {
         let mut shared = self.shared.lock().unwrap();
-        shared.last_index += 1;
-        shared.last_term = entry.term;
-        shared.entries.push(entry);
+        shared.append_one(entry)
+    }
+
+    fn append(
+        &mut self,
+        entries: Box<dyn Iterator<Item = LogEntry<Self::Command>>>,
+    ) {
+        let mut shared = self.shared.lock().unwrap();
+        shared.append(entries)
     }
 
     fn base_term(&self) -> usize {

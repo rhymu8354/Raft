@@ -282,12 +282,13 @@ impl<T> Mobilization<T> {
         _seq: usize,
         term: usize,
         append_entries: AppendEntriesContent<T>,
-    ) -> bool {
+    ) -> bool
+    where
+        T: 'static,
+    {
         self.persistent_storage
             .update(term, self.persistent_storage.voted_for());
-        for entry in append_entries.log {
-            self.log.append(entry);
-        }
+        self.log.append(Box::new(append_entries.log.into_iter()));
         true
     }
 
