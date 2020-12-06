@@ -1,4 +1,8 @@
-use crate::Log;
+use super::DummyCommand;
+use crate::{
+    Log,
+    LogEntry,
+};
 use std::sync::{
     Arc,
     Mutex,
@@ -8,6 +12,7 @@ pub struct MockLogShared {
     pub base_term: usize,
     pub base_index: usize,
     pub dropped: bool,
+    pub entries: Vec<LogEntry<DummyCommand>>,
     pub last_term: usize,
     pub last_index: usize,
 }
@@ -26,6 +31,7 @@ impl MockLog {
             base_term: 0,
             base_index: 0,
             dropped: false,
+            entries: vec![],
             last_term: 0,
             last_index: 0,
         }));
@@ -41,6 +47,18 @@ impl MockLog {
 }
 
 impl Log for MockLog {
+    type Command = DummyCommand;
+
+    fn append(
+        &mut self,
+        entry: LogEntry<Self::Command>,
+    ) {
+        let mut shared = self.shared.lock().unwrap();
+        shared.last_index += 1;
+        shared.last_term = entry.term;
+        shared.entries.push(entry);
+    }
+
     fn base_term(&self) -> usize {
         let shared = self.shared.lock().unwrap();
         shared.base_term

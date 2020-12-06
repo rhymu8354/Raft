@@ -8,7 +8,7 @@ fn follower_receive_append_entries() {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(0, None);
-        let (mock_log, _mock_log_back_end) =
+        let (mock_log, mock_log_back_end) =
             new_mock_log_with_non_defaults(0, 0);
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
@@ -45,6 +45,10 @@ fn follower_receive_append_entries() {
             election_timeout_duration,
             fixture.configuration.election_timeout
         );
+        verify_log(&mock_log_back_end, 0, 0, &vec![LogEntry {
+            term: 1,
+            command: None,
+        }]);
         verify_persistent_storage(&mock_persistent_storage_back_end, 1, None);
     });
 }

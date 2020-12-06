@@ -65,7 +65,7 @@ where
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-struct DummyCommand {}
+pub struct DummyCommand {}
 
 impl LogEntryCustomCommand for DummyCommand {
     fn command_type(&self) -> &'static str {
@@ -762,7 +762,7 @@ impl Fixture {
 
     fn mobilize_server_with_log(
         &mut self,
-        log: Box<dyn Log>,
+        log: Box<dyn Log<Command = DummyCommand>>,
     ) {
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             MockPersistentStorage::new();
@@ -774,7 +774,7 @@ impl Fixture {
 
     fn mobilize_server_with_log_and_persistent_storage(
         &mut self,
-        log: Box<dyn Log>,
+        log: Box<dyn Log<Command = DummyCommand>>,
         persistent_storage: Box<dyn PersistentStorage>,
     ) {
         if !self.configured {
@@ -955,6 +955,20 @@ fn new_mock_persistent_storage_with_non_defaults(
         persistent_storage_shared.voted_for = voted_for;
     }
     (mock_persistent_storage, mock_persistent_storage_back_end)
+}
+
+fn verify_log<L>(
+    mock_log_back_end: &MockLogBackEnd,
+    base_term: usize,
+    base_index: usize,
+    entries: L,
+) where
+    L: AsRef<[LogEntry<DummyCommand>]>,
+{
+    let log_shared = mock_log_back_end.shared.lock().unwrap();
+    assert_eq!(base_term, log_shared.base_term);
+    assert_eq!(base_index, log_shared.base_index);
+    assert_eq!(entries.as_ref(), log_shared.entries);
 }
 
 fn verify_persistent_storage(

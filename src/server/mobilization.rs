@@ -46,7 +46,7 @@ pub struct Mobilization<T> {
     id: usize,
     last_log_index: usize,
     last_log_term: usize,
-    log: Box<dyn Log>,
+    log: Box<dyn Log<Command = T>>,
     peers: HashMap<usize, Peer<T>>,
     persistent_storage: Box<dyn PersistentStorage>,
     rng: StdRng,
@@ -192,7 +192,7 @@ impl<T> Mobilization<T> {
         }
     }
 
-    pub fn new(mobilize_args: MobilizeArgs) -> Self {
+    pub fn new(mobilize_args: MobilizeArgs<T>) -> Self {
         let peers = mobilize_args
             .cluster
             .iter()
@@ -281,10 +281,13 @@ impl<T> Mobilization<T> {
         _sender_id: usize,
         _seq: usize,
         term: usize,
-        _append_entries: AppendEntriesContent<T>,
+        append_entries: AppendEntriesContent<T>,
     ) -> bool {
         self.persistent_storage
             .update(term, self.persistent_storage.voted_for());
+        for entry in append_entries.log {
+            self.log.append(entry);
+        }
         true
     }
 

@@ -46,10 +46,10 @@ pub enum ElectionState {
     Leader,
 }
 
-pub struct MobilizeArgs {
+pub struct MobilizeArgs<T> {
     pub cluster: HashSet<usize>,
     pub id: usize,
-    pub log: Box<dyn Log>,
+    pub log: Box<dyn Log<Command = T>>,
     pub persistent_storage: Box<dyn PersistentStorage>,
 }
 
@@ -85,7 +85,7 @@ pub enum Command<T> {
     Demobilize(oneshot::Sender<()>),
     #[cfg(test)]
     FetchElectionTimeoutCounter(oneshot::Sender<usize>),
-    Mobilize(MobilizeArgs),
+    Mobilize(MobilizeArgs<T>),
     ProcessSinkItem(SinkItem<T>),
 }
 
@@ -213,7 +213,7 @@ impl<T> Server<T> {
 
     pub fn mobilize(
         &self,
-        args: MobilizeArgs,
+        args: MobilizeArgs<T>,
     ) {
         self.command_sender
             .unbounded_send(Command::Mobilize(args))
