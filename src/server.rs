@@ -545,14 +545,14 @@ impl<T: 'static + Clone + Debug + Send> Mobilization<T> {
     }
 }
 
-struct State<T> {
+struct Inner<T> {
     configuration: Configuration,
     mobilization: Option<Mobilization<T>>,
     command_receiver: Option<CommandReceiver<T>>,
     event_sender: EventSender<T>,
 }
 
-impl<T: 'static + Clone + Debug + Send> State<T> {
+impl<T: 'static + Clone + Debug + Send> Inner<T> {
     fn process_sink_item(
         &mut self,
         sink_item: SinkItem<T>,
@@ -594,7 +594,7 @@ impl<T: 'static + Clone + Debug + Send> State<T> {
     }
 
     async fn serve(
-        &mut self,
+        mut self,
         scheduler: Scheduler,
     ) where
         T: 'static + Clone + Debug + Send,
@@ -794,22 +794,6 @@ async fn process_command_receiver<T: 'static + Clone + Debug + Send>(
     }
 }
 
-async fn serve<T>(
-    command_receiver: CommandReceiver<T>,
-    event_sender: EventSender<T>,
-    scheduler: Scheduler,
-) where
-    T: 'static + Clone + Debug + Send,
-{
-    let mut state = State {
-        configuration: Configuration::default(),
-        mobilization: None,
-        command_receiver: Some(command_receiver),
-        event_sender,
-    };
-    state.serve(scheduler).await
-}
-
 pub struct Server<T> {
     thread_join_handle: Option<thread::JoinHandle<()>>,
     command_sender: CommandSender<T>,
@@ -874,15 +858,17 @@ where
     fn new_with_scheduler(scheduler: Scheduler) -> Self {
         let (command_sender, command_receiver) = mpsc::unbounded();
         let (event_sender, event_receiver) = mpsc::unbounded();
+        let inner = Inner {
+            configuration: Configuration::default(),
+            mobilization: None,
+            command_receiver: Some(command_receiver),
+            event_sender,
+        };
         Self {
             command_sender,
             event_receiver,
-            thread_join_handle: Some(thread::spawn(move || {
-                executor::block_on(serve(
-                    command_receiver,
-                    event_sender,
-                    scheduler,
-                ))
+            thread_join_handle: Some(thread::spawn(|| {
+                executor::block_on(inner.serve(scheduler))
             })),
         }
     }
