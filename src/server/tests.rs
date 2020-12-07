@@ -1,10 +1,10 @@
 mod common;
-mod elections_follower;
-mod elections_leader;
+mod election_request;
+mod election_response;
 mod mock_log;
 mod mock_persistent_storage;
-mod replication_follower;
-mod replication_leader;
+mod replication_request;
+mod replication_response;
 
 use super::Server;
 use crate::{
@@ -1001,7 +1001,7 @@ impl Fixture {
                 ServerEvent::ElectionStateChange {
                     election_state,
                     term,
-                    voted_for,
+                    ..
                 } => {
                     state_changed = true;
                     assert_eq!(election_state, ServerElectionState::Follower);
