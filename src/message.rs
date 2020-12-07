@@ -30,7 +30,6 @@ pub enum MessageContent<T> {
     AppendEntries(AppendEntriesContent<T>),
     AppendEntriesResults {
         match_index: usize,
-        success: bool,
     },
     InstallSnapshot {
         last_included_index: usize,
@@ -199,7 +198,6 @@ mod tests {
         let message_in = Message {
             content: MessageContent::AppendEntriesResults {
                 match_index: 10,
-                success: false,
             },
             seq: 4,
             term: 5,

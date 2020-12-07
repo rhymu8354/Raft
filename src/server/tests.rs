@@ -152,6 +152,22 @@ struct VerifyAppendEntriesArgs<'a, 'b> {
     expected_term: usize,
 }
 
+struct AwaitAppendEntriesResponseArgs {
+    expect_state_change: bool,
+    match_index: usize,
+    receiver_id: usize,
+    seq: usize,
+    term: usize,
+}
+
+struct VerifyAppendEntriesResponseArgs<'a> {
+    seq: usize,
+    term: usize,
+    match_index: usize,
+    receiver_id: usize,
+    expected: &'a AwaitAppendEntriesResponseArgs,
+}
+
 struct Fixture {
     cluster: HashSet<usize>,
     configuration: Configuration,
@@ -638,7 +654,6 @@ impl Fixture {
     async fn await_retransmission_timer_registration(
         &mut self,
         expected_receiver_id: usize,
-        other_completers: &mut Vec<oneshot::Sender<()>>,
     ) -> (Duration, oneshot::Sender<()>) {
         loop {
             let event_with_completer = self
@@ -655,8 +670,6 @@ impl Fixture {
                 if peer_id == expected_receiver_id {
                     return (duration, completer);
                 }
-            } else {
-                other_completers.push(event_with_completer.completer);
             }
         }
     }
@@ -664,14 +677,10 @@ impl Fixture {
     async fn expect_retransmission_timer_registration(
         &mut self,
         expected_receiver_id: usize,
-        other_completers: &mut Vec<oneshot::Sender<()>>,
     ) -> (Duration, oneshot::Sender<()>) {
         timeout(
             REASONABLE_FAST_OPERATION_TIMEOUT,
-            self.await_retransmission_timer_registration(
-                expected_receiver_id,
-                other_completers,
-            ),
+            self.await_retransmission_timer_registration(expected_receiver_id),
         )
         .await
         .expect("timeout waiting for retransmission timer registration")
@@ -725,12 +734,8 @@ impl Fixture {
         &mut self,
         expected_receiver_id: usize,
     ) -> Message<DummyCommand> {
-        let mut other_completers = Vec::new();
         let (retransmit_duration, completer) = self
-            .expect_retransmission_timer_registration(
-                expected_receiver_id,
-                &mut other_completers,
-            )
+            .expect_retransmission_timer_registration(expected_receiver_id)
             .await;
         assert_eq!(self.configuration.rpc_timeout, retransmit_duration);
         completer.send(()).expect("server dropped retransmission future");
@@ -916,6 +921,113 @@ impl Fixture {
                 recipient_id
             );
         }
+    }
+
+    fn verify_append_entries_response(
+        &self,
+        args: VerifyAppendEntriesResponseArgs,
+    ) {
+        assert_eq!(
+            args.match_index, args.expected.match_index,
+            "unexpected match index (was {}, should be {})",
+            args.match_index, args.expected.match_index
+        );
+        assert_eq!(
+            args.term, args.expected.term,
+            "wrong term in vote (was {}, should be {})",
+            args.term, args.expected.term
+        );
+        assert_eq!(
+            args.seq, args.expected.seq,
+            "wrong sequence number in vote (was {}, should be {})",
+            args.seq, args.expected.seq
+        );
+        assert_eq!(
+            args.receiver_id, args.expected.receiver_id,
+            "vote sent to wrong receiver (was {}, should be {})",
+            args.receiver_id, args.expected.receiver_id
+        );
+    }
+
+    fn is_verified_append_entries_response(
+        &self,
+        message: &Message<DummyCommand>,
+        receiver_id: usize,
+        args: &AwaitAppendEntriesResponseArgs,
+    ) -> bool {
+        if let MessageContent::AppendEntriesResults {
+            match_index,
+        } = message.content
+        {
+            self.verify_append_entries_response(
+                VerifyAppendEntriesResponseArgs {
+                    seq: message.seq,
+                    term: message.term,
+                    match_index,
+                    receiver_id,
+                    expected: args,
+                },
+            );
+            true
+        } else {
+            false
+        }
+    }
+
+    async fn await_append_entries_response(
+        &mut self,
+        args: AwaitAppendEntriesResponseArgs,
+    ) {
+        let mut state_changed = false;
+        loop {
+            let event = self
+                .server
+                .next()
+                .await
+                .expect("unexpected end of server events");
+            match event {
+                ServerEvent::SendMessage {
+                    message,
+                    receiver_id,
+                } => {
+                    if self.is_verified_append_entries_response(
+                        &message,
+                        receiver_id,
+                        &args,
+                    ) {
+                        break;
+                    }
+                },
+                ServerEvent::ElectionStateChange {
+                    election_state,
+                    term,
+                    voted_for,
+                } => {
+                    state_changed = true;
+                    assert_eq!(election_state, ServerElectionState::Follower);
+                    assert_eq!(
+                        term, args.term,
+                        "wrong term in election state change (was {}, should be {})",
+                        term, args.term
+                    );
+                },
+            }
+        }
+        if args.expect_state_change {
+            assert!(state_changed, "server did not change election state");
+        }
+    }
+
+    async fn expect_append_entries_response(
+        &mut self,
+        args: AwaitAppendEntriesResponseArgs,
+    ) {
+        timeout(
+            REASONABLE_FAST_OPERATION_TIMEOUT,
+            self.await_append_entries_response(args),
+        )
+        .await
+        .expect("timeout waiting for append entries response")
     }
 
     async fn send_server_message(

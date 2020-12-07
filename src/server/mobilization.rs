@@ -37,6 +37,22 @@ use std::{
     time::Duration,
 };
 
+struct ProcessAppendEntriesResultsArgs<'a, 'b, T> {
+    sender_id: usize,
+    term: usize,
+    match_index: usize,
+    event_sender: &'a EventSender<T>,
+    rpc_timeout: Duration,
+    scheduler: &'b Scheduler,
+}
+
+#[derive(PartialEq)]
+enum RequestDecision {
+    Reject,
+    Accept,
+    Update,
+}
+
 pub struct Mobilization<T> {
     cancel_election_timeout: Option<oneshot::Sender<()>>,
     cluster: HashSet<usize>,
@@ -76,6 +92,13 @@ impl<T> Mobilization<T> {
         );
     }
 
+    fn become_follower(
+        &mut self,
+        event_sender: &EventSender<T>,
+    ) {
+        self.change_election_state(ElectionState::Follower, event_sender);
+    }
+
     fn become_leader(
         &mut self,
         event_sender: &EventSender<T>,
@@ -85,15 +108,17 @@ impl<T> Mobilization<T> {
         T: Clone + Debug + Send + 'static,
     {
         self.change_election_state(ElectionState::Leader, event_sender);
+        let no_op = LogEntry {
+            term: self.persistent_storage.term(),
+            command: None,
+        };
+        self.log.append_one(no_op.clone());
         self.send_new_message_broadcast(
             MessageContent::AppendEntries(AppendEntriesContent {
                 leader_commit: 0, // TODO: track last commit
                 prev_log_index: self.last_log_index,
                 prev_log_term: self.last_log_term,
-                log: vec![LogEntry {
-                    term: self.persistent_storage.term(),
-                    command: None,
-                }],
+                log: vec![no_op],
             }),
             event_sender,
             rpc_timeout,
@@ -138,6 +163,23 @@ impl<T> Mobilization<T> {
         });
     }
 
+    fn decide_request(
+        &self,
+        term: usize,
+    ) -> RequestDecision {
+        match term.cmp(&self.persistent_storage.term()) {
+            Ordering::Less => RequestDecision::Reject,
+            Ordering::Equal => {
+                if self.election_state == ElectionState::Leader {
+                    RequestDecision::Reject
+                } else {
+                    RequestDecision::Accept
+                }
+            },
+            Ordering::Greater => RequestDecision::Update,
+        }
+    }
+
     fn decide_vote_grant(
         &mut self,
         candidate_id: usize,
@@ -169,7 +211,7 @@ impl<T> Mobilization<T> {
         }
         self.persistent_storage.update(candidate_term, Some(candidate_id));
         if self.election_state != ElectionState::Follower {
-            self.change_election_state(ElectionState::Follower, event_sender);
+            self.become_follower(event_sender);
         }
         true
     }
@@ -271,25 +313,96 @@ impl<T> Mobilization<T> {
                     message.seq,
                     message.term,
                     append_entries,
+                    event_sender,
                 ),
+            MessageContent::AppendEntriesResults {
+                match_index,
+            } => {
+                if self
+                    .peers
+                    .get(&sender_id)
+                    .filter(|peer| peer.last_seq == message.seq)
+                    .is_none()
+                {
+                    println!("Received old append entries results");
+                    return false;
+                }
+                self.cancel_retransmission(sender_id);
+                self.process_append_entries_results(
+                    ProcessAppendEntriesResultsArgs {
+                        sender_id,
+                        term: message.term,
+                        match_index,
+                        event_sender,
+                        rpc_timeout,
+                        scheduler,
+                    },
+                );
+                false
+            },
             _ => todo!(),
         }
     }
 
     fn process_append_entries(
         &mut self,
-        _sender_id: usize,
-        _seq: usize,
+        sender_id: usize,
+        seq: usize,
         term: usize,
         append_entries: AppendEntriesContent<T>,
+        event_sender: &EventSender<T>,
     ) -> bool
     where
-        T: 'static,
+        T: 'static + Debug,
     {
-        self.persistent_storage
-            .update(term, self.persistent_storage.voted_for());
-        self.log.append(Box::new(append_entries.log.into_iter()));
+        let decision = self.decide_request(term);
+        if decision == RequestDecision::Update {
+            self.persistent_storage.update(term, None);
+        }
+        let match_index = if decision == RequestDecision::Reject {
+            0
+        } else {
+            // TODO:
+            // * Find first match; don't just blindly append an entry.
+            // * Delete oldest mismatching log entry and all entries following
+            //   it.
+            // * Append any new log entries.
+            // * Advance commit index to minimum of leader's commit index and
+            //   our own last log index.
+            // * Reply with index of last matching log entry.
+            if self.election_state != ElectionState::Follower {
+                self.become_follower(event_sender);
+            }
+            self.log.append(Box::new(append_entries.log.into_iter()));
+            self.log.last_index()
+        };
+        let message = Message {
+            content: MessageContent::AppendEntriesResults {
+                match_index,
+            },
+            seq,
+            term: self.persistent_storage.term(),
+        };
+        println!("Sending message to {}: {:?}", sender_id, message);
+        let _ = event_sender.unbounded_send(Event::SendMessage {
+            message,
+            receiver_id: sender_id,
+        });
         true
+    }
+
+    fn process_append_entries_results(
+        &mut self,
+        _args: ProcessAppendEntriesResultsArgs<T>,
+    ) {
+        // TODO:
+        // * Update term and revert to follower if term is newer.
+        // * Return early if we are not the cluster leader.
+        // * Update match index for peer (note: clamp match index to our last
+        //   index).
+        // * Update commit index if majority of peers has replicated entries not
+        //   yet committed.
+        // * Send another append entries if we have more log entries.
     }
 
     fn process_request_vote(
