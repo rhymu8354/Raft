@@ -395,7 +395,7 @@ impl<T> Mobilization<T> {
         }
     }
 
-    fn accept_append_entries(
+    fn attempt_accept_append_entries(
         &mut self,
         append_entries: AppendEntriesContent<T>,
         event_sender: &EventSender<T>,
@@ -473,7 +473,7 @@ impl<T> Mobilization<T> {
         let match_index = if decision == RequestDecision::Reject {
             0
         } else {
-            self.accept_append_entries(append_entries, event_sender)
+            self.attempt_accept_append_entries(append_entries, event_sender)
         };
         if leader_commit > self.commit_index {
             self.commit_log(leader_commit, event_sender);
