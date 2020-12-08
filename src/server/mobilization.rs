@@ -50,12 +50,25 @@ struct ProcessAppendEntriesResultsArgs<'a, 'b, T> {
 enum RequestDecision {
     Reject,
     Accept,
-    Update,
+    AcceptAndUpdateTerm,
+}
+
+enum HistoryComparison {
+    NothingInCommon,
+    SameUpToPrevious,
+    Same,
+}
+
+enum LogEntryDisposition {
+    Possessed,
+    Next,
+    Future,
 }
 
 pub struct Mobilization<T> {
     cancel_election_timeout: Option<oneshot::Sender<()>>,
     cluster: HashSet<usize>,
+    commit_index: usize,
     election_state: ElectionState,
     #[cfg(test)]
     pub election_timeout_counter: usize,
@@ -163,7 +176,7 @@ impl<T> Mobilization<T> {
         });
     }
 
-    fn decide_request(
+    fn decide_request_verdict(
         &self,
         term: usize,
     ) -> RequestDecision {
@@ -176,7 +189,7 @@ impl<T> Mobilization<T> {
                     RequestDecision::Accept
                 }
             },
-            Ordering::Greater => RequestDecision::Update,
+            Ordering::Greater => RequestDecision::AcceptAndUpdateTerm,
         }
     }
 
@@ -249,6 +262,7 @@ impl<T> Mobilization<T> {
         Self {
             cancel_election_timeout: None,
             cluster: mobilize_args.cluster,
+            commit_index: 0,
             election_state: ElectionState::Follower,
             #[cfg(test)]
             election_timeout_counter: 0,
@@ -344,6 +358,102 @@ impl<T> Mobilization<T> {
         }
     }
 
+    fn log_entry_term(
+        &self,
+        index: usize,
+    ) -> usize {
+        self.log.entry_term(index).unwrap_or_else(|| {
+            panic!("log entry {} should be in log but isn't", index)
+        })
+    }
+
+    fn compare_log_history(
+        &self,
+        prev_log_index: usize,
+        prev_log_term: usize,
+        new_log_term: usize,
+    ) -> HistoryComparison {
+        if prev_log_index >= self.log.base_index() {
+            if prev_log_term != self.log_entry_term(prev_log_index) {
+                return HistoryComparison::NothingInCommon;
+            }
+            if new_log_term != self.log_entry_term(prev_log_index + 1) {
+                return HistoryComparison::SameUpToPrevious;
+            }
+        }
+        HistoryComparison::Same
+    }
+
+    fn determine_log_entry_disposition(
+        &self,
+        index: usize,
+    ) -> LogEntryDisposition {
+        match index.cmp(&self.log.last_index()) {
+            Ordering::Less => LogEntryDisposition::Possessed,
+            Ordering::Equal => LogEntryDisposition::Next,
+            Ordering::Greater => LogEntryDisposition::Future,
+        }
+    }
+
+    fn accept_append_entries(
+        &mut self,
+        append_entries: AppendEntriesContent<T>,
+        event_sender: &EventSender<T>,
+    ) -> usize {
+        if self.election_state != ElectionState::Follower {
+            self.become_follower(event_sender);
+        }
+        let mut match_index = append_entries.prev_log_index;
+        let mut match_term = append_entries.prev_log_term;
+        for new_log_entry in append_entries.log {
+            let new_log_term = new_log_entry.term;
+            match self.determine_log_entry_disposition(match_index) {
+                LogEntryDisposition::Possessed => match self
+                    .compare_log_history(match_index, match_term, new_log_term)
+                {
+                    HistoryComparison::NothingInCommon => {
+                        match_index = 0;
+                        break;
+                    },
+                    HistoryComparison::SameUpToPrevious => {
+                        self.log.truncate(match_index);
+                        self.log.append_one(new_log_entry);
+                    },
+                    HistoryComparison::Same => (),
+                },
+                LogEntryDisposition::Next => {
+                    if match_term != self.log.last_term() {
+                        match_index = 0;
+                        break;
+                    }
+                    self.log.append_one(new_log_entry);
+                },
+                LogEntryDisposition::Future => {
+                    match_index = 0;
+                    break;
+                },
+            }
+            match_index += 1;
+            match_term = new_log_term;
+        }
+        match_index
+    }
+
+    fn commit_log(
+        &mut self,
+        leader_commit: usize,
+        event_sender: &EventSender<T>,
+    ) {
+        let new_commit_index =
+            std::cmp::min(leader_commit, self.log.last_index());
+        if new_commit_index > self.commit_index {
+            println!("Committing log through index {}", new_commit_index);
+            self.commit_index = new_commit_index;
+            let _ = event_sender
+                .unbounded_send(Event::LogCommitted(new_commit_index));
+        }
+    }
+
     fn process_append_entries(
         &mut self,
         sender_id: usize,
@@ -355,27 +465,19 @@ impl<T> Mobilization<T> {
     where
         T: 'static + Debug,
     {
-        let decision = self.decide_request(term);
-        if decision == RequestDecision::Update {
+        let decision = self.decide_request_verdict(term);
+        if decision == RequestDecision::AcceptAndUpdateTerm {
             self.persistent_storage.update(term, None);
         }
+        let leader_commit = append_entries.leader_commit;
         let match_index = if decision == RequestDecision::Reject {
             0
         } else {
-            // TODO:
-            // * Find first match; don't just blindly append an entry.
-            // * Delete oldest mismatching log entry and all entries following
-            //   it.
-            // * Append any new log entries.
-            // * Advance commit index to minimum of leader's commit index and
-            //   our own last log index.
-            // * Reply with index of last matching log entry.
-            if self.election_state != ElectionState::Follower {
-                self.become_follower(event_sender);
-            }
-            self.log.append(Box::new(append_entries.log.into_iter()));
-            self.log.last_index()
+            self.accept_append_entries(append_entries, event_sender)
         };
+        if leader_commit > self.commit_index {
+            self.commit_log(leader_commit, event_sender);
+        }
         let message = Message {
             content: MessageContent::AppendEntriesResults {
                 match_index,

@@ -63,6 +63,7 @@ pub enum Event<T> {
         message: Message<T>,
         receiver_id: usize,
     },
+    LogCommitted(usize),
 }
 
 type EventReceiver<T> = mpsc::UnboundedReceiver<Event<T>>;

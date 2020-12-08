@@ -37,6 +37,33 @@ impl MockLogShared {
             self.append_one(entry);
         }
     }
+
+    fn entry_term(
+        &self,
+        index: usize,
+    ) -> Option<usize> {
+        if index == self.base_index {
+            Some(self.base_term)
+        } else {
+            index
+                .checked_sub(self.base_index)
+                .and_then(|index| self.entries.get(index - 1))
+                .map(|entry| entry.term)
+        }
+    }
+
+    fn truncate(
+        &mut self,
+        index: usize,
+    ) {
+        self.entries.truncate(index.saturating_sub(self.base_index));
+        self.last_index = self.base_index + self.entries.len();
+        self.last_term = if let Some(last_log_entry) = self.entries.last() {
+            last_log_entry.term
+        } else {
+            self.base_term
+        };
+    }
 }
 
 pub struct MockLog {
@@ -97,6 +124,14 @@ impl Log for MockLog {
         shared.base_index
     }
 
+    fn entry_term(
+        &self,
+        index: usize,
+    ) -> Option<usize> {
+        let shared = self.shared.lock().unwrap();
+        shared.entry_term(index)
+    }
+
     fn last_term(&self) -> usize {
         let shared = self.shared.lock().unwrap();
         shared.last_term
@@ -105,6 +140,14 @@ impl Log for MockLog {
     fn last_index(&self) -> usize {
         let shared = self.shared.lock().unwrap();
         shared.last_index
+    }
+
+    fn truncate(
+        &mut self,
+        index: usize,
+    ) {
+        let mut shared = self.shared.lock().unwrap();
+        shared.truncate(index);
     }
 }
 

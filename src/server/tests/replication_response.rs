@@ -19,7 +19,7 @@ fn follower_receive_append_entries() {
                 Message {
                     content: MessageContent::AppendEntries(
                         AppendEntriesContent {
-                            leader_commit: 0,
+                            leader_commit: 10,
                             prev_log_index: 0,
                             prev_log_term: 0,
                             log: vec![LogEntry {
@@ -36,6 +36,7 @@ fn follower_receive_append_entries() {
             .await;
         fixture
             .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+                commit_index: Some(1),
                 expect_state_change: false,
                 match_index: 1,
                 receiver_id: 2,
@@ -83,8 +84,8 @@ fn leader_revert_to_follower_on_append_entries_new_term() {
                     content: MessageContent::AppendEntries(
                         AppendEntriesContent {
                             leader_commit: 0,
-                            prev_log_index: 0,
-                            prev_log_term: 0,
+                            prev_log_index: 1,
+                            prev_log_term: 1,
                             log: vec![LogEntry {
                                 term: 2,
                                 command: None,
@@ -99,6 +100,7 @@ fn leader_revert_to_follower_on_append_entries_new_term() {
             .await;
         fixture
             .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+                commit_index: None,
                 expect_state_change: true,
                 match_index: 2,
                 receiver_id: 6,
@@ -168,6 +170,7 @@ fn leader_reject_append_entries_same_term() {
             .await;
         fixture
             .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+                commit_index: None,
                 expect_state_change: false,
                 match_index: 0,
                 receiver_id: 6,
@@ -207,7 +210,7 @@ fn candidate_append_entries_same_term() {
                     content: MessageContent::AppendEntries(
                         AppendEntriesContent {
                             leader_commit: 0,
-                            prev_log_index: 1,
+                            prev_log_index: 0,
                             prev_log_term: 0,
                             log: vec![LogEntry {
                                 term: 1,
@@ -223,6 +226,7 @@ fn candidate_append_entries_same_term() {
             .await;
         fixture
             .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+                commit_index: None,
                 expect_state_change: true,
                 match_index: 1,
                 receiver_id: 6,
@@ -240,5 +244,318 @@ fn candidate_append_entries_same_term() {
             1,
             Some(fixture.id),
         );
+    });
+}
+
+#[test]
+fn follower_match_appended_entries() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(0, None);
+        let (mut mock_log, mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 0);
+        mock_log.append_one(LogEntry {
+            term: 1,
+            command: None,
+        });
+        fixture.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            Box::new(mock_persistent_storage),
+        );
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 0,
+                            prev_log_term: 0,
+                            log: vec![
+                                LogEntry {
+                                    term: 1,
+                                    command: None,
+                                },
+                                LogEntry {
+                                    term: 2,
+                                    command: None,
+                                },
+                            ],
+                        },
+                    ),
+                    seq: 42,
+                    term: 2,
+                },
+                6,
+            )
+            .await;
+        fixture
+            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+                commit_index: None,
+                expect_state_change: false,
+                match_index: 2,
+                receiver_id: 6,
+                seq: 42,
+                term: 2,
+            })
+            .await;
+        verify_log(&mock_log_back_end, 0, 0, &vec![
+            LogEntry {
+                term: 1,
+                command: None,
+            },
+            LogEntry {
+                term: 2,
+                command: None,
+            },
+        ]);
+        verify_persistent_storage(&mock_persistent_storage_back_end, 2, None);
+    });
+}
+
+#[test]
+fn follower_replaces_mismatched_appended_entries() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(0, None);
+        let (mut mock_log, mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 0);
+        mock_log.append_one(LogEntry {
+            term: 1,
+            command: None,
+        });
+        fixture.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            Box::new(mock_persistent_storage),
+        );
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 1,
+                            prev_log_index: 0,
+                            prev_log_term: 0,
+                            log: vec![
+                                LogEntry {
+                                    term: 2,
+                                    command: None,
+                                },
+                                LogEntry {
+                                    term: 3,
+                                    command: None,
+                                },
+                            ],
+                        },
+                    ),
+                    seq: 42,
+                    term: 2,
+                },
+                6,
+            )
+            .await;
+        fixture
+            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+                commit_index: Some(1),
+                expect_state_change: false,
+                match_index: 2,
+                receiver_id: 6,
+                seq: 42,
+                term: 2,
+            })
+            .await;
+        verify_log(&mock_log_back_end, 0, 0, &vec![
+            LogEntry {
+                term: 2,
+                command: None,
+            },
+            LogEntry {
+                term: 3,
+                command: None,
+            },
+        ]);
+        verify_persistent_storage(&mock_persistent_storage_back_end, 2, None);
+    });
+}
+
+#[test]
+fn follower_rejects_appended_entries_with_mismatched_previous_term() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(0, None);
+        let (mut mock_log, mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 0);
+        mock_log.append(Box::new(
+            vec![
+                LogEntry {
+                    term: 1,
+                    command: None,
+                },
+                LogEntry {
+                    term: 2, // <-- leader says this should be 3 not 2
+                    command: None,
+                },
+            ]
+            .into_iter(),
+        ));
+        fixture.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            Box::new(mock_persistent_storage),
+        );
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 2,
+                            prev_log_term: 3,
+                            log: vec![
+                                LogEntry {
+                                    term: 3,
+                                    command: None,
+                                },
+                                LogEntry {
+                                    term: 4,
+                                    command: None,
+                                },
+                            ],
+                        },
+                    ),
+                    seq: 42,
+                    term: 4,
+                },
+                6,
+            )
+            .await;
+        fixture
+            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+                commit_index: None,
+                expect_state_change: false,
+                match_index: 0,
+                receiver_id: 6,
+                seq: 42,
+                term: 4,
+            })
+            .await;
+        verify_log(&mock_log_back_end, 0, 0, &vec![
+            LogEntry {
+                term: 1,
+                command: None,
+            },
+            LogEntry {
+                term: 2, // <-- leader says this should be 3 not 2
+                command: None,
+            },
+        ]);
+        verify_persistent_storage(&mock_persistent_storage_back_end, 4, None);
+    });
+}
+
+#[test]
+fn follower_rejects_appended_entries_with_mismatched_base() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(0, None);
+        let (mock_log, mock_log_back_end) =
+            new_mock_log_with_non_defaults(2, 2);
+        fixture.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            Box::new(mock_persistent_storage),
+        );
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 2,
+                            prev_log_term: 3,
+                            log: vec![
+                                LogEntry {
+                                    term: 3,
+                                    command: None,
+                                },
+                                LogEntry {
+                                    term: 4,
+                                    command: None,
+                                },
+                            ],
+                        },
+                    ),
+                    seq: 42,
+                    term: 4,
+                },
+                6,
+            )
+            .await;
+        fixture
+            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+                commit_index: None,
+                expect_state_change: false,
+                match_index: 0,
+                receiver_id: 6,
+                seq: 42,
+                term: 4,
+            })
+            .await;
+        verify_log(&mock_log_back_end, 2, 2, &vec![]);
+        verify_persistent_storage(&mock_persistent_storage_back_end, 4, None);
+    });
+}
+
+#[test]
+fn follower_rejects_appended_entries_with_no_common_base() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(0, None);
+        let (mock_log, mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 0);
+        fixture.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            Box::new(mock_persistent_storage),
+        );
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 2,
+                            prev_log_term: 3,
+                            log: vec![
+                                LogEntry {
+                                    term: 3,
+                                    command: None,
+                                },
+                                LogEntry {
+                                    term: 4,
+                                    command: None,
+                                },
+                            ],
+                        },
+                    ),
+                    seq: 42,
+                    term: 4,
+                },
+                6,
+            )
+            .await;
+        fixture
+            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+                commit_index: None,
+                expect_state_change: false,
+                match_index: 0,
+                receiver_id: 6,
+                seq: 42,
+                term: 4,
+            })
+            .await;
+        verify_log(&mock_log_back_end, 0, 0, &vec![]);
+        verify_persistent_storage(&mock_persistent_storage_back_end, 4, None);
     });
 }

@@ -153,6 +153,7 @@ struct VerifyAppendEntriesArgs<'a, 'b> {
 }
 
 struct AwaitAppendEntriesResponseArgs {
+    commit_index: Option<usize>,
     expect_state_change: bool,
     match_index: usize,
     receiver_id: usize,
@@ -352,6 +353,9 @@ impl Fixture {
                         voted_for,
                         self.id
                     );
+                },
+                ServerEvent::LogCommitted(_) => {
+                    panic!("Unexpectedly committed log entries")
                 },
             }
         }
@@ -565,6 +569,9 @@ impl Fixture {
                         Some(args.receiver_id)
                     );
                 },
+                ServerEvent::LogCommitted(_) => {
+                    panic!("Unexpectedly committed log entries")
+                },
             }
         }
         if args.expect_state_change {
@@ -713,6 +720,9 @@ impl Fixture {
                         "Unexpected state transition to {:?}",
                         election_state
                     );
+                },
+                ServerEvent::LogCommitted(_) => {
+                    panic!("Unexpectedly committed log entries")
                 },
             }
         }
@@ -891,6 +901,9 @@ impl Fixture {
                         election_state
                     );
                 },
+                ServerEvent::LogCommitted(_) => {
+                    panic!("Unexpectedly committed log entries")
+                },
             }
         }
     }
@@ -934,17 +947,17 @@ impl Fixture {
         );
         assert_eq!(
             args.term, args.expected.term,
-            "wrong term in vote (was {}, should be {})",
+            "wrong term in append entries (was {}, should be {})",
             args.term, args.expected.term
         );
         assert_eq!(
             args.seq, args.expected.seq,
-            "wrong sequence number in vote (was {}, should be {})",
+            "wrong sequence number in append entries (was {}, should be {})",
             args.seq, args.expected.seq
         );
         assert_eq!(
             args.receiver_id, args.expected.receiver_id,
-            "vote sent to wrong receiver (was {}, should be {})",
+            "append entries sent to wrong receiver (was {}, should be {})",
             args.receiver_id, args.expected.receiver_id
         );
     }
@@ -979,6 +992,7 @@ impl Fixture {
         args: AwaitAppendEntriesResponseArgs,
     ) {
         let mut state_changed = false;
+        let mut log_committed = false;
         loop {
             let event = self
                 .server
@@ -1011,10 +1025,24 @@ impl Fixture {
                         term, args.term
                     );
                 },
+                ServerEvent::LogCommitted(commit_index) => {
+                    log_committed = true;
+                    let expected_commit_index = args
+                        .commit_index
+                        .expect("Unexpectedly committed log entries");
+                    assert_eq!(
+                        commit_index, expected_commit_index,
+                        "wrong log index committed (was {}, should be {})",
+                        commit_index, expected_commit_index
+                    );
+                },
             }
         }
         if args.expect_state_change {
             assert!(state_changed, "server did not change election state");
+        }
+        if args.commit_index.is_some() {
+            assert!(log_committed, "server did not commit the log");
         }
     }
 
