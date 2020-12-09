@@ -95,7 +95,11 @@ fn leader_no_retransmit_append_entries_after_response() {
 fn leader_revert_to_follower_when_receive_new_term_append_entries_results() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
-        fixture.mobilize_server();
+        let (mock_persistent_storage, mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(0, None);
+        fixture.mobilize_server_with_persistent_storage(Box::new(
+            mock_persistent_storage,
+        ));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
@@ -115,6 +119,7 @@ fn leader_revert_to_follower_when_receive_new_term_append_entries_results() {
             .expect_election_state_change(ServerElectionState::Follower)
             .await;
         fixture.expect_election_timer_registration_now();
+        verify_persistent_storage(&mock_persistent_storage_back_end, 2, None);
     });
 }
 
@@ -300,5 +305,61 @@ fn leader_send_missing_entries_all_log_on_append_entries_results() {
             },
             fixture.expect_message(2).await
         );
+    });
+}
+
+#[test]
+fn follower_ignore_append_entries_results() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.expect_election_with_defaults().await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResults {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 0,
+                            prev_log_term: 0,
+                            log: vec![LogEntry {
+                                term: 2,
+                                command: None,
+                            }],
+                        },
+                    ),
+                    seq: 1,
+                    term: 2,
+                },
+                11,
+            )
+            .await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResults {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                6,
+            )
+            .await;
+        fixture.expect_no_commit().await;
     });
 }

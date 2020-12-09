@@ -465,10 +465,13 @@ impl<T> Mobilization<T> {
         let new_commit_index =
             std::cmp::min(leader_commit, self.log.last_index());
         if new_commit_index > self.commit_index {
-            println!("Committing log through index {}", new_commit_index);
+            println!(
+                "{:?}: Committing log from {} to {}",
+                self.election_state, self.commit_index, new_commit_index
+            );
             self.commit_index = new_commit_index;
             let _ = event_sender
-                .unbounded_send(Event::LogCommitted(new_commit_index));
+                .unbounded_send(Event::LogCommitted(self.commit_index));
         }
     }
 
@@ -517,25 +520,28 @@ impl<T> Mobilization<T> {
     ) where
         T: 'static + Clone + Debug + Send,
     {
-        // TODO:
-        // * Return early if we are not the cluster leader.
         if args.term > self.persistent_storage.term() {
+            self.persistent_storage.update(args.term, None);
             self.become_follower(args.event_sender);
         }
         println!(
             "Received append entries results (match: {}) from {}",
             args.match_index, args.sender_id
         );
+        if self.election_state != ElectionState::Leader {
+            println!(
+                "Not processing further because we are {:?}, not Leader",
+                self.election_state
+            );
+            return;
+        }
         if let Some(peer) = self.peers.get_mut(&args.sender_id) {
             peer.match_index =
                 std::cmp::min(args.match_index, self.log.last_index());
         }
         let majority_match_index = self.find_majority_match_index();
         if majority_match_index > self.commit_index {
-            self.commit_index = majority_match_index;
-            let _ = args
-                .event_sender
-                .unbounded_send(Event::LogCommitted(self.commit_index));
+            self.commit_log(majority_match_index, args.event_sender);
         }
         if let Some(peer) = self.peers.get_mut(&args.sender_id) {
             if peer.match_index < self.log.last_index() {

@@ -1157,9 +1157,22 @@ fn verify_log<L>(
     L: AsRef<[LogEntry<DummyCommand>]>,
 {
     let log_shared = mock_log_back_end.shared.lock().unwrap();
-    assert_eq!(base_term, log_shared.base_term);
-    assert_eq!(base_index, log_shared.base_index);
-    assert_eq!(entries.as_ref(), log_shared.entries);
+    assert_eq!(
+        base_term, log_shared.base_term,
+        "log base term should be {} but is {}",
+        base_term, log_shared.base_term
+    );
+    assert_eq!(
+        base_index, log_shared.base_index,
+        "log base index should be {} but is {}",
+        base_index, log_shared.base_index
+    );
+    let entries = entries.as_ref();
+    assert_eq!(
+        entries, log_shared.entries,
+        "log should be {:?} but is {:?}",
+        entries, log_shared.entries
+    );
 }
 
 fn verify_persistent_storage(
@@ -1169,8 +1182,16 @@ fn verify_persistent_storage(
 ) {
     let persistent_storage_shared =
         mock_persistent_storage_back_end.shared.lock().unwrap();
-    assert_eq!(term, persistent_storage_shared.term);
-    assert_eq!(voted_for, persistent_storage_shared.voted_for);
+    assert_eq!(
+        term, persistent_storage_shared.term,
+        "term should be {} but is {}",
+        term, persistent_storage_shared.term
+    );
+    assert_eq!(
+        voted_for, persistent_storage_shared.voted_for,
+        "should have voted {:?} but actually {:?}",
+        voted_for, persistent_storage_shared.voted_for
+    );
 }
 
 async fn send_server_message(
