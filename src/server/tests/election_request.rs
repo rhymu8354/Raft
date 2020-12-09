@@ -240,3 +240,43 @@ fn timeout_before_majority_vote_or_new_leader_heart_beat() {
             .await;
     });
 }
+
+#[test]
+fn leader_no_retransmit_vote_request_after_election() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.expect_election_with_defaults().await;
+        let mut completers = fixture
+            .expect_retransmission_timer_registrations_now(
+                [2, 11].iter().copied(),
+            );
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 2,
+                seq: 1,
+                term: 1,
+                vote: true,
+            })
+            .await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 6,
+                seq: 1,
+                term: 1,
+                vote: true,
+            })
+            .await;
+        fixture
+            .expect_election_state_change_now(ServerElectionState::Leader)
+            .await;
+        assert!(
+            completers.remove(&2).unwrap().send(()).is_err(),
+            "server didn't cancel retransmission timer for server 2"
+        );
+        assert!(
+            completers.remove(&11).unwrap().send(()).is_err(),
+            "server didn't cancel retransmission timer for server 11"
+        );
+    });
+}
