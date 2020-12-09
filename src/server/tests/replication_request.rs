@@ -101,6 +101,7 @@ fn leader_revert_to_follower_when_receive_new_term_append_entries_results() {
             mock_persistent_storage,
         ));
         fixture.expect_election_with_defaults().await;
+        fixture.expect_retransmission_timer_registration(6).await;
         fixture.cast_votes(1, 1).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
         fixture
@@ -118,6 +119,13 @@ fn leader_revert_to_follower_when_receive_new_term_append_entries_results() {
         fixture
             .expect_election_state_change(ServerElectionState::Follower)
             .await;
+        let (_duration, completer) =
+            fixture.expect_retransmission_timer_registration(6).await;
+        let (sender, _receiver) = oneshot::channel();
+        assert!(
+            completer.send(sender).is_err(),
+            "server didn't cancel retransmission timer"
+        );
         fixture.expect_election_timer_registration_now();
         verify_persistent_storage(&mock_persistent_storage_back_end, 2, None);
     });

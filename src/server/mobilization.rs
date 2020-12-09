@@ -108,8 +108,10 @@ impl<T> Mobilization<T> {
         &mut self,
         event_sender: &EventSender<T>,
     ) {
-        // TODO: We should cancel all retransmission timers when we
-        // revert to follower.
+        for peer in self.peers.values_mut() {
+            peer.cancel_retransmission.take();
+            peer.retransmission_future.take();
+        }
         self.change_election_state(ElectionState::Follower, event_sender);
     }
 
