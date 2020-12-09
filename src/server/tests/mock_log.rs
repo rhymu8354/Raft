@@ -38,6 +38,17 @@ impl MockLogShared {
         }
     }
 
+    fn entries(
+        &self,
+        prev_log_index: usize,
+    ) -> Vec<LogEntry<DummyCommand>> {
+        self.entries
+            .iter()
+            .skip(prev_log_index - self.base_index)
+            .cloned()
+            .collect::<Vec<_>>()
+    }
+
     fn entry_term(
         &self,
         index: usize,
@@ -122,6 +133,14 @@ impl Log for MockLog {
     fn base_index(&self) -> usize {
         let shared = self.shared.lock().unwrap();
         shared.base_index
+    }
+
+    fn entries(
+        &self,
+        prev_log_index: usize,
+    ) -> Vec<LogEntry<Self::Command>> {
+        let shared = self.shared.lock().unwrap();
+        shared.entries(prev_log_index)
     }
 
     fn entry_term(

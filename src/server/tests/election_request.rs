@@ -42,8 +42,9 @@ fn elected_leader_unanimously() {
             .await;
         let (_election_timeout_duration, election_timeout_completer) =
             fixture.expect_election_timer_registrations(1).await;
+        let (sender, _receiver) = oneshot::channel();
         election_timeout_completer
-            .send(())
+            .send(sender)
             .expect_err("server did not cancel last election timeout");
         fixture.cast_votes(2, 2).await;
         fixture.expect_no_election_state_changes().await;
@@ -267,15 +268,15 @@ fn leader_no_retransmit_vote_request_after_election() {
                 vote: true,
             })
             .await;
-        fixture
-            .expect_election_state_change_now(ServerElectionState::Leader)
-            .await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        let (sender, _receiver) = oneshot::channel();
         assert!(
-            completers.remove(&2).unwrap().send(()).is_err(),
+            completers.remove(&2).unwrap().send(sender).is_err(),
             "server didn't cancel retransmission timer for server 2"
         );
+        let (sender, _receiver) = oneshot::channel();
         assert!(
-            completers.remove(&11).unwrap().send(()).is_err(),
+            completers.remove(&11).unwrap().send(sender).is_err(),
             "server didn't cancel retransmission timer for server 11"
         );
     });

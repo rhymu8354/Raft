@@ -10,9 +10,7 @@ fn leader_sends_no_op_log_entry_upon_election() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture
-            .expect_election_state_change_now(ServerElectionState::Leader)
-            .await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
         fixture
             .expect_log_entries_broadcast(AwaitAppendEntriesArgs {
                 term: 1,
@@ -40,9 +38,7 @@ fn leader_retransmit_append_entries() {
         fixture.expect_election_with_defaults().await;
         fixture.expect_retransmission_timer_registration(2).await;
         fixture.cast_votes(1, 1).await;
-        fixture
-            .expect_election_state_change_now(ServerElectionState::Leader)
-            .await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
         fixture.expect_message(2).await;
         assert_eq!(
             Message {
@@ -71,9 +67,7 @@ fn leader_no_retransmit_append_entries_after_response() {
         fixture.expect_election_with_defaults().await;
         fixture.expect_retransmission_timer_registration(2).await;
         fixture.cast_votes(1, 1).await;
-        fixture
-            .expect_election_state_change_now(ServerElectionState::Leader)
-            .await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
         fixture.expect_message(2).await;
         fixture
             .send_server_message(
@@ -89,9 +83,222 @@ fn leader_no_retransmit_append_entries_after_response() {
             .await;
         let (_, completer) =
             fixture.expect_retransmission_timer_registration(2).await;
+        let (sender, _receiver) = oneshot::channel();
         assert!(
-            completer.send(()).is_err(),
+            completer.send(sender).is_err(),
             "server didn't cancel retransmission timer"
+        );
+    });
+}
+
+#[test]
+fn leader_revert_to_follower_when_receive_new_term_append_entries_results() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.expect_election_with_defaults().await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResults {
+                        match_index: 0,
+                    },
+                    seq: 2,
+                    term: 2,
+                },
+                2,
+            )
+            .await;
+        fixture
+            .expect_election_state_change(ServerElectionState::Follower)
+            .await;
+        fixture.expect_election_timer_registration_now();
+    });
+}
+
+#[test]
+fn leader_commit_entry_when_majority_match() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.expect_election_with_defaults().await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResults {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.expect_no_commit().await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResults {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                6,
+            )
+            .await;
+        fixture.expect_commit(1).await;
+    });
+}
+
+#[test]
+fn leader_send_missing_entries_mid_log_on_append_entries_results() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, _mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(6, None);
+        let (mut mock_log, _mock_log_back_end) =
+            new_mock_log_with_non_defaults(4, 10);
+        mock_log.append(Box::new(
+            vec![
+                LogEntry {
+                    term: 5,
+                    command: None,
+                },
+                LogEntry {
+                    term: 6,
+                    command: None,
+                },
+            ]
+            .into_iter(),
+        ));
+        fixture.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            Box::new(mock_persistent_storage),
+        );
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 6,
+                last_log_index: 12,
+                term: 7,
+            })
+            .await;
+        fixture.cast_votes(1, 7).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_message(2).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResults {
+                        match_index: 11,
+                    },
+                    seq: 2,
+                    term: 7,
+                },
+                2,
+            )
+            .await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_term: 5,
+                    prev_log_index: 11,
+                    log: vec![
+                        LogEntry {
+                            term: 6,
+                            command: None,
+                        },
+                        LogEntry {
+                            term: 7,
+                            command: None,
+                        },
+                    ],
+                }),
+                seq: 3,
+                term: 7,
+            },
+            fixture.expect_message(2).await
+        );
+    });
+}
+
+#[test]
+fn leader_send_missing_entries_all_log_on_append_entries_results() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, _mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(6, None);
+        let (mut mock_log, _mock_log_back_end) =
+            new_mock_log_with_non_defaults(4, 10);
+        mock_log.append(Box::new(
+            vec![
+                LogEntry {
+                    term: 5,
+                    command: None,
+                },
+                LogEntry {
+                    term: 6,
+                    command: None,
+                },
+            ]
+            .into_iter(),
+        ));
+        fixture.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            Box::new(mock_persistent_storage),
+        );
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 6,
+                last_log_index: 12,
+                term: 7,
+            })
+            .await;
+        fixture.cast_votes(1, 7).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_message(2).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResults {
+                        match_index: 10,
+                    },
+                    seq: 2,
+                    term: 7,
+                },
+                2,
+            )
+            .await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_term: 4,
+                    prev_log_index: 10,
+                    log: vec![
+                        LogEntry {
+                            term: 5,
+                            command: None,
+                        },
+                        LogEntry {
+                            term: 6,
+                            command: None,
+                        },
+                        LogEntry {
+                            term: 7,
+                            command: None,
+                        },
+                    ],
+                }),
+                seq: 3,
+                term: 7,
+            },
+            fixture.expect_message(2).await
         );
     });
 }

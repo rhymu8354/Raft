@@ -6,7 +6,7 @@ use super::{
     EventSender,
     MobilizeArgs,
     SinkItem,
-    WorkItem,
+    WorkItemContent,
     WorkItemFuture,
 };
 #[cfg(test)]
@@ -29,6 +29,7 @@ use rand::{
 use std::{
     cmp::Ordering,
     collections::{
+        BinaryHeap,
         HashMap,
         HashSet,
     },
@@ -73,8 +74,6 @@ pub struct Mobilization<T> {
     #[cfg(test)]
     pub election_timeout_counter: usize,
     id: usize,
-    last_log_index: usize,
-    last_log_term: usize,
     log: Box<dyn Log<Command = T>>,
     peers: HashMap<usize, Peer<T>>,
     persistent_storage: Box<dyn PersistentStorage>,
@@ -96,8 +95,8 @@ impl<T> Mobilization<T> {
         self.send_new_message_broadcast(
             MessageContent::RequestVote {
                 candidate_id: self.id,
-                last_log_index: self.last_log_index,
-                last_log_term: self.last_log_term,
+                last_log_index: self.log.last_index(),
+                last_log_term: self.log.last_term(),
             },
             event_sender,
             rpc_timeout,
@@ -109,6 +108,8 @@ impl<T> Mobilization<T> {
         &mut self,
         event_sender: &EventSender<T>,
     ) {
+        // TODO: We should cancel all retransmission timers when we
+        // revert to follower.
         self.change_election_state(ElectionState::Follower, event_sender);
     }
 
@@ -125,12 +126,14 @@ impl<T> Mobilization<T> {
             term: self.persistent_storage.term(),
             command: None,
         };
+        let prev_log_index = self.log.last_index();
+        let prev_log_term = self.log.last_term();
         self.log.append_one(no_op.clone());
         self.send_new_message_broadcast(
             MessageContent::AppendEntries(AppendEntriesContent {
                 leader_commit: 0, // TODO: track last commit
-                prev_log_index: self.last_log_index,
-                prev_log_term: self.last_log_term,
+                prev_log_index,
+                prev_log_term,
                 log: vec![no_op],
             }),
             event_sender,
@@ -247,6 +250,23 @@ impl<T> Mobilization<T> {
         }
     }
 
+    fn find_majority_match_index(&self) -> usize {
+        let mut match_indices = self
+            .peers
+            .values()
+            .map(|peer| peer.match_index)
+            .collect::<BinaryHeap<_>>();
+        let mut n = self.cluster.len() / 2 - 1;
+        loop {
+            let match_index =
+                match_indices.pop().expect("unexpectedly short peer list");
+            if n == 0 {
+                break match_index;
+            }
+            n -= 1;
+        }
+    }
+
     pub fn new(mobilize_args: MobilizeArgs<T>) -> Self {
         let peers = mobilize_args
             .cluster
@@ -267,8 +287,6 @@ impl<T> Mobilization<T> {
             #[cfg(test)]
             election_timeout_counter: 0,
             id: mobilize_args.id,
-            last_log_index: mobilize_args.log.base_index(),
-            last_log_term: mobilize_args.log.base_term(),
             log: mobilize_args.log,
             peers,
             persistent_storage: mobilize_args.persistent_storage,
@@ -495,16 +513,59 @@ impl<T> Mobilization<T> {
 
     fn process_append_entries_results(
         &mut self,
-        _args: ProcessAppendEntriesResultsArgs<T>,
-    ) {
+        args: ProcessAppendEntriesResultsArgs<T>,
+    ) where
+        T: 'static + Clone + Debug + Send,
+    {
         // TODO:
-        // * Update term and revert to follower if term is newer.
         // * Return early if we are not the cluster leader.
-        // * Update match index for peer (note: clamp match index to our last
-        //   index).
-        // * Update commit index if majority of peers has replicated entries not
-        //   yet committed.
-        // * Send another append entries if we have more log entries.
+        if args.term > self.persistent_storage.term() {
+            self.become_follower(args.event_sender);
+        }
+        println!(
+            "Received append entries results (match: {}) from {}",
+            args.match_index, args.sender_id
+        );
+        if let Some(peer) = self.peers.get_mut(&args.sender_id) {
+            peer.match_index =
+                std::cmp::min(args.match_index, self.log.last_index());
+        }
+        let majority_match_index = self.find_majority_match_index();
+        if majority_match_index > self.commit_index {
+            self.commit_index = majority_match_index;
+            let _ = args
+                .event_sender
+                .unbounded_send(Event::LogCommitted(self.commit_index));
+        }
+        if let Some(peer) = self.peers.get_mut(&args.sender_id) {
+            if peer.match_index < self.log.last_index() {
+                let prev_log_term = match peer
+                    .match_index
+                    .cmp(&self.log.base_index())
+                {
+                    Ordering::Less => None,
+                    Ordering::Equal => Some(self.log.base_term()),
+                    Ordering::Greater => self.log.entry_term(peer.match_index),
+                };
+                if let Some(prev_log_term) = prev_log_term {
+                    peer.send_new_request(
+                        MessageContent::AppendEntries(AppendEntriesContent {
+                            leader_commit: 0, // TODO: track last commit
+                            prev_log_index: peer.match_index,
+                            prev_log_term,
+                            log: self.log.entries(peer.match_index),
+                        }),
+                        args.sender_id,
+                        self.persistent_storage.term(),
+                        args.event_sender,
+                        args.rpc_timeout,
+                        args.scheduler,
+                    );
+                } else {
+                    // TODO: Install snapshot.
+                }
+            }
+        }
     }
 
     fn process_request_vote(
@@ -683,7 +744,7 @@ impl<T> Mobilization<T> {
             timeout_duration, election_timeout
         );
         let (future, cancel_future) = make_cancellable_timeout_future(
-            WorkItem::ElectionTimeout,
+            WorkItemContent::ElectionTimeout,
             timeout_duration,
             #[cfg(test)]
             ScheduledEvent::ElectionTimeout,

@@ -5,6 +5,7 @@ use super::{
     EventSender,
     SinkItem,
     WorkItem,
+    WorkItemContent,
 };
 use crate::{
     Configuration,
@@ -149,16 +150,16 @@ impl<T> Inner<T> {
             let (work_item, _, futures_remaining) =
                 future::select_all(futures).await;
             futures = futures_remaining;
-            match work_item {
+            match work_item.content {
                 #[cfg(test)]
-                WorkItem::Cancelled(work_item) => {
+                WorkItemContent::Cancelled(work_item) => {
                     println!("Completed canceled future: {}", work_item);
                 },
                 #[cfg(not(test))]
-                WorkItem::Cancelled => {
+                WorkItemContent::Cancelled => {
                     println!("Completed canceled future");
                 },
-                WorkItem::ElectionTimeout => {
+                WorkItemContent::ElectionTimeout => {
                     println!("*** Election timeout! ***");
                     if let Some(mobilization) = &mut self.mobilization {
                         mobilization.election_timeout(
@@ -168,11 +169,11 @@ impl<T> Inner<T> {
                         );
                     }
                 },
-                WorkItem::RpcTimeout(peer_id) => {
+                WorkItemContent::RpcTimeout(peer_id) => {
                     println!("*** RPC timeout ({})! ***", peer_id);
                     self.retransmit(peer_id);
                 },
-                WorkItem::Command {
+                WorkItemContent::Command {
                     command,
                     command_receiver: command_receiver_out,
                 } => {
@@ -180,7 +181,11 @@ impl<T> Inner<T> {
                     self.process_command(command);
                     command_receiver.replace(command_receiver_out);
                 },
-                WorkItem::Stop => break,
+                WorkItemContent::Stop => break,
+            }
+            #[cfg(test)]
+            if let Some(ack) = work_item.ack {
+                let _ = ack.send(());
             }
         }
     }
@@ -190,13 +195,18 @@ async fn process_command_receiver<T: 'static + Clone + Debug + Send>(
     command_receiver: CommandReceiver<T>
 ) -> WorkItem<T> {
     let (command, command_receiver) = command_receiver.into_future().await;
-    if let Some(command) = command {
-        WorkItem::Command {
+    let content = if let Some(command) = command {
+        WorkItemContent::Command {
             command,
             command_receiver,
         }
     } else {
         println!("Server command channel closed");
-        WorkItem::Stop
+        WorkItemContent::Stop
+    };
+    WorkItem {
+        content,
+        #[cfg(test)]
+        ack: None,
     }
 }

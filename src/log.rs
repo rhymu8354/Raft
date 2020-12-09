@@ -13,6 +13,10 @@ pub trait Log: Send + Sync {
     );
     fn base_term(&self) -> usize;
     fn base_index(&self) -> usize;
+    fn entries(
+        &self,
+        prev_log_index: usize,
+    ) -> Vec<LogEntry<Self::Command>>;
     fn entry_term(
         &self,
         index: usize,

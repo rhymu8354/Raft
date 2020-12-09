@@ -175,7 +175,7 @@ struct Fixture {
 impl Fixture {
     fn expect_election_timer_registration_now(
         &mut self
-    ) -> (Duration, oneshot::Sender<()>) {
+    ) -> (Duration, oneshot::Sender<oneshot::Sender<()>>) {
         loop {
             let event_with_completer = self
                 .scheduled_event_receiver
@@ -211,7 +211,7 @@ impl Fixture {
     fn expect_election_timer_registrations_now(
         &mut self,
         num_timers_to_await: usize,
-    ) -> (Duration, oneshot::Sender<()>) {
+    ) -> (Duration, oneshot::Sender<oneshot::Sender<()>>) {
         for _ in 0..num_timers_to_await - 1 {
             self.expect_election_timer_registration_now();
         }
@@ -221,7 +221,7 @@ impl Fixture {
     async fn expect_election_timer_registrations(
         &mut self,
         num_timers_to_await: usize,
-    ) -> (Duration, oneshot::Sender<()>) {
+    ) -> (Duration, oneshot::Sender<oneshot::Sender<()>>) {
         self.synchronize().await;
         let registration =
             self.expect_election_timer_registrations_now(num_timers_to_await);
@@ -240,9 +240,11 @@ impl Fixture {
             election_timeout_duration,
             self.configuration.election_timeout
         );
+        let (sender, receiver) = oneshot::channel();
         election_timeout_completer
-            .send(())
+            .send(sender)
             .expect("server dropped election timeout future");
+        receiver.await.expect("server dropped election timeout acknowledgment");
     }
 
     fn is_verified_vote_request(
@@ -564,11 +566,10 @@ impl Fixture {
         self.expect_vote_now(args);
     }
 
-    async fn expect_election_state_change_now(
+    fn expect_election_state_change_now(
         &mut self,
         election_state: ServerElectionState,
     ) {
-        self.synchronize().await;
         while let Some(event) = self.server.next().now_or_never() {
             if let ServerEvent::ElectionStateChange {
                 election_state: new_election_state,
@@ -580,6 +581,14 @@ impl Fixture {
             }
         }
         panic!("server did not change election state")
+    }
+
+    async fn expect_election_state_change(
+        &mut self,
+        election_state: ServerElectionState,
+    ) {
+        self.synchronize().await;
+        self.expect_election_state_change_now(election_state);
     }
 
     fn expect_no_election_state_changes_now(&mut self) {
@@ -600,6 +609,46 @@ impl Fixture {
     async fn expect_no_election_state_changes(&mut self) {
         self.synchronize().await;
         self.expect_no_election_state_changes_now();
+    }
+
+    fn expect_commit_now(
+        &mut self,
+        expected_index: usize,
+    ) {
+        while let Some(event) = self.server.next().now_or_never() {
+            if let ServerEvent::LogCommitted(index) =
+                event.expect("unexpected end of server events")
+            {
+                assert_eq!(
+                    expected_index, index,
+                    "wrong commit index (expected {}, got {})",
+                    expected_index, index
+                );
+                return;
+            }
+        }
+        panic!("server did not commit log")
+    }
+
+    async fn expect_commit(
+        &mut self,
+        expected_index: usize,
+    ) {
+        self.synchronize().await;
+        self.expect_commit_now(expected_index);
+    }
+
+    fn expect_no_commit_now(&mut self) {
+        while let Some(event) = self.server.next().now_or_never().flatten() {
+            if let ServerEvent::LogCommitted(index) = event {
+                panic!("unexpected commit to {:?}", index);
+            }
+        }
+    }
+
+    async fn expect_no_commit(&mut self) {
+        self.synchronize().await;
+        self.expect_no_commit_now();
     }
 
     async fn cast_vote(
@@ -643,7 +692,7 @@ impl Fixture {
     fn expect_retransmission_timer_registration_now(
         &mut self,
         expected_receiver_id: usize,
-    ) -> (Duration, oneshot::Sender<()>) {
+    ) -> (Duration, oneshot::Sender<oneshot::Sender<()>>) {
         loop {
             let event_with_completer = self
                 .scheduled_event_receiver
@@ -667,7 +716,7 @@ impl Fixture {
     async fn expect_retransmission_timer_registration(
         &mut self,
         expected_receiver_id: usize,
-    ) -> (Duration, oneshot::Sender<()>) {
+    ) -> (Duration, oneshot::Sender<oneshot::Sender<()>>) {
         self.synchronize().await;
         self.expect_retransmission_timer_registration_now(expected_receiver_id)
     }
@@ -675,7 +724,7 @@ impl Fixture {
     fn expect_retransmission_timer_registrations_now<T>(
         &mut self,
         expected_receiver_ids: T,
-    ) -> HashMap<usize, oneshot::Sender<()>>
+    ) -> HashMap<usize, oneshot::Sender<oneshot::Sender<()>>>
     where
         T: IntoIterator<Item = usize>,
     {
@@ -701,19 +750,6 @@ impl Fixture {
             }
         }
         completers
-    }
-
-    async fn expect_retransmission_timer_registrations<T>(
-        &mut self,
-        expected_receiver_ids: T,
-    ) -> HashMap<usize, oneshot::Sender<()>>
-    where
-        T: IntoIterator<Item = usize>,
-    {
-        self.synchronize().await;
-        self.expect_retransmission_timer_registrations_now(
-            expected_receiver_ids,
-        )
     }
 
     fn expect_message_now(
@@ -768,7 +804,11 @@ impl Fixture {
             .expect_retransmission_timer_registration(expected_receiver_id)
             .await;
         assert_eq!(self.configuration.rpc_timeout, retransmit_duration);
-        completer.send(()).expect("server dropped retransmission future");
+        let (sender, receiver) = oneshot::channel();
+        completer.send(sender).expect("server dropped retransmission future");
+        receiver
+            .await
+            .expect("server dropped retransmission timeout acknowledgment");
         self.expect_message(expected_receiver_id).await
     }
 

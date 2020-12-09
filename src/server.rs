@@ -69,7 +69,6 @@ pub enum Event<T> {
 type EventReceiver<T> = mpsc::UnboundedReceiver<Event<T>>;
 type EventSender<T> = mpsc::UnboundedSender<Event<T>>;
 
-#[derive(Debug)]
 pub enum SinkItem<T> {
     ReceiveMessage {
         message: Message<T>,
@@ -77,6 +76,34 @@ pub enum SinkItem<T> {
     },
     #[cfg(test)]
     Synchronize(oneshot::Sender<()>),
+}
+
+impl<T> Debug for SinkItem<T>
+where
+    T: Debug,
+{
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result where {
+        match self {
+            SinkItem::ReceiveMessage {
+                message,
+                sender_id,
+            } => {
+                write!(
+                    f,
+                    "ReceiveMessage(from: {:?}, message: {:?})",
+                    sender_id, message
+                )?;
+            },
+            #[cfg(test)]
+            SinkItem::Synchronize(_) => {
+                write!(f, "Synchronize")?;
+            },
+        }
+        Ok(())
+    }
 }
 
 pub enum Command<T> {
@@ -114,8 +141,19 @@ where
 type CommandReceiver<T> = mpsc::UnboundedReceiver<Command<T>>;
 type CommandSender<T> = mpsc::UnboundedSender<Command<T>>;
 
+#[cfg(test)]
+type TimeoutArg = oneshot::Sender<()>;
+#[cfg(not(test))]
+type TimeoutArg = ();
+
+pub struct WorkItem<T> {
+    content: WorkItemContent<T>,
+    #[cfg(test)]
+    ack: Option<TimeoutArg>,
+}
+
 #[derive(Debug)]
-pub enum WorkItem<T> {
+pub enum WorkItemContent<T> {
     #[cfg(test)]
     Cancelled(String),
     #[cfg(not(test))]
@@ -136,25 +174,37 @@ async fn await_cancellation(cancel: oneshot::Receiver<()>) {
 }
 
 async fn await_cancellable_timeout<T>(
-    work_item: WorkItem<T>,
-    timeout: BoxFuture<'static, ()>,
+    work_item_content: WorkItemContent<T>,
+    timeout: BoxFuture<'static, TimeoutArg>,
     cancel: oneshot::Receiver<()>,
 ) -> WorkItem<T>
 where
     T: Debug,
 {
     #[cfg(test)]
-    let cancelled = WorkItem::Cancelled(format!("{:?}", work_item));
-    #[cfg(not(test))]
-    let cancelled = WorkItem::Cancelled;
     futures::select! {
-        _ = timeout.fuse() => work_item,
-        _ = await_cancellation(cancel).fuse() => cancelled,
+        ack = timeout.fuse() => WorkItem {
+            content: work_item_content,
+            ack: Some(ack)
+        },
+        _ = await_cancellation(cancel).fuse() => WorkItem {
+            content: WorkItemContent::Cancelled(format!("{:?}", work_item_content)),
+            ack: None
+        },
+    }
+    #[cfg(not(test))]
+    futures::select! {
+        _ = timeout.fuse() => WorkItem {
+            content: work_item_content,
+        },
+        _ = await_cancellation(cancel).fuse() => WorkItem {
+            content: WorkItemContent::Cancelled,
+        },
     }
 }
 
 fn make_cancellable_timeout_future<T>(
-    work_item: WorkItem<T>,
+    work_item_content: WorkItemContent<T>,
     duration: Duration,
     #[cfg(test)] scheduled_event: ScheduledEvent,
     scheduler: &Scheduler,
@@ -169,7 +219,7 @@ where
         duration,
     );
     let future =
-        await_cancellable_timeout(work_item, timeout, receiver).boxed();
+        await_cancellable_timeout(work_item_content, timeout, receiver).boxed();
     (future, sender)
 }
 

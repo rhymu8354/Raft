@@ -2,7 +2,7 @@ use super::{
     make_cancellable_timeout_future,
     Event,
     EventSender,
-    WorkItem,
+    WorkItemContent,
     WorkItemFuture,
 };
 #[cfg(test)]
@@ -22,6 +22,7 @@ pub struct Peer<T> {
     pub cancel_retransmission: Option<oneshot::Sender<()>>,
     pub last_message: Option<Message<T>>,
     pub last_seq: usize,
+    pub match_index: usize,
     pub retransmission_future: Option<WorkItemFuture<T>>,
     pub vote: Option<bool>,
 }
@@ -39,7 +40,7 @@ impl<T> Peer<T> {
     {
         self.last_message = Some(message.clone());
         let (future, cancel_future) = make_cancellable_timeout_future(
-            WorkItem::RpcTimeout(peer_id),
+            WorkItemContent::RpcTimeout(peer_id),
             rpc_timeout,
             #[cfg(test)]
             ScheduledEvent::Retransmit(peer_id),
@@ -90,6 +91,7 @@ impl<T> Default for Peer<T> {
             cancel_retransmission: None,
             last_message: None,
             last_seq: 0,
+            match_index: 0,
             retransmission_future: None,
             vote: None,
         }
