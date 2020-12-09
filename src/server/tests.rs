@@ -45,24 +45,13 @@ use serde::{
 };
 use serde_json::Value as JsonValue;
 use std::{
-    collections::HashSet,
+    collections::{
+        HashMap,
+        HashSet,
+    },
+    iter::FromIterator,
     time::Duration,
 };
-
-const REASONABLE_FAST_OPERATION_TIMEOUT: Duration = Duration::from_millis(1000);
-
-pub async fn timeout<F, T>(
-    max_time: std::time::Duration,
-    f: F,
-) -> Result<T, ()>
-where
-    F: futures::Future<Output = T>,
-{
-    futures::select! {
-        result = f.fuse() => Ok(result),
-        _ = futures_timer::Delay::new(max_time).fuse() => Err(())
-    }
-}
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DummyCommand {}
@@ -184,15 +173,15 @@ struct Fixture {
 }
 
 impl Fixture {
-    async fn await_election_timer_registrations(
-        &mut self,
-        mut num_timers_to_await: usize,
+    fn expect_election_timer_registration_now(
+        &mut self
     ) -> (Duration, oneshot::Sender<()>) {
         loop {
             let event_with_completer = self
                 .scheduled_event_receiver
                 .next()
-                .await
+                .now_or_never()
+                .flatten()
                 .expect("no election timer registered");
             if let ScheduledEventWithCompleter {
                 scheduled_event: ScheduledEvent::ElectionTimeout,
@@ -200,51 +189,44 @@ impl Fixture {
                 completer,
             } = event_with_completer
             {
-                num_timers_to_await -= 1;
-                if num_timers_to_await == 0 {
-                    break (duration, completer);
-                }
+                break (duration, completer);
             }
         }
+    }
+
+    fn expect_no_election_timer_registrations_now(&mut self) {
+        while let Some(event_with_completer) =
+            self.scheduled_event_receiver.next().now_or_never().flatten()
+        {
+            assert!(!matches!(
+                event_with_completer,
+                ScheduledEventWithCompleter {
+                    scheduled_event: ScheduledEvent::ElectionTimeout,
+                    ..
+                }
+            ));
+        }
+    }
+
+    fn expect_election_timer_registrations_now(
+        &mut self,
+        num_timers_to_await: usize,
+    ) -> (Duration, oneshot::Sender<()>) {
+        for _ in 0..num_timers_to_await - 1 {
+            self.expect_election_timer_registration_now();
+        }
+        self.expect_election_timer_registration_now()
     }
 
     async fn expect_election_timer_registrations(
         &mut self,
         num_timers_to_await: usize,
     ) -> (Duration, oneshot::Sender<()>) {
-        let duration_and_completer = timeout(
-            REASONABLE_FAST_OPERATION_TIMEOUT,
-            self.await_election_timer_registrations(num_timers_to_await),
-        )
-        .await
-        .expect("timeout waiting for election timer registration");
-        self.expect_election_timer_registrations_now(0);
-        duration_and_completer
-    }
-
-    fn expect_election_timer_registrations_now(
-        &mut self,
-        mut num_timers_to_expect: usize,
-    ) {
-        while let Some(event_with_completer) =
-            self.scheduled_event_receiver.next().now_or_never()
-        {
-            if let ScheduledEventWithCompleter {
-                scheduled_event: ScheduledEvent::ElectionTimeout,
-                ..
-            } =
-                event_with_completer.expect("unexpected end of server events")
-            {
-                let timers_remaining = num_timers_to_expect
-                    .checked_sub(1)
-                    .expect("too many election timers registered");
-                num_timers_to_expect = timers_remaining;
-            }
-        }
-        assert_eq!(
-            0, num_timers_to_expect,
-            "too few election timers registered"
-        );
+        self.synchronize().await;
+        let registration =
+            self.expect_election_timer_registrations_now(num_timers_to_await);
+        self.expect_no_election_timer_registrations_now();
+        registration
     }
 
     async fn trigger_election_timeout(&mut self) {
@@ -306,7 +288,7 @@ impl Fixture {
         }
     }
 
-    async fn await_vote_request(
+    fn expect_vote_request_now(
         &mut self,
         expected_last_log_term: usize,
         expected_last_log_index: usize,
@@ -317,8 +299,9 @@ impl Fixture {
             let event = self
                 .server
                 .next()
-                .await
-                .expect("unexpected end of server events");
+                .now_or_never()
+                .flatten()
+                .expect("no vote request received");
             match event {
                 ServerEvent::SendMessage {
                     message,
@@ -368,17 +351,13 @@ impl Fixture {
         expected_seq: Option<usize>,
         expected_term: usize,
     ) -> usize {
-        timeout(
-            REASONABLE_FAST_OPERATION_TIMEOUT,
-            self.await_vote_request(
-                expected_last_log_term,
-                expected_last_log_index,
-                expected_seq,
-                expected_term,
-            ),
+        self.synchronize().await;
+        self.expect_vote_request_now(
+            expected_last_log_term,
+            expected_last_log_index,
+            expected_seq,
+            expected_term,
         )
-        .await
-        .expect("timeout waiting for vote request message")
     }
 
     async fn expect_server_to_start_election(
@@ -433,7 +412,7 @@ impl Fixture {
         .await
     }
 
-    async fn await_assume_leadership(
+    fn expect_assume_leadership_now(
         &mut self,
         args: AwaitAssumeLeadershipArgs,
     ) {
@@ -441,8 +420,9 @@ impl Fixture {
             let event = self
                 .server
                 .next()
-                .await
-                .expect("unexpected end of server events");
+                .now_or_never()
+                .flatten()
+                .expect("no election state change");
             if let ServerEvent::ElectionStateChange {
                 election_state: new_election_state,
                 term,
@@ -472,12 +452,8 @@ impl Fixture {
         &mut self,
         args: AwaitAssumeLeadershipArgs,
     ) {
-        timeout(
-            REASONABLE_FAST_OPERATION_TIMEOUT,
-            self.await_assume_leadership(args),
-        )
-        .await
-        .expect("timeout waiting for leadership assumption");
+        self.synchronize().await;
+        self.expect_assume_leadership_now(args);
     }
 
     fn verify_vote(
@@ -529,7 +505,7 @@ impl Fixture {
         }
     }
 
-    async fn await_vote(
+    fn expect_vote_now(
         &mut self,
         args: AwaitVoteArgs,
     ) {
@@ -538,8 +514,9 @@ impl Fixture {
             let event = self
                 .server
                 .next()
-                .await
-                .expect("unexpected end of server events");
+                .now_or_never()
+                .flatten()
+                .expect("no vote sent");
             match event {
                 ServerEvent::SendMessage {
                     message,
@@ -583,15 +560,15 @@ impl Fixture {
         &mut self,
         args: AwaitVoteArgs,
     ) {
-        timeout(REASONABLE_FAST_OPERATION_TIMEOUT, self.await_vote(args))
-            .await
-            .expect("timeout waiting for vote");
+        self.synchronize().await;
+        self.expect_vote_now(args);
     }
 
-    fn expect_election_state_change(
+    async fn expect_election_state_change_now(
         &mut self,
         election_state: ServerElectionState,
     ) {
+        self.synchronize().await;
         while let Some(event) = self.server.next().now_or_never() {
             if let ServerEvent::ElectionStateChange {
                 election_state: new_election_state,
@@ -605,12 +582,12 @@ impl Fixture {
         panic!("server did not change election state")
     }
 
-    fn expect_no_election_state_changes(&mut self) {
-        while let Some(event) = self.server.next().now_or_never() {
+    fn expect_no_election_state_changes_now(&mut self) {
+        while let Some(event) = self.server.next().now_or_never().flatten() {
             if let ServerEvent::ElectionStateChange {
                 election_state,
                 ..
-            } = event.expect("unexpected end of server events")
+            } = event
             {
                 panic!(
                     "unexpected election state change to {:?}",
@@ -618,6 +595,11 @@ impl Fixture {
                 );
             }
         }
+    }
+
+    async fn expect_no_election_state_changes(&mut self) {
+        self.synchronize().await;
+        self.expect_no_election_state_changes_now();
     }
 
     async fn cast_vote(
@@ -658,7 +640,7 @@ impl Fixture {
         self.configured = true;
     }
 
-    async fn await_retransmission_timer_registration(
+    fn expect_retransmission_timer_registration_now(
         &mut self,
         expected_receiver_id: usize,
     ) -> (Duration, oneshot::Sender<()>) {
@@ -666,7 +648,8 @@ impl Fixture {
             let event_with_completer = self
                 .scheduled_event_receiver
                 .next()
-                .await
+                .now_or_never()
+                .flatten()
                 .expect("no retransmit timer registered");
             if let ScheduledEventWithCompleter {
                 scheduled_event: ScheduledEvent::Retransmit(peer_id),
@@ -685,15 +668,55 @@ impl Fixture {
         &mut self,
         expected_receiver_id: usize,
     ) -> (Duration, oneshot::Sender<()>) {
-        timeout(
-            REASONABLE_FAST_OPERATION_TIMEOUT,
-            self.await_retransmission_timer_registration(expected_receiver_id),
-        )
-        .await
-        .expect("timeout waiting for retransmission timer registration")
+        self.synchronize().await;
+        self.expect_retransmission_timer_registration_now(expected_receiver_id)
     }
 
-    async fn await_message(
+    fn expect_retransmission_timer_registrations_now<T>(
+        &mut self,
+        expected_receiver_ids: T,
+    ) -> HashMap<usize, oneshot::Sender<()>>
+    where
+        T: IntoIterator<Item = usize>,
+    {
+        let mut expected_receiver_ids: HashSet<usize> =
+            HashSet::from_iter(expected_receiver_ids);
+        let mut completers = HashMap::new();
+        while !expected_receiver_ids.is_empty() {
+            let event_with_completer = self
+                .scheduled_event_receiver
+                .next()
+                .now_or_never()
+                .flatten()
+                .expect("no retransmit timer registered");
+            if let ScheduledEventWithCompleter {
+                scheduled_event: ScheduledEvent::Retransmit(peer_id),
+                completer,
+                ..
+            } = event_with_completer
+            {
+                if expected_receiver_ids.remove(&peer_id) {
+                    completers.insert(peer_id, completer);
+                }
+            }
+        }
+        completers
+    }
+
+    async fn expect_retransmission_timer_registrations<T>(
+        &mut self,
+        expected_receiver_ids: T,
+    ) -> HashMap<usize, oneshot::Sender<()>>
+    where
+        T: IntoIterator<Item = usize>,
+    {
+        self.synchronize().await;
+        self.expect_retransmission_timer_registrations_now(
+            expected_receiver_ids,
+        )
+    }
+
+    fn expect_message_now(
         &mut self,
         expected_receiver_id: usize,
     ) -> Message<DummyCommand> {
@@ -701,8 +724,9 @@ impl Fixture {
             let event = self
                 .server
                 .next()
-                .await
-                .expect("unexpected end of server events");
+                .now_or_never()
+                .flatten()
+                .expect("no message sent");
             match event {
                 ServerEvent::SendMessage {
                     message,
@@ -732,15 +756,11 @@ impl Fixture {
         &mut self,
         receiver_id: usize,
     ) -> Message<DummyCommand> {
-        timeout(
-            REASONABLE_FAST_OPERATION_TIMEOUT,
-            self.await_message(receiver_id),
-        )
-        .await
-        .expect("timeout waiting for message")
+        self.synchronize().await;
+        self.expect_message_now(receiver_id)
     }
 
-    async fn await_retransmission(
+    async fn expect_retransmission(
         &mut self,
         expected_receiver_id: usize,
     ) -> Message<DummyCommand> {
@@ -863,7 +883,7 @@ impl Fixture {
         }
     }
 
-    async fn await_append_entries(
+    fn expect_append_entries_now(
         &mut self,
         args: &AwaitAppendEntriesArgs,
     ) -> usize {
@@ -871,8 +891,9 @@ impl Fixture {
             let event = self
                 .server
                 .next()
-                .await
-                .expect("unexpected end of server events");
+                .now_or_never()
+                .flatten()
+                .expect("no append entries sent");
             match event {
                 ServerEvent::SendMessage {
                     message,
@@ -908,26 +929,15 @@ impl Fixture {
         }
     }
 
-    async fn expect_append_entries(
-        &mut self,
-        args: &AwaitAppendEntriesArgs,
-    ) -> usize {
-        timeout(
-            REASONABLE_FAST_OPERATION_TIMEOUT,
-            self.await_append_entries(args),
-        )
-        .await
-        .expect("timeout waiting for append entries")
-    }
-
     async fn expect_log_entries_broadcast(
         &mut self,
         args: AwaitAppendEntriesArgs,
     ) {
+        self.synchronize().await;
         let mut recipients = self.cluster.clone();
         recipients.remove(&self.id);
         while !recipients.is_empty() {
-            let recipient_id = self.expect_append_entries(&args).await;
+            let recipient_id = self.expect_append_entries_now(&args);
             assert!(
                 recipients.remove(&recipient_id),
                 "Unexpected append entries sent to {}",
@@ -987,7 +997,7 @@ impl Fixture {
         }
     }
 
-    async fn await_append_entries_response(
+    fn expect_append_entries_response_now(
         &mut self,
         args: AwaitAppendEntriesResponseArgs,
     ) {
@@ -997,8 +1007,9 @@ impl Fixture {
             let event = self
                 .server
                 .next()
-                .await
-                .expect("unexpected end of server events");
+                .now_or_never()
+                .flatten()
+                .expect("no append entries response sent");
             match event {
                 ServerEvent::SendMessage {
                     message,
@@ -1050,12 +1061,8 @@ impl Fixture {
         &mut self,
         args: AwaitAppendEntriesResponseArgs,
     ) {
-        timeout(
-            REASONABLE_FAST_OPERATION_TIMEOUT,
-            self.await_append_entries_response(args),
-        )
-        .await
-        .expect("timeout waiting for append entries response")
+        self.synchronize().await;
+        self.expect_append_entries_response_now(args);
     }
 
     async fn send_server_message(
@@ -1064,6 +1071,10 @@ impl Fixture {
         sender_id: usize,
     ) {
         send_server_message(&mut self.server, message, sender_id).await
+    }
+
+    async fn synchronize(&mut self) {
+        synchronize(&mut self.server).await;
     }
 }
 
@@ -1127,15 +1138,18 @@ async fn send_server_message(
     message: Message<DummyCommand>,
     sender_id: usize,
 ) {
-    let (completed_sender, completed_receiver) = oneshot::channel();
     server
         .send(ServerSinkItem::ReceiveMessage {
             message,
             sender_id,
-            received: Some(completed_sender),
         })
         .await
         .unwrap();
+}
+
+async fn synchronize(server: &mut Server<DummyCommand>) {
+    let (completed_sender, completed_receiver) = oneshot::channel();
+    server.send(ServerSinkItem::Synchronize(completed_sender)).await.unwrap();
     let _ = completed_receiver.await;
 }
 

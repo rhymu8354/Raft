@@ -10,7 +10,9 @@ fn leader_sends_no_op_log_entry_upon_election() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader);
+        fixture
+            .expect_election_state_change_now(ServerElectionState::Leader)
+            .await;
         fixture
             .expect_log_entries_broadcast(AwaitAppendEntriesArgs {
                 term: 1,
@@ -38,7 +40,9 @@ fn leader_retransmit_append_entries() {
         fixture.expect_election_with_defaults().await;
         fixture.expect_retransmission_timer_registration(2).await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader);
+        fixture
+            .expect_election_state_change_now(ServerElectionState::Leader)
+            .await;
         fixture.expect_message(2).await;
         assert_eq!(
             Message {
@@ -54,7 +58,7 @@ fn leader_retransmit_append_entries() {
                 seq: 2,
                 term: 1,
             },
-            fixture.await_retransmission(2).await
+            fixture.expect_retransmission(2).await
         );
     });
 }
@@ -67,7 +71,9 @@ fn leader_no_retransmit_append_entries_after_response() {
         fixture.expect_election_with_defaults().await;
         fixture.expect_retransmission_timer_registration(2).await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader);
+        fixture
+            .expect_election_state_change_now(ServerElectionState::Leader)
+            .await;
         fixture.expect_message(2).await;
         fixture
             .send_server_message(
@@ -86,6 +92,45 @@ fn leader_no_retransmit_append_entries_after_response() {
         assert!(
             completer.send(()).is_err(),
             "server didn't cancel retransmission timer"
+        );
+    });
+}
+
+#[test]
+fn leader_no_retransmit_vote_request_after_election() {
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.expect_election_with_defaults().await;
+        let mut completers = fixture
+            .expect_retransmission_timer_registrations([2, 11].iter().copied())
+            .await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 2,
+                seq: 1,
+                term: 1,
+                vote: true,
+            })
+            .await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 6,
+                seq: 1,
+                term: 1,
+                vote: true,
+            })
+            .await;
+        fixture
+            .expect_election_state_change_now(ServerElectionState::Leader)
+            .await;
+        assert!(
+            completers.remove(&2).unwrap().send(()).is_err(),
+            "server didn't cancel retransmission timer for server 2"
+        );
+        assert!(
+            completers.remove(&11).unwrap().send(()).is_err(),
+            "server didn't cancel retransmission timer for server 11"
         );
     });
 }

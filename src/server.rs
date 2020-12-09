@@ -73,12 +73,10 @@ type EventSender<T> = mpsc::UnboundedSender<Event<T>>;
 pub enum SinkItem<T> {
     ReceiveMessage {
         message: Message<T>,
-        // TODO: Consider using a future instead of an optional channel.
-        // The real code could provide a no-op future, whereas
-        // test code could provide a future which the test waits on.
-        received: Option<oneshot::Sender<()>>,
         sender_id: usize,
     },
+    #[cfg(test)]
+    Synchronize(oneshot::Sender<()>),
 }
 
 pub enum Command<T> {

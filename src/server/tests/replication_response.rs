@@ -76,8 +76,11 @@ fn leader_revert_to_follower_on_append_entries_new_term() {
             Box::new(mock_persistent_storage),
         );
         fixture.expect_election_with_defaults().await;
+        fixture.expect_election_timer_registrations(1).await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader);
+        fixture
+            .expect_election_state_change_now(ServerElectionState::Leader)
+            .await;
         fixture
             .send_server_message(
                 Message {
@@ -147,7 +150,9 @@ fn leader_reject_append_entries_same_term() {
         );
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader);
+        fixture
+            .expect_election_state_change_now(ServerElectionState::Leader)
+            .await;
         fixture
             .send_server_message(
                 Message {
@@ -178,7 +183,7 @@ fn leader_reject_append_entries_same_term() {
                 term: 1,
             })
             .await;
-        fixture.expect_no_election_state_changes();
+        fixture.expect_no_election_state_changes_now();
         verify_log(&mock_log_back_end, 0, 0, &vec![LogEntry {
             term: 1,
             command: None,
@@ -234,7 +239,7 @@ fn candidate_append_entries_same_term() {
                 term: 1,
             })
             .await;
-        fixture.expect_no_election_state_changes();
+        fixture.expect_no_election_state_changes_now();
         verify_log(&mock_log_back_end, 0, 0, &vec![LogEntry {
             term: 1,
             command: None,

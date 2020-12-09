@@ -46,7 +46,7 @@ fn elected_leader_unanimously() {
             .send(())
             .expect_err("server did not cancel last election timeout");
         fixture.cast_votes(2, 2).await;
-        fixture.expect_no_election_state_changes();
+        fixture.expect_no_election_state_changes().await;
         assert_eq!(1, fixture.server.election_timeout_count().await);
     });
 }
@@ -116,7 +116,7 @@ fn elected_leader_does_not_process_extra_votes() {
                 vote: true,
             })
             .await;
-        fixture.expect_no_election_state_changes();
+        fixture.expect_no_election_state_changes().await;
     });
 }
 
@@ -151,7 +151,7 @@ fn server_retransmits_request_vote_for_slow_voters_in_election() {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
         fixture.expect_election_with_defaults().await;
-        let retransmission = fixture.await_retransmission(2).await;
+        let retransmission = fixture.expect_retransmission(2).await;
         assert!(
             fixture.is_verified_vote_request(VerifyVoteRequestArgs {
                 message: &retransmission,
@@ -180,7 +180,7 @@ fn server_retransmits_request_vote_if_vote_had_wrong_seq() {
                 vote: true,
             })
             .await;
-        let retransmission = fixture.await_retransmission(2).await;
+        let retransmission = fixture.expect_retransmission(2).await;
         assert!(
             fixture.is_verified_vote_request(VerifyVoteRequestArgs {
                 message: &retransmission,

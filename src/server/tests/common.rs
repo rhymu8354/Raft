@@ -28,9 +28,7 @@ fn log_keeper_released_on_demobilize() {
         let mut fixture = Fixture::new();
         let (mock_log, mock_log_back_end) = MockLog::new();
         fixture.mobilize_server_with_log(Box::new(mock_log));
-        timeout(REASONABLE_FAST_OPERATION_TIMEOUT, fixture.server.demobilize())
-            .await
-            .expect("timeout waiting for demobilize to complete");
+        fixture.server.demobilize().await;
         let mock_log_shared = mock_log_back_end.shared.lock().unwrap();
         assert!(mock_log_shared.dropped);
     });
@@ -45,9 +43,7 @@ fn persistent_state_released_on_demobilize() {
         fixture.mobilize_server_with_persistent_storage(Box::new(
             mock_persistent_storage,
         ));
-        timeout(REASONABLE_FAST_OPERATION_TIMEOUT, fixture.server.demobilize())
-            .await
-            .expect("timeout waiting for demobilize to complete");
+        fixture.server.demobilize().await;
         let mock_persistent_storage_back_end =
             mock_persistent_storage_back_end.shared.lock().unwrap();
         assert!(mock_persistent_storage_back_end.dropped);

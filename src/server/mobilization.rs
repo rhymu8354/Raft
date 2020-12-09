@@ -593,19 +593,17 @@ impl<T> Mobilization<T> {
             SinkItem::ReceiveMessage {
                 message,
                 sender_id,
-                received,
-            } => {
-                let cancel_election_timer = self.process_receive_message(
-                    message,
-                    sender_id,
-                    event_sender,
-                    rpc_timeout,
-                    scheduler,
-                );
-                if let Some(received) = received {
-                    let _ = received.send(());
-                }
-                cancel_election_timer
+            } => self.process_receive_message(
+                message,
+                sender_id,
+                event_sender,
+                rpc_timeout,
+                scheduler,
+            ),
+            #[cfg(test)]
+            SinkItem::Synchronize(received) => {
+                let _ = received.send(());
+                false
             },
         }
     }
