@@ -1,8 +1,10 @@
 use super::*;
+use crate::tests::assert_logger;
 use futures::executor;
 
 #[test]
 fn mobilize_twice_does_not_crash() {
+    assert_logger();
     let fixture = Fixture::new();
     let (mock_log, _) = MockLog::new();
     let (mock_persistent_storage, _) = MockPersistentStorage::new();
@@ -24,6 +26,7 @@ fn mobilize_twice_does_not_crash() {
 
 #[test]
 fn log_keeper_released_on_demobilize() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_log, mock_log_back_end) = MockLog::new();
@@ -36,6 +39,7 @@ fn log_keeper_released_on_demobilize() {
 
 #[test]
 fn persistent_state_released_on_demobilize() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =

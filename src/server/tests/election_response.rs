@@ -1,8 +1,10 @@
 use super::*;
+use crate::tests::assert_logger;
 use futures::executor;
 
 #[test]
 fn follower_votes_for_first_candidate() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -38,6 +40,7 @@ fn follower_votes_for_first_candidate() {
 
 #[test]
 fn follower_rejects_subsequent_votes_after_first_candidate_same_term() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -73,6 +76,7 @@ fn follower_rejects_subsequent_votes_after_first_candidate_same_term() {
 
 #[test]
 fn follower_affirm_vote_upon_repeated_request() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -108,6 +112,7 @@ fn follower_affirm_vote_upon_repeated_request() {
 
 #[test]
 fn follower_rejects_vote_from_old_term() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -139,6 +144,7 @@ fn follower_rejects_vote_from_old_term() {
 
 #[test]
 fn non_follower_rejects_vote_from_same_term() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -175,6 +181,7 @@ fn non_follower_rejects_vote_from_same_term() {
 
 #[test]
 fn non_follower_revert_to_follower_and_vote_for_new_term_candidate() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -212,6 +219,7 @@ fn non_follower_revert_to_follower_and_vote_for_new_term_candidate() {
 
 #[test]
 fn vote_rejected_if_candidate_log_old() {
+    assert_logger();
     executor::block_on(async {
         let combinations: &[(usize, usize, usize, usize)] =
             &[(1, 199, 1, 42), (2, 199, 1, 399), (2, 199, 1, 42)];

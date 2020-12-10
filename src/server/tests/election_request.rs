@@ -1,8 +1,10 @@
 use super::*;
+use crate::tests::assert_logger;
 use futures::executor;
 
 #[test]
 fn new_election() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_log, _mock_log_back_end) =
@@ -30,6 +32,7 @@ fn new_election() {
 
 #[test]
 fn elected_leader_unanimously() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
@@ -54,6 +57,7 @@ fn elected_leader_unanimously() {
 
 #[test]
 fn elected_leader_non_unanimous_majority() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
@@ -84,6 +88,7 @@ fn elected_leader_non_unanimous_majority() {
 
 #[test]
 fn elected_leader_does_not_process_extra_votes() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
@@ -123,6 +128,7 @@ fn elected_leader_does_not_process_extra_votes() {
 
 #[test]
 fn not_elected_leader_because_no_majority_votes() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
@@ -148,6 +154,7 @@ fn not_elected_leader_because_no_majority_votes() {
 
 #[test]
 fn server_retransmits_request_vote_for_slow_voters_in_election() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
@@ -169,6 +176,7 @@ fn server_retransmits_request_vote_for_slow_voters_in_election() {
 
 #[test]
 fn server_retransmits_request_vote_if_vote_had_wrong_seq() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
@@ -198,6 +206,7 @@ fn server_retransmits_request_vote_if_vote_had_wrong_seq() {
 
 #[test]
 fn timeout_before_majority_vote_or_new_leader_heart_beat() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
@@ -244,6 +253,7 @@ fn timeout_before_majority_vote_or_new_leader_heart_beat() {
 
 #[test]
 fn leader_no_retransmit_vote_request_after_election() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();

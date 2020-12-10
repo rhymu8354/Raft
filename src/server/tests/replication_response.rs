@@ -1,9 +1,13 @@
 use super::*;
-use crate::AppendEntriesContent;
+use crate::{
+    tests::assert_logger,
+    AppendEntriesContent,
+};
 use futures::executor;
 
 #[test]
 fn follower_receive_append_entries() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -65,6 +69,7 @@ fn follower_receive_append_entries() {
 
 #[test]
 fn leader_revert_to_follower_on_append_entries_new_term() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -136,6 +141,7 @@ fn leader_revert_to_follower_on_append_entries_new_term() {
 
 #[test]
 fn leader_reject_append_entries_same_term() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -194,6 +200,7 @@ fn leader_reject_append_entries_same_term() {
 
 #[test]
 fn candidate_append_entries_same_term() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -250,6 +257,7 @@ fn candidate_append_entries_same_term() {
 
 #[test]
 fn follower_match_appended_entries() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -316,6 +324,7 @@ fn follower_match_appended_entries() {
 
 #[test]
 fn follower_replaces_mismatched_appended_entries() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -382,6 +391,7 @@ fn follower_replaces_mismatched_appended_entries() {
 
 #[test]
 fn follower_rejects_appended_entries_with_mismatched_previous_term() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -457,6 +467,7 @@ fn follower_rejects_appended_entries_with_mismatched_previous_term() {
 
 #[test]
 fn follower_rejects_appended_entries_with_mismatched_base() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -510,6 +521,7 @@ fn follower_rejects_appended_entries_with_mismatched_base() {
 
 #[test]
 fn follower_rejects_appended_entries_with_no_common_base() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =

@@ -1,8 +1,10 @@
 use super::*;
+use crate::tests::assert_logger;
 use futures::executor;
 
 #[test]
 fn leader_sends_no_op_log_entry_upon_election() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_log, mock_log_back_end) =
@@ -32,6 +34,7 @@ fn leader_sends_no_op_log_entry_upon_election() {
 
 #[test]
 fn leader_retransmit_append_entries() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
@@ -61,6 +64,7 @@ fn leader_retransmit_append_entries() {
 
 #[test]
 fn leader_no_retransmit_append_entries_after_response() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
@@ -93,6 +97,7 @@ fn leader_no_retransmit_append_entries_after_response() {
 
 #[test]
 fn leader_revert_to_follower_when_receive_new_term_append_entries_results() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
@@ -133,6 +138,7 @@ fn leader_revert_to_follower_when_receive_new_term_append_entries_results() {
 
 #[test]
 fn leader_commit_entry_when_majority_match() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
@@ -170,6 +176,7 @@ fn leader_commit_entry_when_majority_match() {
 
 #[test]
 fn leader_send_missing_entries_mid_log_on_append_entries_results() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
@@ -242,6 +249,7 @@ fn leader_send_missing_entries_mid_log_on_append_entries_results() {
 
 #[test]
 fn leader_send_missing_entries_all_log_on_append_entries_results() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
@@ -318,6 +326,7 @@ fn leader_send_missing_entries_all_log_on_append_entries_results() {
 
 #[test]
 fn follower_ignore_append_entries_results() {
+    assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();

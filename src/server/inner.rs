@@ -16,6 +16,11 @@ use futures::{
     FutureExt as _,
     StreamExt as _,
 };
+use log::{
+    debug,
+    info,
+    trace,
+};
 use std::fmt::Debug;
 
 pub struct Inner<T> {
@@ -153,14 +158,14 @@ impl<T> Inner<T> {
             match work_item.content {
                 #[cfg(test)]
                 WorkItemContent::Cancelled(work_item) => {
-                    println!("Completed canceled future: {}", work_item);
+                    trace!("Completed canceled future: {}", work_item);
                 },
                 #[cfg(not(test))]
                 WorkItemContent::Cancelled => {
-                    println!("Completed canceled future");
+                    trace!("Completed canceled future");
                 },
                 WorkItemContent::ElectionTimeout => {
-                    println!("*** Election timeout! ***");
+                    info!("*** Election timeout! ***");
                     if let Some(mobilization) = &mut self.mobilization {
                         mobilization.election_timeout(
                             &self.event_sender,
@@ -170,18 +175,21 @@ impl<T> Inner<T> {
                     }
                 },
                 WorkItemContent::RpcTimeout(peer_id) => {
-                    println!("*** RPC timeout ({})! ***", peer_id);
+                    info!("*** RPC timeout ({})! ***", peer_id);
                     self.retransmit(peer_id);
                 },
                 WorkItemContent::Command {
                     command,
                     command_receiver: command_receiver_out,
                 } => {
-                    println!("Command: {:?}", command);
+                    debug!("Command: {:?}", command);
                     self.process_command(command);
                     command_receiver.replace(command_receiver_out);
                 },
-                WorkItemContent::Stop => break,
+                WorkItemContent::Stop => {
+                    info!("Server worker stopping");
+                    break;
+                },
             }
             #[cfg(test)]
             if let Some(ack) = work_item.ack {
@@ -201,7 +209,7 @@ async fn process_command_receiver<T: 'static + Clone + Debug + Send>(
             command_receiver,
         }
     } else {
-        println!("Server command channel closed");
+        info!("Server command channel closed");
         WorkItemContent::Stop
     };
     WorkItem {

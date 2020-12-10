@@ -11,9 +11,9 @@ mod persistent_storage;
 mod scheduler;
 mod server;
 
+pub use self::log::Log;
 pub use configuration::Configuration;
 pub use error::Error;
-pub use log::Log;
 pub use log_entry::{
     CustomCommand as LogEntryCustomCommand,
     LogEntry,
@@ -40,3 +40,12 @@ pub use server::{
     Server,
     SinkItem as ServerSinkItem,
 };
+
+#[cfg(test)]
+mod tests {
+    use log::LevelFilter;
+    use simple_logger::SimpleLogger;
+    pub fn assert_logger() {
+        let _ = SimpleLogger::new().with_level(LevelFilter::Error).init();
+    }
+}

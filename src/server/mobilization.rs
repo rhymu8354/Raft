@@ -21,6 +21,11 @@ use crate::{
     Scheduler,
 };
 use futures::channel::oneshot;
+use log::{
+    debug,
+    info,
+    warn,
+};
 use rand::{
     rngs::StdRng,
     Rng as _,
@@ -169,7 +174,7 @@ impl<T> Mobilization<T> {
         event_sender: &EventSender<T>,
     ) {
         let term = self.persistent_storage.term();
-        println!(
+        info!(
             "State: {:?} -> {:?} (term {})",
             self.election_state, new_election_state, term
         );
@@ -317,7 +322,10 @@ impl<T> Mobilization<T> {
                     .filter(|peer| peer.last_seq == message.seq)
                     .is_none()
                 {
-                    println!("Received old vote");
+                    debug!(
+                        "Received old vote ({}) from {}",
+                        vote_granted, sender_id
+                    );
                     return false;
                 }
                 self.cancel_retransmission(sender_id);
@@ -358,7 +366,10 @@ impl<T> Mobilization<T> {
                     .filter(|peer| peer.last_seq == message.seq)
                     .is_none()
                 {
-                    println!("Received old append entries results");
+                    debug!(
+                        "Received old append entries results ({}) from {}",
+                        match_index, sender_id
+                    );
                     return false;
                 }
                 self.cancel_retransmission(sender_id);
@@ -467,7 +478,7 @@ impl<T> Mobilization<T> {
         let new_commit_index =
             std::cmp::min(leader_commit, self.log.last_index());
         if new_commit_index > self.commit_index {
-            println!(
+            info!(
                 "{:?}: Committing log from {} to {}",
                 self.election_state, self.commit_index, new_commit_index
             );
@@ -508,7 +519,10 @@ impl<T> Mobilization<T> {
             seq,
             term: self.persistent_storage.term(),
         };
-        println!("Sending message to {}: {:?}", sender_id, message);
+        debug!(
+            "Sending AppendEntriesResults ({}) to {}",
+            match_index, sender_id
+        );
         let _ = event_sender.unbounded_send(Event::SendMessage {
             message,
             receiver_id: sender_id,
@@ -526,16 +540,19 @@ impl<T> Mobilization<T> {
             self.persistent_storage.update(args.term, None);
             self.become_follower(args.event_sender);
         }
-        println!(
-            "Received append entries results (match: {}) from {}",
-            args.match_index, args.sender_id
-        );
         if self.election_state != ElectionState::Leader {
-            println!(
-                "Not processing further because we are {:?}, not Leader",
+            warn!(
+                "Not processing AppendEntriesResults ({}) from {} because we are {:?}, not Leader",
+                args.match_index,
+                args.sender_id,
                 self.election_state
             );
             return;
+        } else {
+            debug!(
+                "Received AppendEntriesResults ({}) from {}",
+                args.match_index, args.sender_id
+            );
         }
         if let Some(peer) = self.peers.get_mut(&args.sender_id) {
             peer.match_index =
@@ -602,7 +619,10 @@ impl<T> Mobilization<T> {
             seq,
             term: self.persistent_storage.term(),
         };
-        println!("Sending message to {}: {:?}", sender_id, message);
+        debug!(
+            "Sending RequestVoteResults ({}) message to {}",
+            vote_granted, sender_id
+        );
         let _ = event_sender.unbounded_send(Event::SendMessage {
             message,
             receiver_id: sender_id,
@@ -622,13 +642,13 @@ impl<T> Mobilization<T> {
         T: Clone + Debug + Send + 'static,
     {
         if self.election_state != ElectionState::Candidate {
-            println!(
+            debug!(
                 "Received unexpected or extra vote {} from {}",
                 vote_granted, sender_id
             );
             return false;
         }
-        println!("Received vote {} from {}", vote_granted, sender_id);
+        debug!("Received vote {} from {}", vote_granted, sender_id);
         if let Some(peer) = self.peers.get_mut(&sender_id) {
             peer.vote = Some(vote_granted);
         } else {
@@ -747,7 +767,7 @@ impl<T> Mobilization<T> {
         }
         let timeout_duration =
             self.rng.gen_range(election_timeout.start, election_timeout.end);
-        println!(
+        debug!(
             "Setting election timer to {:?} ({:?})",
             timeout_duration, election_timeout
         );
