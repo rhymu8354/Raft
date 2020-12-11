@@ -171,6 +171,20 @@ fn leader_commit_entry_when_majority_match() {
             )
             .await;
         fixture.expect_commit(1).await;
+        fixture.trigger_heartbeat_timeout().await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 1,
+                    prev_log_term: 1,
+                    prev_log_index: 1,
+                    log: vec![],
+                }),
+                seq: 3,
+                term: 1,
+            },
+            fixture.expect_message_now(2)
+        );
     });
 }
 
