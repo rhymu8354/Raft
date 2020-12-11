@@ -223,7 +223,7 @@ fn leader_send_missing_entries_mid_log_on_append_entries_results() {
             .await;
         fixture.cast_votes(1, 7).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
-        fixture.expect_message(2).await;
+        fixture.expect_messages(hashset! {2, 6}).await;
         fixture
             .send_server_message(
                 Message {
@@ -257,6 +257,41 @@ fn leader_send_missing_entries_mid_log_on_append_entries_results() {
                 term: 7,
             },
             fixture.expect_message(2).await
+        );
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResults {
+                        match_index: 11,
+                    },
+                    seq: 2,
+                    term: 7,
+                },
+                6,
+            )
+            .await;
+        fixture.expect_commit(11).await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 11,
+                    prev_log_term: 5,
+                    prev_log_index: 11,
+                    log: vec![
+                        LogEntry {
+                            term: 6,
+                            command: None,
+                        },
+                        LogEntry {
+                            term: 7,
+                            command: None,
+                        },
+                    ],
+                }),
+                seq: 3,
+                term: 7,
+            },
+            fixture.expect_message(6).await
         );
     });
 }
@@ -429,6 +464,71 @@ fn leader_send_heartbeat_when_follower_up_to_date() {
                 }),
                 seq: 3,
                 term: 1,
+            },
+            fixture.expect_message_now(2)
+        );
+    });
+}
+
+#[test]
+fn leader_no_op_non_zero_commit_index() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.expect_election_timer_registrations(1).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 1,
+                            prev_log_index: 0,
+                            prev_log_term: 0,
+                            log: vec![LogEntry {
+                                term: 1,
+                                command: None,
+                            }],
+                        },
+                    ),
+                    seq: 1,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture
+            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+                commit_index: Some(1),
+                expect_state_change: false,
+                match_index: 1,
+                receiver_id: 2,
+                seq: 1,
+                term: 1,
+            })
+            .await;
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 1,
+                last_log_index: 1,
+                term: 2,
+            })
+            .await;
+        fixture.cast_votes(1, 2).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 1,
+                    prev_log_term: 1,
+                    prev_log_index: 1,
+                    log: vec![LogEntry {
+                        term: 2,
+                        command: None,
+                    }],
+                }),
+                seq: 2,
+                term: 2,
             },
             fixture.expect_message_now(2)
         );

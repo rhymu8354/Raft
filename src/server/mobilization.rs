@@ -143,7 +143,7 @@ impl<T> Mobilization<T> {
         }
         self.send_new_message_broadcast(
             MessageContent::AppendEntries(AppendEntriesContent {
-                leader_commit: 0, // TODO: track last commit
+                leader_commit: self.commit_index,
                 prev_log_index,
                 prev_log_term,
                 log: vec![no_op],
@@ -630,7 +630,7 @@ impl<T> Mobilization<T> {
                 if let Some(prev_log_term) = prev_log_term {
                     peer.send_new_request(
                         MessageContent::AppendEntries(AppendEntriesContent {
-                            leader_commit: 0, // TODO: track last commit
+                            leader_commit: self.commit_index,
                             prev_log_index: peer.match_index,
                             prev_log_term,
                             log: self.log.entries(peer.match_index),

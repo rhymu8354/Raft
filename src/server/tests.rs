@@ -868,6 +868,52 @@ impl Fixture {
         self.expect_message_now(receiver_id)
     }
 
+    fn expect_messages_now(
+        &mut self,
+        mut expected_receiver_ids: HashSet<usize>,
+    ) -> HashMap<usize, Message<DummyCommand>> {
+        let mut messages = HashMap::new();
+        while !expected_receiver_ids.is_empty() {
+            let event = self
+                .server
+                .next()
+                .now_or_never()
+                .flatten()
+                .expect("no message sent");
+            match event {
+                ServerEvent::SendMessage {
+                    message,
+                    receiver_id,
+                } => {
+                    if expected_receiver_ids.remove(&receiver_id) {
+                        messages.insert(receiver_id, message);
+                    }
+                },
+                ServerEvent::ElectionStateChange {
+                    election_state,
+                    ..
+                } => {
+                    panic!(
+                        "Unexpected state transition to {:?}",
+                        election_state
+                    );
+                },
+                ServerEvent::LogCommitted(_) => {
+                    panic!("Unexpectedly committed log entries")
+                },
+            }
+        }
+        messages
+    }
+
+    async fn expect_messages(
+        &mut self,
+        receiver_ids: HashSet<usize>,
+    ) -> HashMap<usize, Message<DummyCommand>> {
+        self.synchronize().await;
+        self.expect_messages_now(receiver_ids)
+    }
+
     async fn expect_retransmission(
         &mut self,
         expected_receiver_id: usize,
