@@ -797,7 +797,7 @@ impl<T> Mobilization<T> {
 
     pub fn take_retransmission_futures(
         &mut self
-    ) -> impl IntoIterator<Item = WorkItemFuture<T>> + '_ {
+    ) -> impl Iterator<Item = WorkItemFuture<T>> + '_ {
         self.peers
             .values_mut()
             .filter_map(|peer| peer.retransmission_future.take())
