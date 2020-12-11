@@ -132,15 +132,25 @@ impl<T> Inner<T> {
                     .push(process_command_receiver(command_receiver).boxed());
             }
 
-            // Make election timeout future if we don't have one and we are
-            // not the leader of the cluster.
+            // Upkeep timers while mobilized.
             if let Some(mobilization) = &mut self.mobilization {
+                // Make election timeout future if we don't have one and we are
+                // not the leader of the cluster.
                 if let Some(future) = mobilization
                     .upkeep_election_timeout_future(
                         &self.configuration.election_timeout,
                         &self.scheduler,
                     )
                 {
+                    futures.push(future);
+                }
+
+                // Make heartbeat future if we don't have one and we are
+                // the leader of the cluster.
+                if let Some(future) = mobilization.upkeep_heartbeat_future(
+                    self.configuration.heartbeat_interval,
+                    &self.scheduler,
+                ) {
                     futures.push(future);
                 }
             }
@@ -164,6 +174,14 @@ impl<T> Inner<T> {
                 WorkItemContent::Cancelled => {
                     trace!("Completed canceled future");
                 },
+                WorkItemContent::Command {
+                    command,
+                    command_receiver: command_receiver_out,
+                } => {
+                    debug!("Command: {:?}", command);
+                    self.process_command(command);
+                    command_receiver.replace(command_receiver_out);
+                },
                 WorkItemContent::ElectionTimeout => {
                     info!("*** Election timeout! ***");
                     if let Some(mobilization) = &mut self.mobilization {
@@ -174,17 +192,19 @@ impl<T> Inner<T> {
                         );
                     }
                 },
+                WorkItemContent::Heartbeat => {
+                    debug!("> Heartbeat <");
+                    if let Some(mobilization) = &mut self.mobilization {
+                        mobilization.heartbeat(
+                            &self.event_sender,
+                            self.configuration.rpc_timeout,
+                            &self.scheduler,
+                        );
+                    }
+                },
                 WorkItemContent::RpcTimeout(peer_id) => {
                     info!("*** RPC timeout ({})! ***", peer_id);
                     self.retransmit(peer_id);
-                },
-                WorkItemContent::Command {
-                    command,
-                    command_receiver: command_receiver_out,
-                } => {
-                    debug!("Command: {:?}", command);
-                    self.process_command(command);
-                    command_receiver.replace(command_receiver_out);
                 },
                 WorkItemContent::Stop => {
                     info!("Server worker stopping");

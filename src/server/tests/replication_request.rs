@@ -380,3 +380,43 @@ fn follower_ignore_append_entries_results() {
         fixture.expect_no_commit().await;
     });
 }
+
+#[test]
+fn leader_send_heartbeat_when_follower_up_to_date() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.expect_election_with_defaults().await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_message_now(2);
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResults {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.synchronize().await;
+        fixture.trigger_heartbeat_timeout().await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_term: 1,
+                    prev_log_index: 1,
+                    log: vec![],
+                }),
+                seq: 3,
+                term: 1,
+            },
+            fixture.expect_message_now(2)
+        );
+    });
+}

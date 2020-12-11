@@ -20,8 +20,8 @@ use std::{
 };
 
 pub struct Peer<T> {
-    pub cancel_retransmission: Option<oneshot::Sender<()>>,
-    pub last_message: Option<Message<T>>,
+    cancel_retransmission: Option<oneshot::Sender<()>>,
+    last_message: Option<Message<T>>,
     pub last_seq: usize,
     pub match_index: usize,
     pub retransmission_future: Option<WorkItemFuture<T>>,
@@ -29,6 +29,18 @@ pub struct Peer<T> {
 }
 
 impl<T> Peer<T> {
+    pub fn awaiting_response(&self) -> bool {
+        self.last_message.is_some()
+    }
+
+    pub fn cancel_retransmission(&mut self) -> Option<Message<T>> {
+        if let Some(cancel_retransmission) = self.cancel_retransmission.take() {
+            let _ = cancel_retransmission.send(());
+        }
+        self.retransmission_future.take();
+        self.last_message.take()
+    }
+
     pub fn send_request(
         &mut self,
         message: Message<T>,

@@ -73,6 +73,7 @@ enum LogEntryDisposition {
 
 pub struct Mobilization<T> {
     cancel_election_timeout: Option<oneshot::Sender<()>>,
+    cancel_heartbeat: Option<oneshot::Sender<()>>,
     cluster: HashSet<usize>,
     commit_index: usize,
     election_state: ElectionState,
@@ -94,9 +95,12 @@ impl<T> Mobilization<T> {
     ) where
         T: Clone + Debug + Send + 'static,
     {
+        self.change_election_state(ElectionState::Candidate, event_sender);
         let term = self.persistent_storage.term() + 1;
         self.persistent_storage.update(term, Some(self.id));
-        self.change_election_state(ElectionState::Candidate, event_sender);
+        for peer in self.peers.values_mut() {
+            peer.vote = None;
+        }
         self.send_new_message_broadcast(
             MessageContent::RequestVote {
                 candidate_id: self.id,
@@ -113,11 +117,8 @@ impl<T> Mobilization<T> {
         &mut self,
         event_sender: &EventSender<T>,
     ) {
-        for peer in self.peers.values_mut() {
-            peer.cancel_retransmission.take();
-            peer.retransmission_future.take();
-        }
         self.change_election_state(ElectionState::Follower, event_sender);
+        self.cancel_heartbeat_timer();
     }
 
     fn become_leader(
@@ -136,6 +137,10 @@ impl<T> Mobilization<T> {
         let prev_log_index = self.log.last_index();
         let prev_log_term = self.log.last_term();
         self.log.append_one(no_op.clone());
+        info!("Asserting leadership with no-op entry {}", prev_log_index + 1);
+        for peer in self.peers.values_mut() {
+            peer.match_index = 0;
+        }
         self.send_new_message_broadcast(
             MessageContent::AppendEntries(AppendEntriesContent {
                 leader_commit: 0, // TODO: track last commit
@@ -155,16 +160,18 @@ impl<T> Mobilization<T> {
         }
     }
 
+    pub fn cancel_heartbeat_timer(&mut self) {
+        if let Some(cancel_heartbeat) = self.cancel_heartbeat.take() {
+            let _ = cancel_heartbeat.send(());
+        }
+    }
+
     fn cancel_retransmission(
         &mut self,
         peer_id: usize,
     ) {
-        if let Some(cancel_retransmission) = self
-            .peers
-            .get_mut(&peer_id)
-            .and_then(|peer| peer.cancel_retransmission.take())
-        {
-            let _ = cancel_retransmission.send(());
+        if let Some(peer) = self.peers.get_mut(&peer_id) {
+            peer.cancel_retransmission();
         }
     }
 
@@ -179,6 +186,9 @@ impl<T> Mobilization<T> {
             self.election_state, new_election_state, term
         );
         self.election_state = new_election_state;
+        for peer in self.peers.values_mut() {
+            peer.cancel_retransmission();
+        }
         let _ = event_sender.unbounded_send(Event::ElectionStateChange {
             election_state: self.election_state,
             term,
@@ -274,6 +284,39 @@ impl<T> Mobilization<T> {
         }
     }
 
+    pub fn heartbeat(
+        &mut self,
+        event_sender: &EventSender<T>,
+        rpc_timeout: Duration,
+        scheduler: &Scheduler,
+    ) where
+        T: Clone + Debug + Send + 'static,
+    {
+        self.cancel_heartbeat.take();
+        if self.election_state == ElectionState::Leader {
+            let prev_log_index = self.log.last_index();
+            for (&peer_id, peer) in &mut self.peers {
+                if peer.match_index == prev_log_index
+                    && !peer.awaiting_response()
+                {
+                    peer.send_new_request(
+                        MessageContent::AppendEntries(AppendEntriesContent {
+                            leader_commit: self.commit_index,
+                            prev_log_index,
+                            prev_log_term: self.log.last_term(),
+                            log: vec![],
+                        }),
+                        peer_id,
+                        self.persistent_storage.term(),
+                        event_sender,
+                        rpc_timeout,
+                        scheduler,
+                    );
+                }
+            }
+        }
+    }
+
     pub fn new(mobilize_args: MobilizeArgs<T>) -> Self {
         let peers = mobilize_args
             .cluster
@@ -288,6 +331,7 @@ impl<T> Mobilization<T> {
             .collect();
         Self {
             cancel_election_timeout: None,
+            cancel_heartbeat: None,
             cluster: mobilize_args.cluster,
             commit_index: 0,
             election_state: ElectionState::Follower,
@@ -316,16 +360,20 @@ impl<T> Mobilization<T> {
             MessageContent::RequestVoteResults {
                 vote_granted,
             } => {
+                info!(
+                    "Received vote {} from {} for term {} (we are {:?} in term {})",
+                    vote_granted,
+                    sender_id,
+                    message.term,
+                    self.election_state,
+                    self.persistent_storage.term()
+                );
                 if self
                     .peers
                     .get(&sender_id)
                     .filter(|peer| peer.last_seq == message.seq)
                     .is_none()
                 {
-                    debug!(
-                        "Received old vote ({}) from {}",
-                        vote_granted, sender_id
-                    );
                     return false;
                 }
                 self.cancel_retransmission(sender_id);
@@ -555,8 +603,15 @@ impl<T> Mobilization<T> {
             );
         }
         if let Some(peer) = self.peers.get_mut(&args.sender_id) {
-            peer.match_index =
+            let match_index =
                 std::cmp::min(args.match_index, self.log.last_index());
+            if match_index > peer.match_index {
+                info!(
+                    "{} advanced match index {} -> {}",
+                    args.sender_id, peer.match_index, match_index
+                );
+                peer.match_index = match_index;
+            }
         }
         let majority_match_index = self.find_majority_match_index();
         if majority_match_index > self.commit_index {
@@ -648,7 +703,6 @@ impl<T> Mobilization<T> {
             );
             return false;
         }
-        debug!("Received vote {} from {}", vote_granted, sender_id);
         if let Some(peer) = self.peers.get_mut(&sender_id) {
             peer.vote = Some(vote_granted);
         } else {
@@ -707,18 +761,15 @@ impl<T> Mobilization<T> {
         T: 'static + Clone + Debug + Send,
     {
         if let Some(peer) = self.peers.get_mut(&peer_id) {
-            peer.cancel_retransmission.take();
-            let message = peer
-                .last_message
-                .take()
-                .expect("lost message that needs to be retransmitted");
-            peer.send_request(
-                message,
-                peer_id,
-                event_sender,
-                rpc_timeout,
-                scheduler,
-            )
+            if let Some(message) = peer.cancel_retransmission() {
+                peer.send_request(
+                    message,
+                    peer_id,
+                    event_sender,
+                    rpc_timeout,
+                    scheduler,
+                )
+            }
         }
     }
 
@@ -779,6 +830,30 @@ impl<T> Mobilization<T> {
             &scheduler,
         );
         self.cancel_election_timeout.replace(cancel_future);
+        Some(future)
+    }
+
+    pub fn upkeep_heartbeat_future(
+        &mut self,
+        heartbeat_interval: Duration,
+        scheduler: &Scheduler,
+    ) -> Option<WorkItemFuture<T>>
+    where
+        T: 'static + Clone + Debug + Send,
+    {
+        if self.election_state != ElectionState::Leader
+            || self.cancel_heartbeat.is_some()
+        {
+            return None;
+        }
+        let (future, cancel_future) = make_cancellable_timeout_future(
+            WorkItemContent::Heartbeat,
+            heartbeat_interval,
+            #[cfg(test)]
+            ScheduledEvent::Heartbeat,
+            &scheduler,
+        );
+        self.cancel_heartbeat.replace(cancel_future);
         Some(future)
     }
 }

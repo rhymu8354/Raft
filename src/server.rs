@@ -158,11 +158,12 @@ pub enum WorkItemContent<T> {
     Cancelled(String),
     #[cfg(not(test))]
     Cancelled,
-    ElectionTimeout,
     Command {
         command: Command<T>,
         command_receiver: CommandReceiver<T>,
     },
+    ElectionTimeout,
+    Heartbeat,
     RpcTimeout(usize),
     Stop,
 }

@@ -247,6 +247,78 @@ impl Fixture {
         receiver.await.expect("server dropped election timeout acknowledgment");
     }
 
+    fn expect_no_heartbeat_timer_registrations_now(&mut self) {
+        while let Some(event_with_completer) =
+            self.scheduled_event_receiver.next().now_or_never().flatten()
+        {
+            assert!(!matches!(
+                event_with_completer,
+                ScheduledEventWithCompleter {
+                    scheduled_event: ScheduledEvent::Heartbeat,
+                    ..
+                }
+            ));
+        }
+    }
+
+    fn expect_heartbeat_timer_registration_now(
+        &mut self
+    ) -> (Duration, oneshot::Sender<oneshot::Sender<()>>) {
+        loop {
+            let event_with_completer = self
+                .scheduled_event_receiver
+                .next()
+                .now_or_never()
+                .flatten()
+                .expect("no heartbeat timer registered");
+            if let ScheduledEventWithCompleter {
+                scheduled_event: ScheduledEvent::Heartbeat,
+                duration,
+                completer,
+            } = event_with_completer
+            {
+                break (duration, completer);
+            }
+        }
+    }
+
+    fn expect_heartbeat_timer_registrations_now(
+        &mut self,
+        num_timers_to_await: usize,
+    ) -> (Duration, oneshot::Sender<oneshot::Sender<()>>) {
+        for _ in 0..num_timers_to_await - 1 {
+            self.expect_heartbeat_timer_registration_now();
+        }
+        self.expect_heartbeat_timer_registration_now()
+    }
+
+    async fn expect_heartbeat_timer_registrations(
+        &mut self,
+        num_timers_to_await: usize,
+    ) -> (Duration, oneshot::Sender<oneshot::Sender<()>>) {
+        self.synchronize().await;
+        let registration =
+            self.expect_heartbeat_timer_registrations_now(num_timers_to_await);
+        self.expect_no_heartbeat_timer_registrations_now();
+        registration
+    }
+
+    async fn trigger_heartbeat_timeout(&mut self) {
+        let (heartbeat_timeout_duration, heartbeat_timeout_completer) =
+            self.expect_heartbeat_timer_registrations(1).await;
+        assert_eq!(
+            self.configuration.heartbeat_interval,
+            heartbeat_timeout_duration
+        );
+        let (sender, receiver) = oneshot::channel();
+        heartbeat_timeout_completer
+            .send(sender)
+            .expect("server dropped heartbeat future");
+        receiver
+            .await
+            .expect("server dropped heartbeat timeout acknowledgment");
+    }
+
     fn is_verified_vote_request(
         &self,
         args: VerifyVoteRequestArgs,
