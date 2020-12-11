@@ -95,9 +95,9 @@ impl<T> Mobilization<T> {
     ) where
         T: Clone + Debug + Send + 'static,
     {
-        self.change_election_state(ElectionState::Candidate, event_sender);
         let term = self.persistent_storage.term() + 1;
         self.persistent_storage.update(term, Some(self.id));
+        self.change_election_state(ElectionState::Candidate, event_sender);
         for peer in self.peers.values_mut() {
             peer.vote = None;
         }
