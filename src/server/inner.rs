@@ -69,7 +69,7 @@ impl<T> Inner<T> {
             },
             Command::Mobilize(mobilize_args) => {
                 self.mobilization = Some(Mobilization::new(mobilize_args));
-                true
+                false
             },
             Command::ProcessSinkItem(sink_item) => {
                 self.process_sink_item(sink_item)
@@ -167,8 +167,19 @@ impl<T> Inner<T> {
             futures = futures_remaining;
             match work_item.content {
                 #[cfg(test)]
+                WorkItemContent::Abandoned(work_item) => {
+                    trace!("Completed abandoned future: {}", work_item);
+                },
+                #[cfg(not(test))]
+                WorkItemContent::Abandoned => {
+                    trace!("Completed abandoned future");
+                },
+                #[cfg(test)]
                 WorkItemContent::Cancelled(work_item) => {
                     trace!("Completed canceled future: {}", work_item);
+                    if let Some(mobilization) = &mut self.mobilization {
+                        mobilization.count_cancellation();
+                    }
                 },
                 #[cfg(not(test))]
                 WorkItemContent::Cancelled => {

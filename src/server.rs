@@ -155,6 +155,10 @@ pub struct WorkItem<T> {
 #[derive(Debug)]
 pub enum WorkItemContent<T> {
     #[cfg(test)]
+    Abandoned(String),
+    #[cfg(not(test))]
+    Abandoned,
+    #[cfg(test)]
     Cancelled(String),
     #[cfg(not(test))]
     Cancelled,
@@ -170,8 +174,8 @@ pub enum WorkItemContent<T> {
 
 pub type WorkItemFuture<T> = BoxFuture<'static, WorkItem<T>>;
 
-async fn await_cancellation(cancel: oneshot::Receiver<()>) {
-    let _ = cancel.await;
+async fn await_cancellation(cancel: oneshot::Receiver<()>) -> bool {
+    cancel.await.is_ok()
 }
 
 async fn await_cancellable_timeout<T>(
@@ -188,8 +192,12 @@ where
             content: work_item_content,
             ack: Some(ack)
         },
-        _ = await_cancellation(cancel).fuse() => WorkItem {
-            content: WorkItemContent::Cancelled(format!("{:?}", work_item_content)),
+        cancelled = await_cancellation(cancel).fuse() => WorkItem {
+            content: if cancelled {
+                WorkItemContent::Cancelled(format!("{:?}", work_item_content))
+            } else {
+                WorkItemContent::Abandoned(format!("{:?}", work_item_content))
+            },
             ack: None
         },
     }
@@ -198,8 +206,12 @@ where
         _ = timeout.fuse() => WorkItem {
             content: work_item_content,
         },
-        _ = await_cancellation(cancel).fuse() => WorkItem {
-            content: WorkItemContent::Cancelled,
+        cancelled = await_cancellation(cancel).fuse() => WorkItem {
+            content: if cancelled {
+                WorkItemContent::Cancelled
+            } else {
+                WorkItemContent::Abandoned
+            },
         },
     }
 }

@@ -74,6 +74,8 @@ enum LogEntryDisposition {
 pub struct Mobilization<T> {
     cancel_election_timeout: Option<oneshot::Sender<()>>,
     cancel_heartbeat: Option<oneshot::Sender<()>>,
+    #[cfg(test)]
+    cancellations_pending: usize,
     cluster: HashSet<usize>,
     commit_index: usize,
     election_state: ElectionState,
@@ -84,6 +86,8 @@ pub struct Mobilization<T> {
     peers: HashMap<usize, Peer<T>>,
     persistent_storage: Box<dyn PersistentStorage>,
     rng: StdRng,
+    #[cfg(test)]
+    synchronize_ack: Option<oneshot::Sender<()>>,
 }
 
 impl<T> Mobilization<T> {
@@ -157,12 +161,28 @@ impl<T> Mobilization<T> {
     pub fn cancel_election_timer(&mut self) {
         if let Some(cancel) = self.cancel_election_timeout.take() {
             let _ = cancel.send(());
+            #[cfg(test)]
+            {
+                self.cancellations_pending += 1;
+                debug!(
+                    "Canceling election timer; {} cancellations pending",
+                    self.cancellations_pending
+                );
+            }
         }
     }
 
     pub fn cancel_heartbeat_timer(&mut self) {
         if let Some(cancel_heartbeat) = self.cancel_heartbeat.take() {
             let _ = cancel_heartbeat.send(());
+            #[cfg(test)]
+            {
+                self.cancellations_pending += 1;
+                debug!(
+                    "Cancelling heartbeat timer; {} cancellations pending",
+                    self.cancellations_pending
+                );
+            }
         }
     }
 
@@ -171,7 +191,16 @@ impl<T> Mobilization<T> {
         peer_id: usize,
     ) {
         if let Some(peer) = self.peers.get_mut(&peer_id) {
+            #[cfg(not(test))]
             peer.cancel_retransmission();
+            #[cfg(test)]
+            if peer.cancel_retransmission().is_some() {
+                self.cancellations_pending += 1;
+                debug!(
+                    "Cancelling retransmission timer; {} cancellations pending",
+                    self.cancellations_pending
+                );
+            }
         }
     }
 
@@ -186,14 +215,37 @@ impl<T> Mobilization<T> {
             self.election_state, new_election_state, term
         );
         self.election_state = new_election_state;
+        #[cfg(test)]
+        let mut cancellations = 0;
         for peer in self.peers.values_mut() {
+            #[cfg(not(test))]
             peer.cancel_retransmission();
+            #[cfg(test)]
+            if peer.cancel_retransmission().is_some() {
+                cancellations += 1;
+                debug!("Cancelling retransmission timer (Mobilization)");
+            }
+        }
+        #[cfg(test)]
+        {
+            self.cancellations_pending += cancellations;
         }
         let _ = event_sender.unbounded_send(Event::ElectionStateChange {
             election_state: self.election_state,
             term,
             voted_for: self.persistent_storage.voted_for(),
         });
+    }
+
+    #[cfg(test)]
+    pub fn count_cancellation(&mut self) {
+        self.cancellations_pending -= 1;
+        if self.cancellations_pending == 0 {
+            if let Some(synchronize_ack) = self.synchronize_ack.take() {
+                debug!("All cancellations counted; completing synchronization");
+                let _ = synchronize_ack.send(());
+            }
+        }
     }
 
     fn decide_request_verdict(
@@ -332,6 +384,8 @@ impl<T> Mobilization<T> {
         Self {
             cancel_election_timeout: None,
             cancel_heartbeat: None,
+            #[cfg(test)]
+            cancellations_pending: 0,
             cluster: mobilize_args.cluster,
             commit_index: 0,
             election_state: ElectionState::Follower,
@@ -342,6 +396,8 @@ impl<T> Mobilization<T> {
             peers,
             persistent_storage: mobilize_args.persistent_storage,
             rng: StdRng::from_entropy(),
+            #[cfg(test)]
+            synchronize_ack: None,
         }
     }
 
@@ -745,7 +801,18 @@ impl<T> Mobilization<T> {
             ),
             #[cfg(test)]
             SinkItem::Synchronize(received) => {
-                let _ = received.send(());
+                if self.cancellations_pending == 0 {
+                    debug!(
+                        "No cancellations counted; completing synchronization"
+                    );
+                    let _ = received.send(());
+                } else {
+                    debug!(
+                        "{} cancellations pending; awaiting synchronization",
+                        self.cancellations_pending
+                    );
+                    self.synchronize_ack.replace(received);
+                }
                 false
             },
         }
