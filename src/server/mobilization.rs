@@ -44,31 +44,31 @@ use std::{
 };
 
 struct ProcessAppendEntriesResultsArgs<'a, 'b, T> {
-    sender_id: usize,
-    term: usize,
-    match_index: usize,
     event_sender: &'a EventSender<T>,
+    match_index: usize,
     rpc_timeout: Duration,
     scheduler: &'b Scheduler,
+    sender_id: usize,
+    term: usize,
 }
 
 #[derive(PartialEq)]
 enum RequestDecision {
-    Reject,
     Accept,
     AcceptAndUpdateTerm,
+    Reject,
 }
 
 enum HistoryComparison {
     NothingInCommon,
-    SameUpToPrevious,
     Same,
+    SameUpToPrevious,
 }
 
 enum LogEntryDisposition {
-    Possessed,
-    Next,
     Future,
+    Next,
+    Possessed,
 }
 
 pub struct Mobilization<T> {
@@ -91,6 +91,50 @@ pub struct Mobilization<T> {
 }
 
 impl<T> Mobilization<T> {
+    fn attempt_accept_append_entries(
+        &mut self,
+        append_entries: AppendEntriesContent<T>,
+        event_sender: &EventSender<T>,
+    ) -> usize {
+        if self.election_state != ElectionState::Follower {
+            self.become_follower(event_sender);
+        }
+        let mut match_index = append_entries.prev_log_index;
+        let mut match_term = append_entries.prev_log_term;
+        for new_log_entry in append_entries.log {
+            let new_log_term = new_log_entry.term;
+            match self.determine_log_entry_disposition(match_index) {
+                LogEntryDisposition::Possessed => match self
+                    .compare_log_history(match_index, match_term, new_log_term)
+                {
+                    HistoryComparison::NothingInCommon => {
+                        match_index = 0;
+                        break;
+                    },
+                    HistoryComparison::SameUpToPrevious => {
+                        self.log.truncate(match_index);
+                        self.log.append_one(new_log_entry);
+                    },
+                    HistoryComparison::Same => (),
+                },
+                LogEntryDisposition::Next => {
+                    if match_term != self.log.last_term() {
+                        match_index = 0;
+                        break;
+                    }
+                    self.log.append_one(new_log_entry);
+                },
+                LogEntryDisposition::Future => {
+                    match_index = 0;
+                    break;
+                },
+            }
+            match_index += 1;
+            match_term = new_log_term;
+        }
+        match_index
+    }
+
     fn become_candidate(
         &mut self,
         event_sender: &EventSender<T>,
@@ -301,6 +345,52 @@ impl<T> Mobilization<T> {
         true
     }
 
+    fn commit_log(
+        &mut self,
+        leader_commit: usize,
+        event_sender: &EventSender<T>,
+    ) {
+        let new_commit_index =
+            std::cmp::min(leader_commit, self.log.last_index());
+        if new_commit_index > self.commit_index {
+            info!(
+                "{:?}: Committing log from {} to {}",
+                self.election_state, self.commit_index, new_commit_index
+            );
+            self.commit_index = new_commit_index;
+            let _ = event_sender
+                .unbounded_send(Event::LogCommitted(self.commit_index));
+        }
+    }
+
+    fn compare_log_history(
+        &self,
+        prev_log_index: usize,
+        prev_log_term: usize,
+        new_log_term: usize,
+    ) -> HistoryComparison {
+        if prev_log_index >= self.log.base_index() {
+            if prev_log_term != self.log_entry_term(prev_log_index) {
+                return HistoryComparison::NothingInCommon;
+            }
+            if new_log_term != self.log_entry_term(prev_log_index + 1) {
+                return HistoryComparison::SameUpToPrevious;
+            }
+        }
+        HistoryComparison::Same
+    }
+
+    fn determine_log_entry_disposition(
+        &self,
+        index: usize,
+    ) -> LogEntryDisposition {
+        match index.cmp(&self.log.last_index()) {
+            Ordering::Less => LogEntryDisposition::Possessed,
+            Ordering::Equal => LogEntryDisposition::Next,
+            Ordering::Greater => LogEntryDisposition::Future,
+        }
+    }
+
     pub fn election_timeout(
         &mut self,
         event_sender: &EventSender<T>,
@@ -369,6 +459,15 @@ impl<T> Mobilization<T> {
         }
     }
 
+    fn log_entry_term(
+        &self,
+        index: usize,
+    ) -> usize {
+        self.log.entry_term(index).unwrap_or_else(|| {
+            panic!("log entry {} should be in log but isn't", index)
+        })
+    }
+
     pub fn new(mobilize_args: MobilizeArgs<T>) -> Self {
         let peers = mobilize_args
             .cluster
@@ -398,197 +497,6 @@ impl<T> Mobilization<T> {
             rng: StdRng::from_entropy(),
             #[cfg(test)]
             synchronize_ack: None,
-        }
-    }
-
-    fn process_receive_message(
-        &mut self,
-        message: Message<T>,
-        sender_id: usize,
-        event_sender: &EventSender<T>,
-        rpc_timeout: Duration,
-        scheduler: &Scheduler,
-    ) -> bool
-    where
-        T: Clone + Debug + Send + 'static,
-    {
-        match message.content {
-            MessageContent::RequestVoteResults {
-                vote_granted,
-            } => {
-                info!(
-                    "Received vote {} from {} for term {} (we are {:?} in term {})",
-                    vote_granted,
-                    sender_id,
-                    message.term,
-                    self.election_state,
-                    self.persistent_storage.term()
-                );
-                if self
-                    .peers
-                    .get(&sender_id)
-                    .filter(|peer| peer.last_seq == message.seq)
-                    .is_none()
-                {
-                    return false;
-                }
-                self.cancel_retransmission(sender_id);
-                self.process_request_vote_results(
-                    sender_id,
-                    vote_granted,
-                    event_sender,
-                    rpc_timeout,
-                    scheduler,
-                )
-            },
-            MessageContent::RequestVote {
-                last_log_index,
-                last_log_term,
-                ..
-            } => self.process_request_vote(
-                sender_id,
-                message.seq,
-                message.term,
-                last_log_index,
-                last_log_term,
-                event_sender,
-            ),
-            MessageContent::AppendEntries(append_entries) => self
-                .process_append_entries(
-                    sender_id,
-                    message.seq,
-                    message.term,
-                    append_entries,
-                    event_sender,
-                ),
-            MessageContent::AppendEntriesResults {
-                match_index,
-            } => {
-                if self
-                    .peers
-                    .get(&sender_id)
-                    .filter(|peer| peer.last_seq == message.seq)
-                    .is_none()
-                {
-                    debug!(
-                        "Received old append entries results ({}) from {}",
-                        match_index, sender_id
-                    );
-                    return false;
-                }
-                self.cancel_retransmission(sender_id);
-                self.process_append_entries_results(
-                    ProcessAppendEntriesResultsArgs {
-                        sender_id,
-                        term: message.term,
-                        match_index,
-                        event_sender,
-                        rpc_timeout,
-                        scheduler,
-                    },
-                );
-                false
-            },
-            _ => todo!(),
-        }
-    }
-
-    fn log_entry_term(
-        &self,
-        index: usize,
-    ) -> usize {
-        self.log.entry_term(index).unwrap_or_else(|| {
-            panic!("log entry {} should be in log but isn't", index)
-        })
-    }
-
-    fn compare_log_history(
-        &self,
-        prev_log_index: usize,
-        prev_log_term: usize,
-        new_log_term: usize,
-    ) -> HistoryComparison {
-        if prev_log_index >= self.log.base_index() {
-            if prev_log_term != self.log_entry_term(prev_log_index) {
-                return HistoryComparison::NothingInCommon;
-            }
-            if new_log_term != self.log_entry_term(prev_log_index + 1) {
-                return HistoryComparison::SameUpToPrevious;
-            }
-        }
-        HistoryComparison::Same
-    }
-
-    fn determine_log_entry_disposition(
-        &self,
-        index: usize,
-    ) -> LogEntryDisposition {
-        match index.cmp(&self.log.last_index()) {
-            Ordering::Less => LogEntryDisposition::Possessed,
-            Ordering::Equal => LogEntryDisposition::Next,
-            Ordering::Greater => LogEntryDisposition::Future,
-        }
-    }
-
-    fn attempt_accept_append_entries(
-        &mut self,
-        append_entries: AppendEntriesContent<T>,
-        event_sender: &EventSender<T>,
-    ) -> usize {
-        if self.election_state != ElectionState::Follower {
-            self.become_follower(event_sender);
-        }
-        let mut match_index = append_entries.prev_log_index;
-        let mut match_term = append_entries.prev_log_term;
-        for new_log_entry in append_entries.log {
-            let new_log_term = new_log_entry.term;
-            match self.determine_log_entry_disposition(match_index) {
-                LogEntryDisposition::Possessed => match self
-                    .compare_log_history(match_index, match_term, new_log_term)
-                {
-                    HistoryComparison::NothingInCommon => {
-                        match_index = 0;
-                        break;
-                    },
-                    HistoryComparison::SameUpToPrevious => {
-                        self.log.truncate(match_index);
-                        self.log.append_one(new_log_entry);
-                    },
-                    HistoryComparison::Same => (),
-                },
-                LogEntryDisposition::Next => {
-                    if match_term != self.log.last_term() {
-                        match_index = 0;
-                        break;
-                    }
-                    self.log.append_one(new_log_entry);
-                },
-                LogEntryDisposition::Future => {
-                    match_index = 0;
-                    break;
-                },
-            }
-            match_index += 1;
-            match_term = new_log_term;
-        }
-        match_index
-    }
-
-    fn commit_log(
-        &mut self,
-        leader_commit: usize,
-        event_sender: &EventSender<T>,
-    ) {
-        let new_commit_index =
-            std::cmp::min(leader_commit, self.log.last_index());
-        if new_commit_index > self.commit_index {
-            info!(
-                "{:?}: Committing log from {} to {}",
-                self.election_state, self.commit_index, new_commit_index
-            );
-            self.commit_index = new_commit_index;
-            let _ = event_sender
-                .unbounded_send(Event::LogCommitted(self.commit_index));
         }
     }
 
@@ -701,6 +609,98 @@ impl<T> Mobilization<T> {
                     // TODO: Install snapshot.
                 }
             }
+        }
+    }
+
+    fn process_receive_message(
+        &mut self,
+        message: Message<T>,
+        sender_id: usize,
+        event_sender: &EventSender<T>,
+        rpc_timeout: Duration,
+        scheduler: &Scheduler,
+    ) -> bool
+    where
+        T: Clone + Debug + Send + 'static,
+    {
+        match message.content {
+            MessageContent::RequestVoteResults {
+                vote_granted,
+            } => {
+                info!(
+                    "Received vote {} from {} for term {} (we are {:?} in term {})",
+                    vote_granted,
+                    sender_id,
+                    message.term,
+                    self.election_state,
+                    self.persistent_storage.term()
+                );
+                if self
+                    .peers
+                    .get(&sender_id)
+                    .filter(|peer| peer.last_seq == message.seq)
+                    .is_none()
+                {
+                    return false;
+                }
+                self.cancel_retransmission(sender_id);
+                self.process_request_vote_results(
+                    sender_id,
+                    vote_granted,
+                    event_sender,
+                    rpc_timeout,
+                    scheduler,
+                )
+            },
+            MessageContent::RequestVote {
+                last_log_index,
+                last_log_term,
+                ..
+            } => self.process_request_vote(
+                sender_id,
+                message.seq,
+                message.term,
+                last_log_index,
+                last_log_term,
+                event_sender,
+            ),
+            MessageContent::AppendEntries(append_entries) => self
+                .process_append_entries(
+                    sender_id,
+                    message.seq,
+                    message.term,
+                    append_entries,
+                    event_sender,
+                ),
+            MessageContent::AppendEntriesResults {
+                match_index,
+            } => {
+                if self
+                    .peers
+                    .get(&sender_id)
+                    .filter(|peer| peer.last_seq == message.seq)
+                    .is_none()
+                {
+                    debug!(
+                        "Received old append entries results ({}) from {}",
+                        match_index, sender_id
+                    );
+                    return false;
+                }
+                self.cancel_retransmission(sender_id);
+                self.process_append_entries_results(
+                    ProcessAppendEntriesResultsArgs {
+                        sender_id,
+                        term: message.term,
+                        match_index,
+                        event_sender,
+                        rpc_timeout,
+                        scheduler,
+                    },
+                );
+                false
+            },
+            _ => todo!(),
         }
     }
 

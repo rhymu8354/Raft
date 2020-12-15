@@ -25,8 +25,8 @@ use std::fmt::Debug;
 
 pub struct Inner<T> {
     configuration: Configuration,
-    mobilization: Option<Mobilization<T>>,
     event_sender: EventSender<T>,
+    mobilization: Option<Mobilization<T>>,
     scheduler: Scheduler,
 }
 
