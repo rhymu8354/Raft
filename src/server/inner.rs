@@ -230,7 +230,7 @@ impl<T> Inner<T> {
     }
 }
 
-async fn process_command_receiver<T: 'static + Clone + Debug + Send>(
+async fn process_command_receiver<T>(
     command_receiver: CommandReceiver<T>
 ) -> WorkItem<T> {
     let (command, command_receiver) = command_receiver.into_future().await;
