@@ -534,3 +534,50 @@ fn leader_no_op_non_zero_commit_index() {
         );
     });
 }
+
+#[test]
+fn install_snapshot_if_match_index_before_base() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, _mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(10, None);
+        let (mut mock_log, _mock_log_back_end) =
+            new_mock_log_with_non_defaults(10, 1);
+        fixture.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            Box::new(mock_persistent_storage),
+        );
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 10,
+                last_log_index: 1,
+                term: 11,
+            })
+            .await;
+        fixture.cast_votes(1, 11).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_term: 10,
+                    prev_log_index: 1,
+                    log: vec![LogEntry {
+                        term: 11,
+                        command: None,
+                    }],
+                }),
+                seq: 2,
+                term: 11,
+            },
+            fixture.expect_message_now(2)
+        );
+    });
+}
+
+// TODO:
+// * Send `InstallSnapshot` message if receive `AppendEntriesResponse` where
+//   match index is before leader's base index.
+// * Send `AppendEntries` message with entire log if receive
+//   `InstallSnapshotResponse`
