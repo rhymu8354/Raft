@@ -249,3 +249,7 @@ fn vote_rejected_if_candidate_log_old() {
         }
     });
 }
+
+// TODO:
+// * Ignore `RequestVote` if received within the minimum election timeout
+//   interval since the last `AppendEntries` was received.

@@ -3,6 +3,7 @@ mod election_request;
 mod election_response;
 mod mock_log;
 mod mock_persistent_storage;
+mod reconfiguration;
 mod replication_request;
 mod replication_response;
 
