@@ -557,18 +557,28 @@ fn install_snapshot_if_match_index_before_base() {
             .await;
         fixture.cast_votes(1, 11).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_message_now(2);
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResults {
+                        match_index: 0,
+                    },
+                    seq: 2,
+                    term: 11,
+                },
+                2,
+            )
+            .await;
+        fixture.synchronize().await;
         assert_eq!(
             Message {
-                content: MessageContent::AppendEntries(AppendEntriesContent {
-                    leader_commit: 0,
-                    prev_log_term: 10,
-                    prev_log_index: 1,
-                    log: vec![LogEntry {
-                        term: 11,
-                        command: None,
-                    }],
-                }),
-                seq: 2,
+                content: MessageContent::InstallSnapshot {
+                    last_included_index: 10,
+                    last_included_term: 1,
+                    snapshot: vec![],
+                },
+                seq: 3,
                 term: 11,
             },
             fixture.expect_message_now(2)

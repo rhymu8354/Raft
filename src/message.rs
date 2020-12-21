@@ -4,7 +4,6 @@ use serde::{
     Deserialize,
     Serialize,
 };
-use serde_json::Value as JsonValue;
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AppendEntriesContent<T> {
@@ -34,8 +33,7 @@ pub enum MessageContent<T> {
     InstallSnapshot {
         last_included_index: usize,
         last_included_term: usize,
-        #[serde(with = "super::json_encoding")]
-        snapshot: JsonValue,
+        snapshot: Vec<u8>,
     },
     InstallSnapshotResults {
         match_index: usize,
@@ -49,6 +47,7 @@ pub struct Message<T> {
     pub term: usize,
 }
 
+#[allow(clippy::string_lit_as_bytes)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -57,7 +56,7 @@ mod tests {
         CustomCommand,
     };
     use maplit::hashset;
-    use serde_json::json;
+    use serde_json::Value as JsonValue;
     use serialization::{
         from_bytes,
         to_bytes,
@@ -214,9 +213,7 @@ mod tests {
             content: MessageContent::InstallSnapshot {
                 last_included_index: 2,
                 last_included_term: 7,
-                snapshot: json!({
-                    "foo": "bar"
-                }),
+                snapshot: "Hello, World!".as_bytes().to_vec(),
             },
             seq: 2,
             term: 8,

@@ -1,6 +1,5 @@
 mod configuration;
 mod error;
-mod json_encoding;
 mod log;
 mod log_entry;
 mod message;
