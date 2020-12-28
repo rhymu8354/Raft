@@ -1237,10 +1237,14 @@ impl Fixture {
     }
 }
 
-fn new_mock_log_with_non_defaults(
+fn new_mock_log_with_non_defaults<T>(
     base_term: usize,
     base_index: usize,
-) -> (MockLog, MockLogBackEnd) {
+    snapshot: T,
+) -> (MockLog, MockLogBackEnd)
+where
+    T: Into<Vec<u8>>,
+{
     let (mock_log, mock_log_back_end) = MockLog::new();
     {
         let mut log_shared = mock_log_back_end.shared.lock().unwrap();
@@ -1248,6 +1252,7 @@ fn new_mock_log_with_non_defaults(
         log_shared.base_index = base_index;
         log_shared.last_term = base_term;
         log_shared.last_index = base_index;
+        log_shared.snapshot = snapshot.into();
     }
     (mock_log, mock_log_back_end)
 }

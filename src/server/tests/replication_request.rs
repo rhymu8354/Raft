@@ -8,7 +8,7 @@ fn leader_sends_no_op_log_entry_upon_election() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0);
+            new_mock_log_with_non_defaults(0, 0, []);
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
@@ -196,7 +196,7 @@ fn leader_send_missing_entries_mid_log_on_append_entries_results() {
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(6, None);
         let (mut mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(4, 10);
+            new_mock_log_with_non_defaults(4, 10, []);
         mock_log.append(Box::new(
             vec![
                 LogEntry {
@@ -304,7 +304,7 @@ fn leader_send_missing_entries_all_log_on_append_entries_results() {
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(6, None);
         let (mut mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(4, 10);
+            new_mock_log_with_non_defaults(4, 10, []);
         mock_log.append(Box::new(
             vec![
                 LogEntry {
@@ -542,21 +542,23 @@ fn install_snapshot_if_match_index_before_base() {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(10, None);
-        let (mut mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(10, 1);
+        let (mock_log, _mock_log_back_end) =
+            new_mock_log_with_non_defaults(10, 1, [1, 2, 3, 4, 5]);
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
         );
         fixture
             .expect_election(AwaitElectionTimeoutArgs {
-                last_log_term: 10,
                 last_log_index: 1,
+                last_log_term: 10,
                 term: 11,
             })
             .await;
         fixture.cast_votes(1, 11).await;
+        fixture.expect_retransmission_timer_registration(2).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_retransmission_timer_registration(2).await;
         fixture.expect_message_now(2);
         fixture
             .send_server_message(
@@ -574,15 +576,23 @@ fn install_snapshot_if_match_index_before_base() {
         assert_eq!(
             Message {
                 content: MessageContent::InstallSnapshot {
-                    last_included_index: 10,
-                    last_included_term: 1,
-                    snapshot: vec![],
+                    last_included_index: 1,
+                    last_included_term: 10,
+                    snapshot: vec![1, 2, 3, 4, 5],
                 },
                 seq: 3,
                 term: 11,
             },
             fixture.expect_message_now(2)
         );
+        let (duration, completer) =
+            fixture.expect_retransmission_timer_registration(2).await;
+        let (sender, _receiver) = oneshot::channel();
+        assert!(
+            completer.send(sender).is_ok(),
+            "server cancelled retransmission timer"
+        );
+        assert_eq!(fixture.configuration.install_snapshot_timeout, duration);
     });
 }
 

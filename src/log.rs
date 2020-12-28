@@ -23,6 +23,7 @@ pub trait Log: Send + Sync {
     ) -> Option<usize>;
     fn last_term(&self) -> usize;
     fn last_index(&self) -> usize;
+    fn snapshot(&self) -> Vec<u8>;
     fn truncate(
         &mut self,
         index: usize,

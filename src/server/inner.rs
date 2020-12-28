@@ -94,6 +94,7 @@ impl<T> Inner<T> {
                 sink_item,
                 &self.event_sender,
                 self.configuration.rpc_timeout,
+                self.configuration.install_snapshot_timeout,
                 &self.scheduler,
             )
         } else {

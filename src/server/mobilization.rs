@@ -45,6 +45,7 @@ use std::{
 
 struct ProcessAppendEntriesResultsArgs<'a, 'b, T> {
     event_sender: &'a EventSender<T>,
+    install_snapshot_timeout: Duration,
     match_index: usize,
     rpc_timeout: Duration,
     scheduler: &'b Scheduler,
@@ -606,7 +607,18 @@ impl<T> Mobilization<T> {
                         args.scheduler,
                     );
                 } else {
-                    // TODO: Install snapshot.
+                    peer.send_new_request(
+                        MessageContent::InstallSnapshot {
+                            last_included_index: self.log.base_index(),
+                            last_included_term: self.log.base_term(),
+                            snapshot: self.log.snapshot(),
+                        },
+                        args.sender_id,
+                        self.persistent_storage.term(),
+                        args.event_sender,
+                        args.install_snapshot_timeout,
+                        args.scheduler,
+                    );
                 }
             }
         }
@@ -618,6 +630,7 @@ impl<T> Mobilization<T> {
         sender_id: usize,
         event_sender: &EventSender<T>,
         rpc_timeout: Duration,
+        install_snapshot_timeout: Duration,
         scheduler: &Scheduler,
     ) -> bool
     where
@@ -690,12 +703,13 @@ impl<T> Mobilization<T> {
                 self.cancel_retransmission(sender_id);
                 self.process_append_entries_results(
                     ProcessAppendEntriesResultsArgs {
-                        sender_id,
-                        term: message.term,
-                        match_index,
                         event_sender,
+                        install_snapshot_timeout,
+                        match_index,
                         rpc_timeout,
                         scheduler,
+                        sender_id,
+                        term: message.term,
                     },
                 );
                 false
@@ -783,6 +797,7 @@ impl<T> Mobilization<T> {
         sink_item: SinkItem<T>,
         event_sender: &EventSender<T>,
         rpc_timeout: Duration,
+        install_snapshot_timeout: Duration,
         scheduler: &Scheduler,
     ) -> bool
     where
@@ -797,6 +812,7 @@ impl<T> Mobilization<T> {
                 sender_id,
                 event_sender,
                 rpc_timeout,
+                install_snapshot_timeout,
                 scheduler,
             ),
             #[cfg(test)]

@@ -13,7 +13,7 @@ fn follower_receive_append_entries() {
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(0, None);
         let (mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0);
+            new_mock_log_with_non_defaults(0, 0, []);
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
@@ -75,7 +75,7 @@ fn leader_revert_to_follower_on_append_entries_new_term() {
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(0, None);
         let (mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0);
+            new_mock_log_with_non_defaults(0, 0, []);
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
@@ -147,7 +147,7 @@ fn leader_reject_append_entries_same_term() {
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(0, None);
         let (mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0);
+            new_mock_log_with_non_defaults(0, 0, []);
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
@@ -206,7 +206,7 @@ fn candidate_append_entries_same_term() {
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(0, None);
         let (mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0);
+            new_mock_log_with_non_defaults(0, 0, []);
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
@@ -263,7 +263,7 @@ fn follower_match_appended_entries() {
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(0, None);
         let (mut mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0);
+            new_mock_log_with_non_defaults(0, 0, []);
         mock_log.append_one(LogEntry {
             term: 1,
             command: None,
@@ -330,7 +330,7 @@ fn follower_replaces_mismatched_appended_entries() {
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(0, None);
         let (mut mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0);
+            new_mock_log_with_non_defaults(0, 0, []);
         mock_log.append_one(LogEntry {
             term: 1,
             command: None,
@@ -397,7 +397,7 @@ fn follower_rejects_appended_entries_with_mismatched_previous_term() {
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(0, None);
         let (mut mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0);
+            new_mock_log_with_non_defaults(0, 0, []);
         mock_log.append(Box::new(
             vec![
                 LogEntry {
@@ -473,7 +473,7 @@ fn follower_rejects_appended_entries_with_mismatched_base() {
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(0, None);
         let (mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(2, 2);
+            new_mock_log_with_non_defaults(2, 2, []);
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
@@ -527,7 +527,7 @@ fn follower_rejects_appended_entries_with_no_common_base() {
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(0, None);
         let (mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0);
+            new_mock_log_with_non_defaults(0, 0, []);
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             Box::new(mock_persistent_storage),

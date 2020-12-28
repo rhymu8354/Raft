@@ -226,7 +226,7 @@ fn vote_rejected_if_candidate_log_old() {
         for (our_term, our_index, their_term, their_index) in combinations {
             let mut fixture = Fixture::new();
             let (mock_log, _mock_log_back_end) =
-                new_mock_log_with_non_defaults(*our_term, *our_index);
+                new_mock_log_with_non_defaults(*our_term, *our_index, []);
             fixture.mobilize_server_with_log(Box::new(mock_log));
             fixture
                 .receive_vote_request(ReceiveVoteRequestArgs {

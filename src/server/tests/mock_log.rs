@@ -15,6 +15,7 @@ pub struct MockLogShared {
     pub entries: Vec<LogEntry<DummyCommand>>,
     pub last_term: usize,
     pub last_index: usize,
+    pub snapshot: Vec<u8>,
 }
 
 impl MockLogShared {
@@ -94,6 +95,7 @@ impl MockLog {
             entries: vec![],
             last_term: 0,
             last_index: 0,
+            snapshot: vec![],
         }));
         (
             Self {
@@ -159,6 +161,11 @@ impl Log for MockLog {
     fn last_index(&self) -> usize {
         let shared = self.shared.lock().unwrap();
         shared.last_index
+    }
+
+    fn snapshot(&self) -> Vec<u8> {
+        let shared = self.shared.lock().unwrap();
+        shared.snapshot.clone()
     }
 
     fn truncate(
