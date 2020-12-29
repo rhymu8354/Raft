@@ -291,3 +291,9 @@ fn leader_no_retransmit_vote_request_after_election() {
         );
     });
 }
+
+// TODO:
+// * Ignore `RequestVoteResults` if term is old.
+// * Reject `RequestVoteResults` if term is old.
+// * If `RequestVoteResults` is received with newer term, revert to follower and
+//   update term to match.

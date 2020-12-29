@@ -603,3 +603,5 @@ fn install_snapshot_if_match_index_before_base() {
 //   when the log is empty.
 // * Send `AppendEntries` messages and reset heartbeat if more entries are given
 //   to the leader from the host.
+// * Ignore `AppendEntriesResults` if term is old.
+// * Ignore `InstallSnapshot` if term is old.
