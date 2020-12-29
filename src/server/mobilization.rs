@@ -510,8 +510,7 @@ impl<T> Mobilization<T> {
         term: usize,
         append_entries: AppendEntriesContent<T>,
         event_sender: &EventSender<T>,
-    ) -> bool
-    where
+    ) where
         T: 'static + Debug,
     {
         let decision = self.decide_request_verdict(term);
@@ -542,7 +541,7 @@ impl<T> Mobilization<T> {
             message,
             receiver_id: sender_id,
         });
-        true
+        self.cancel_election_timer();
     }
 
     fn process_append_entries_results(
@@ -700,8 +699,7 @@ impl<T> Mobilization<T> {
         rpc_timeout: Duration,
         install_snapshot_timeout: Duration,
         scheduler: &Scheduler,
-    ) -> bool
-    where
+    ) where
         T: Clone + Debug + Send + 'static,
     {
         match message.content {
@@ -717,7 +715,7 @@ impl<T> Mobilization<T> {
                     self.persistent_storage.term()
                 );
                 if message.term < self.persistent_storage.term() {
-                    return false;
+                    return;
                 }
                 if self
                     .peers
@@ -725,7 +723,7 @@ impl<T> Mobilization<T> {
                     .filter(|peer| peer.last_seq == message.seq)
                     .is_none()
                 {
-                    return false;
+                    return;
                 }
                 self.cancel_retransmission(sender_id);
                 self.process_request_vote_results(
@@ -767,7 +765,7 @@ impl<T> Mobilization<T> {
                     message.term,
                     append_entries,
                     event_sender,
-                )
+                );
             },
             MessageContent::AppendEntriesResults {
                 match_index,
@@ -781,7 +779,7 @@ impl<T> Mobilization<T> {
                     self.persistent_storage.term()
                 );
                 if message.term < self.persistent_storage.term() {
-                    return false;
+                    return;
                 }
                 if self
                     .peers
@@ -789,7 +787,7 @@ impl<T> Mobilization<T> {
                     .filter(|peer| peer.last_seq == message.seq)
                     .is_none()
                 {
-                    return false;
+                    return;
                 }
                 self.cancel_retransmission(sender_id);
                 self.process_append_entries_results(
@@ -803,7 +801,6 @@ impl<T> Mobilization<T> {
                         term: message.term,
                     },
                 );
-                false
             },
             MessageContent::InstallSnapshot {
                 last_included_index,
@@ -829,7 +826,6 @@ impl<T> Mobilization<T> {
                     snapshot,
                     event_sender,
                 });
-                false
             },
             MessageContent::InstallSnapshotResults => {
                 info!(
@@ -840,7 +836,7 @@ impl<T> Mobilization<T> {
                     self.persistent_storage.term()
                 );
                 if message.term < self.persistent_storage.term() {
-                    return false;
+                    return;
                 }
                 if self
                     .peers
@@ -848,7 +844,7 @@ impl<T> Mobilization<T> {
                     .filter(|peer| peer.last_seq == message.seq)
                     .is_none()
                 {
-                    return false;
+                    return;
                 }
                 self.cancel_retransmission(sender_id);
                 self.process_install_snapshot_results(
@@ -858,7 +854,6 @@ impl<T> Mobilization<T> {
                     rpc_timeout,
                     scheduler,
                 );
-                false
             },
         }
     }
@@ -871,8 +866,7 @@ impl<T> Mobilization<T> {
         last_log_index: usize,
         last_log_term: usize,
         event_sender: &EventSender<T>,
-    ) -> bool
-    where
+    ) where
         T: Debug,
     {
         info!(
@@ -906,7 +900,9 @@ impl<T> Mobilization<T> {
             message,
             receiver_id: sender_id,
         });
-        vote_granted
+        if vote_granted {
+            self.cancel_election_timer();
+        }
     }
 
     fn process_request_vote_results(
@@ -917,8 +913,7 @@ impl<T> Mobilization<T> {
         event_sender: &EventSender<T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
-    ) -> bool
-    where
+    ) where
         T: Clone + Debug + Send + 'static,
     {
         if term > self.persistent_storage.term() {
@@ -930,12 +925,12 @@ impl<T> Mobilization<T> {
                 "Received unexpected or extra vote {} from {}",
                 vote_granted, sender_id
             );
-            return false;
+            return;
         }
         if let Some(peer) = self.peers.get_mut(&sender_id) {
             peer.vote = Some(vote_granted);
         } else {
-            return false;
+            return;
         }
         let votes = self
             .peers
@@ -945,9 +940,7 @@ impl<T> Mobilization<T> {
             + 1; // we always vote for ourselves (it's implicit)
         if votes > self.cluster.len() - votes {
             self.become_leader(event_sender, rpc_timeout, scheduler);
-            true
-        } else {
-            false
+            self.cancel_election_timer();
         }
     }
 
@@ -958,8 +951,7 @@ impl<T> Mobilization<T> {
         rpc_timeout: Duration,
         install_snapshot_timeout: Duration,
         scheduler: &Scheduler,
-    ) -> bool
-    where
+    ) where
         T: Clone + Debug + Send + 'static,
     {
         match sink_item {
@@ -988,7 +980,6 @@ impl<T> Mobilization<T> {
                     );
                     self.synchronize_ack.replace(received);
                 }
-                false
             },
         }
     }

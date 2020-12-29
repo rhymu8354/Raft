@@ -49,36 +49,30 @@ impl<T> Inner<T> {
     ) where
         T: 'static + Clone + Debug + Send,
     {
-        let cancel_election_timer = match command {
+        match command {
             Command::Configure(configuration) => {
                 self.configuration = configuration;
-                self.mobilization.is_some()
+                if let Some(mobilization) = &mut self.mobilization {
+                    mobilization.cancel_election_timer();
+                }
             },
             Command::Demobilize(completed) => {
                 self.mobilization = None;
                 let _ = completed.send(());
-                true
             },
             Command::Mobilize(mobilize_args) => {
                 self.mobilization = Some(Mobilization::new(mobilize_args));
-                false
             },
             Command::ProcessSinkItem(sink_item) => {
                 self.process_sink_item(sink_item)
             },
         };
-        if cancel_election_timer {
-            if let Some(mobilization) = &mut self.mobilization {
-                mobilization.cancel_election_timer();
-            }
-        }
     }
 
     fn process_sink_item(
         &mut self,
         sink_item: SinkItem<T>,
-    ) -> bool
-    where
+    ) where
         T: 'static + Clone + Debug + Send,
     {
         if let Some(mobilization) = &mut self.mobilization {
@@ -88,9 +82,7 @@ impl<T> Inner<T> {
                 self.configuration.rpc_timeout,
                 self.configuration.install_snapshot_timeout,
                 &self.scheduler,
-            )
-        } else {
-            false
+            );
         }
     }
 
