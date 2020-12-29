@@ -572,3 +572,10 @@ fn follower_rejects_appended_entries_with_no_common_base() {
         verify_persistent_storage(&mock_persistent_storage_back_end, 4, None);
     });
 }
+
+// TODO:
+// * Tell log to make snapshot when an `InstallSnapshot` is received with term
+//   newer or the same as ours.
+// * Cancel election timer when `InstallSnapshot` is received, and start it
+//   again after `InstallSnapshotResults` is sent.
+// * Reply with `InstallSnapshotResults` when an `InstallSnapshot` is received.

@@ -597,7 +597,9 @@ fn install_snapshot_if_match_index_before_base() {
 }
 
 // TODO:
-// * Send `InstallSnapshot` message if receive `AppendEntriesResponse` where
-//   match index is before leader's base index.
 // * Send `AppendEntries` message with entire log if receive
-//   `InstallSnapshotResponse`
+//   `InstallSnapshotResults`.
+// * Do not send `AppendEntries` message if receive `InstallSnapshotResults`
+//   when the log is empty.
+// * Send `AppendEntries` messages and reset heartbeat if more entries are given
+//   to the leader from the host.
