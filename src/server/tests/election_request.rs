@@ -1,5 +1,8 @@
 use super::*;
-use crate::tests::assert_logger;
+use crate::{
+    tests::assert_logger,
+    ServerElectionState,
+};
 use futures::executor;
 
 #[test]
@@ -49,9 +52,9 @@ fn elected_leader_unanimously() {
         election_timeout_completer
             .send(sender)
             .expect_err("server did not cancel last election timeout");
-        fixture.cast_votes(2, 2).await;
+        fixture.cast_votes(2, 1).await;
         fixture.expect_no_election_state_changes().await;
-        assert_eq!(1, fixture.server.election_timeout_count().await);
+        fixture.expect_no_election_timer_registrations_now();
     });
 }
 
@@ -149,6 +152,68 @@ fn not_elected_leader_because_no_majority_votes() {
                 vote: false,
             })
             .await;
+        fixture.expect_no_election_state_changes().await;
+    });
+}
+
+#[test]
+fn not_elected_leader_because_request_vote_results_old_term() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.expect_election_with_defaults().await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 2,
+                seq: 1,
+                term: 1,
+                vote: true,
+            })
+            .await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 6,
+                seq: 1,
+                term: 0,
+                vote: true,
+            })
+            .await;
+        fixture.expect_no_election_state_changes().await;
+    });
+}
+
+#[test]
+fn candidate_revert_to_follower_on_request_vote_response_newer_term() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(0, None);
+        fixture.mobilize_server_with_persistent_storage(Box::new(
+            mock_persistent_storage,
+        ));
+        fixture.expect_election_with_defaults().await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 2,
+                seq: 1,
+                term: 2,
+                vote: false,
+            })
+            .await;
+        fixture
+            .expect_election_state_change(ServerElectionState::Follower)
+            .await;
+        let (_duration, completer) =
+            fixture.expect_retransmission_timer_registration(6).await;
+        let (sender, _receiver) = oneshot::channel();
+        assert!(
+            completer.send(sender).is_err(),
+            "server didn't cancel retransmission timer"
+        );
+        fixture.expect_election_timer_registration_now();
+        verify_persistent_storage(&mock_persistent_storage_back_end, 2, None);
     });
 }
 
@@ -291,9 +356,3 @@ fn leader_no_retransmit_vote_request_after_election() {
         );
     });
 }
-
-// TODO:
-// * Ignore `RequestVoteResults` if term is old.
-// * Reject `RequestVoteResults` if term is old.
-// * If `RequestVoteResults` is received with newer term, revert to follower and
-//   update term to match.

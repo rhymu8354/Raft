@@ -648,6 +648,9 @@ impl<T> Mobilization<T> {
                     self.election_state,
                     self.persistent_storage.term()
                 );
+                if message.term < self.persistent_storage.term() {
+                    return false;
+                }
                 if self
                     .peers
                     .get(&sender_id)
@@ -660,6 +663,7 @@ impl<T> Mobilization<T> {
                 self.process_request_vote_results(
                     sender_id,
                     vote_granted,
+                    message.term,
                     event_sender,
                     rpc_timeout,
                     scheduler,
@@ -759,6 +763,7 @@ impl<T> Mobilization<T> {
         &mut self,
         sender_id: usize,
         vote_granted: bool,
+        term: usize,
         event_sender: &EventSender<T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
@@ -766,6 +771,10 @@ impl<T> Mobilization<T> {
     where
         T: Clone + Debug + Send + 'static,
     {
+        if term > self.persistent_storage.term() {
+            self.persistent_storage.update(term, None);
+            self.become_follower(event_sender);
+        }
         if self.election_state != ElectionState::Candidate {
             debug!(
                 "Received unexpected or extra vote {} from {}",
