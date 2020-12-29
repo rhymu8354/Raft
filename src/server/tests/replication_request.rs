@@ -614,7 +614,6 @@ fn install_snapshot_if_match_index_before_base() {
                 2,
             )
             .await;
-        fixture.synchronize().await;
         assert_eq!(
             Message {
                 content: MessageContent::InstallSnapshot {
@@ -625,9 +624,9 @@ fn install_snapshot_if_match_index_before_base() {
                 seq: 3,
                 term: 11,
             },
-            fixture.expect_message_now(2)
+            fixture.expect_message(2).await
         );
-        let (duration, _completer) =
+        let (duration, completer) =
             fixture.expect_retransmission_timer_registration(2).await;
         assert_eq!(fixture.configuration.install_snapshot_timeout, duration);
         fixture
@@ -640,6 +639,12 @@ fn install_snapshot_if_match_index_before_base() {
                 2,
             )
             .await;
+        fixture.synchronize().await;
+        let (sender, _receiver) = oneshot::channel();
+        assert!(
+            completer.send(sender).is_err(),
+            "server didn't cancel retransmission timer"
+        );
         assert_eq!(
             Message {
                 content: MessageContent::AppendEntries(AppendEntriesContent {
@@ -659,7 +664,78 @@ fn install_snapshot_if_match_index_before_base() {
     });
 }
 
+#[test]
+fn install_snapshot_ignore_results_if_term_old() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, _mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(10, None);
+        let (mock_log, _mock_log_back_end) =
+            new_mock_log_with_non_defaults(10, 1, [1, 2, 3, 4, 5]);
+        fixture.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            Box::new(mock_persistent_storage),
+        );
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_index: 1,
+                last_log_term: 10,
+                term: 11,
+            })
+            .await;
+        fixture.cast_votes(1, 11).await;
+        fixture.expect_retransmission_timer_registration(2).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_retransmission_timer_registration(2).await;
+        fixture.expect_message_now(2);
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResults {
+                        match_index: 0,
+                    },
+                    seq: 2,
+                    term: 11,
+                },
+                2,
+            )
+            .await;
+        fixture.expect_message(2).await;
+        let (duration, completer) =
+            fixture.expect_retransmission_timer_registration(2).await;
+        assert_eq!(fixture.configuration.install_snapshot_timeout, duration);
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::InstallSnapshotResults,
+                    seq: 3,
+                    term: 10,
+                },
+                2,
+            )
+            .await;
+        fixture.synchronize().await;
+        let (sender, _receiver) = oneshot::channel();
+        assert!(
+            completer.send(sender).is_ok(),
+            "server cancelled retransmission timer"
+        );
+        assert_eq!(
+            Message {
+                content: MessageContent::InstallSnapshot {
+                    last_included_index: 1,
+                    last_included_term: 10,
+                    snapshot: vec![1, 2, 3, 4, 5],
+                },
+                seq: 3,
+                term: 11,
+            },
+            fixture.expect_message(2).await
+        );
+    });
+}
+
 // TODO:
 // * Send `AppendEntries` messages and reset heartbeat if more entries are given
 //   to the leader from the host.
-// * Ignore `InstallSnapshot` if term is old.
