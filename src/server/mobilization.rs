@@ -553,11 +553,6 @@ impl<T> Mobilization<T> {
                 self.election_state
             );
             return;
-        } else {
-            debug!(
-                "Received AppendEntriesResults ({}) from {}",
-                args.match_index, args.sender_id
-            );
         }
         if let Some(peer) = self.peers.get_mut(&args.sender_id) {
             let match_index =
@@ -684,16 +679,23 @@ impl<T> Mobilization<T> {
             MessageContent::AppendEntriesResults {
                 match_index,
             } => {
+                debug!(
+                    "Received AppendEntriesResults ({}) from {} for term {} (we are {:?} in term {})",
+                    match_index,
+                    sender_id,
+                    message.term,
+                    self.election_state,
+                    self.persistent_storage.term()
+                );
+                if message.term < self.persistent_storage.term() {
+                    return false;
+                }
                 if self
                     .peers
                     .get(&sender_id)
                     .filter(|peer| peer.last_seq == message.seq)
                     .is_none()
                 {
-                    debug!(
-                        "Received old append entries results ({}) from {}",
-                        match_index, sender_id
-                    );
                     return false;
                 }
                 self.cancel_retransmission(sender_id);
