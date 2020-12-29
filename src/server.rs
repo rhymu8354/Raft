@@ -109,8 +109,6 @@ where
 pub enum Command<T> {
     Configure(Configuration),
     Demobilize(oneshot::Sender<()>),
-    #[cfg(test)]
-    FetchElectionTimeoutCounter(oneshot::Sender<usize>),
     Mobilize(MobilizeArgs<T>),
     ProcessSinkItem(SinkItem<T>),
 }
@@ -126,10 +124,6 @@ where
         match self {
             Command::Configure(_) => write!(f, "Configure"),
             Command::Demobilize(_) => write!(f, "Demobilize"),
-            #[cfg(test)]
-            Command::FetchElectionTimeoutCounter(_) => {
-                write!(f, "FetchElectionTimeoutCounter")
-            },
             Command::Mobilize(_) => write!(f, "Mobilize"),
             Command::ProcessSinkItem(sink_item) => {
                 write!(f, "ProcessSinkItem({:?})", sink_item)
@@ -260,17 +254,6 @@ impl<T> Server<T> {
             .unbounded_send(Command::Demobilize(sender))
             .expect("server command receiver dropped prematurely");
         receiver.await.expect("server dropped demobilize results sender");
-    }
-
-    #[cfg(test)]
-    pub async fn election_timeout_count(&self) -> usize {
-        let (sender, receiver) = oneshot::channel();
-        self.command_sender
-            .unbounded_send(Command::FetchElectionTimeoutCounter(sender))
-            .expect("server command receiver dropped prematurely");
-        receiver.await.expect(
-            "server dropped fetch election timeout counter results sender",
-        )
     }
 
     pub fn mobilize(

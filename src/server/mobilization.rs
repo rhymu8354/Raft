@@ -80,8 +80,6 @@ pub struct Mobilization<T> {
     cluster: HashSet<usize>,
     commit_index: usize,
     election_state: ElectionState,
-    #[cfg(test)]
-    pub election_timeout_counter: usize,
     id: usize,
     log: Box<dyn Log<Command = T>>,
     peers: HashMap<usize, Peer<T>>,
@@ -401,10 +399,6 @@ impl<T> Mobilization<T> {
         T: Clone + Debug + Send + 'static,
     {
         self.cancel_election_timeout.take();
-        #[cfg(test)]
-        {
-            self.election_timeout_counter += 1;
-        }
         if self.election_state != ElectionState::Leader {
             self.become_candidate(event_sender, rpc_timeout, &scheduler);
         }
@@ -489,8 +483,6 @@ impl<T> Mobilization<T> {
             cluster: mobilize_args.cluster,
             commit_index: 0,
             election_state: ElectionState::Follower,
-            #[cfg(test)]
-            election_timeout_counter: 0,
             id: mobilize_args.id,
             log: mobilize_args.log,
             peers,

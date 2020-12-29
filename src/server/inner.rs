@@ -59,14 +59,6 @@ impl<T> Inner<T> {
                 let _ = completed.send(());
                 true
             },
-            #[cfg(test)]
-            Command::FetchElectionTimeoutCounter(response_sender) => {
-                if let Some(mobilization) = &self.mobilization {
-                    let _ = response_sender
-                        .send(mobilization.election_timeout_counter);
-                }
-                false
-            },
             Command::Mobilize(mobilize_args) => {
                 self.mobilization = Some(Mobilization::new(mobilize_args));
                 false
