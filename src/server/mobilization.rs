@@ -43,7 +43,7 @@ use std::{
     time::Duration,
 };
 
-struct ProcessAppendEntriesResultsArgs<'a, 'b, T> {
+struct ProcessAppendEntriesResponseArgs<'a, 'b, T> {
     event_sender: &'a EventSender<T>,
     install_snapshot_timeout: Duration,
     match_index: usize,
@@ -290,6 +290,41 @@ impl<T> Mobilization<T> {
         });
     }
 
+    fn commit_log(
+        &mut self,
+        leader_commit: usize,
+        event_sender: &EventSender<T>,
+    ) {
+        let new_commit_index =
+            std::cmp::min(leader_commit, self.log.last_index());
+        if new_commit_index > self.commit_index {
+            info!(
+                "{:?}: Committing log from {} to {}",
+                self.election_state, self.commit_index, new_commit_index
+            );
+            self.commit_index = new_commit_index;
+            let _ = event_sender
+                .unbounded_send(Event::LogCommitted(self.commit_index));
+        }
+    }
+
+    fn compare_log_history(
+        &self,
+        prev_log_index: usize,
+        prev_log_term: usize,
+        new_log_term: usize,
+    ) -> HistoryComparison {
+        if prev_log_index >= self.log.base_index() {
+            if prev_log_term != self.log_entry_term(prev_log_index) {
+                return HistoryComparison::NothingInCommon;
+            }
+            if new_log_term != self.log_entry_term(prev_log_index + 1) {
+                return HistoryComparison::SameUpToPrevious;
+            }
+        }
+        HistoryComparison::Same
+    }
+
     #[cfg(test)]
     pub fn count_cancellation(&mut self) {
         self.cancellations_pending -= 1;
@@ -352,41 +387,6 @@ impl<T> Mobilization<T> {
             self.become_follower(event_sender);
         }
         true
-    }
-
-    fn commit_log(
-        &mut self,
-        leader_commit: usize,
-        event_sender: &EventSender<T>,
-    ) {
-        let new_commit_index =
-            std::cmp::min(leader_commit, self.log.last_index());
-        if new_commit_index > self.commit_index {
-            info!(
-                "{:?}: Committing log from {} to {}",
-                self.election_state, self.commit_index, new_commit_index
-            );
-            self.commit_index = new_commit_index;
-            let _ = event_sender
-                .unbounded_send(Event::LogCommitted(self.commit_index));
-        }
-    }
-
-    fn compare_log_history(
-        &self,
-        prev_log_index: usize,
-        prev_log_term: usize,
-        new_log_term: usize,
-    ) -> HistoryComparison {
-        if prev_log_index >= self.log.base_index() {
-            if prev_log_term != self.log_entry_term(prev_log_index) {
-                return HistoryComparison::NothingInCommon;
-            }
-            if new_log_term != self.log_entry_term(prev_log_index + 1) {
-                return HistoryComparison::SameUpToPrevious;
-            }
-        }
-        HistoryComparison::Same
     }
 
     fn determine_log_entry_disposition(
@@ -527,14 +527,14 @@ impl<T> Mobilization<T> {
             self.commit_log(leader_commit, event_sender);
         }
         let message = Message {
-            content: MessageContent::AppendEntriesResults {
+            content: MessageContent::AppendEntriesResponse {
                 match_index,
             },
             seq,
             term: self.persistent_storage.term(),
         };
         debug!(
-            "Sending AppendEntriesResults ({}) to {}",
+            "Sending AppendEntriesResponse ({}) to {}",
             match_index, sender_id
         );
         let _ = event_sender.unbounded_send(Event::SendMessage {
@@ -544,9 +544,9 @@ impl<T> Mobilization<T> {
         self.cancel_election_timer();
     }
 
-    fn process_append_entries_results(
+    fn process_append_entries_response(
         &mut self,
-        args: ProcessAppendEntriesResultsArgs<T>,
+        args: ProcessAppendEntriesResponseArgs<T>,
     ) where
         T: 'static + Clone + Debug + Send,
     {
@@ -556,7 +556,7 @@ impl<T> Mobilization<T> {
         }
         if self.election_state != ElectionState::Leader {
             warn!(
-                "Not processing AppendEntriesResults ({}) from {} because we are {:?}, not Leader",
+                "Not processing AppendEntriesResponse ({}) from {} because we are {:?}, not Leader",
                 args.match_index,
                 args.sender_id,
                 self.election_state
@@ -639,18 +639,18 @@ impl<T> Mobilization<T> {
             );
         }
         let message = Message {
-            content: MessageContent::InstallSnapshotResults,
+            content: MessageContent::InstallSnapshotResponse,
             seq: args.seq,
             term: self.persistent_storage.term(),
         };
-        debug!("Sending InstallSnapshotResults to {}", args.sender_id);
+        debug!("Sending InstallSnapshotResponse to {}", args.sender_id);
         let _ = args.event_sender.unbounded_send(Event::SendMessage {
             message,
             receiver_id: args.sender_id,
         });
     }
 
-    fn process_install_snapshot_results(
+    fn process_install_snapshot_response(
         &mut self,
         sender_id: usize,
         term: usize,
@@ -666,7 +666,7 @@ impl<T> Mobilization<T> {
         }
         if self.election_state != ElectionState::Leader {
             warn!(
-                "Not processing InstallSnapshotResults from {} because we are {:?}, not Leader",
+                "Not processing InstallSnapshotResponse from {} because we are {:?}, not Leader",
                 sender_id,
                 self.election_state
             );
@@ -703,7 +703,7 @@ impl<T> Mobilization<T> {
         T: Clone + Debug + Send + 'static,
     {
         match message.content {
-            MessageContent::RequestVoteResults {
+            MessageContent::RequestVoteResponse {
                 vote_granted,
             } => {
                 info!(
@@ -726,7 +726,7 @@ impl<T> Mobilization<T> {
                     return;
                 }
                 self.cancel_retransmission(sender_id);
-                self.process_request_vote_results(
+                self.process_request_vote_response(
                     sender_id,
                     vote_granted,
                     message.term,
@@ -767,11 +767,11 @@ impl<T> Mobilization<T> {
                     event_sender,
                 );
             },
-            MessageContent::AppendEntriesResults {
+            MessageContent::AppendEntriesResponse {
                 match_index,
             } => {
                 debug!(
-                    "Received AppendEntriesResults ({}) from {} for term {} (we are {:?} in term {})",
+                    "Received AppendEntriesResponse ({}) from {} for term {} (we are {:?} in term {})",
                     match_index,
                     sender_id,
                     message.term,
@@ -790,8 +790,8 @@ impl<T> Mobilization<T> {
                     return;
                 }
                 self.cancel_retransmission(sender_id);
-                self.process_append_entries_results(
-                    ProcessAppendEntriesResultsArgs {
+                self.process_append_entries_response(
+                    ProcessAppendEntriesResponseArgs {
                         event_sender,
                         install_snapshot_timeout,
                         match_index,
@@ -827,9 +827,9 @@ impl<T> Mobilization<T> {
                     event_sender,
                 });
             },
-            MessageContent::InstallSnapshotResults => {
+            MessageContent::InstallSnapshotResponse => {
                 info!(
-                    "Received InstallSnapshotResults from {} for term {} (we are {:?} in term {})",
+                    "Received InstallSnapshotResponse from {} for term {} (we are {:?} in term {})",
                     sender_id,
                     message.term,
                     self.election_state,
@@ -847,7 +847,7 @@ impl<T> Mobilization<T> {
                     return;
                 }
                 self.cancel_retransmission(sender_id);
-                self.process_install_snapshot_results(
+                self.process_install_snapshot_response(
                     sender_id,
                     message.term,
                     event_sender,
@@ -886,14 +886,14 @@ impl<T> Mobilization<T> {
             event_sender,
         );
         let message = Message {
-            content: MessageContent::RequestVoteResults {
+            content: MessageContent::RequestVoteResponse {
                 vote_granted,
             },
             seq,
             term: self.persistent_storage.term(),
         };
         debug!(
-            "Sending RequestVoteResults ({}) message to {}",
+            "Sending RequestVoteResponse ({}) message to {}",
             vote_granted, sender_id
         );
         let _ = event_sender.unbounded_send(Event::SendMessage {
@@ -905,7 +905,7 @@ impl<T> Mobilization<T> {
         }
     }
 
-    fn process_request_vote_results(
+    fn process_request_vote_response(
         &mut self,
         sender_id: usize,
         vote_granted: bool,

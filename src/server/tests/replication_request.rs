@@ -82,7 +82,7 @@ fn leader_no_retransmit_append_entries_after_response() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 1,
                     },
                     seq: 2,
@@ -115,7 +115,7 @@ fn leader_ignore_append_entries_old_term() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 1,
                     },
                     seq: 2,
@@ -144,7 +144,7 @@ fn leader_ignore_append_entries_old_term() {
 }
 
 #[test]
-fn leader_revert_to_follower_when_receive_new_term_append_entries_results() {
+fn leader_revert_to_follower_when_receive_new_term_append_entries_response() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
@@ -160,7 +160,7 @@ fn leader_revert_to_follower_when_receive_new_term_append_entries_results() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 0,
                     },
                     seq: 2,
@@ -196,7 +196,7 @@ fn leader_commit_entry_when_majority_match() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 1,
                     },
                     seq: 2,
@@ -209,7 +209,7 @@ fn leader_commit_entry_when_majority_match() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 1,
                     },
                     seq: 2,
@@ -237,7 +237,7 @@ fn leader_commit_entry_when_majority_match() {
 }
 
 #[test]
-fn leader_send_missing_entries_mid_log_on_append_entries_results() {
+fn leader_send_missing_entries_mid_log_on_append_entries_response() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
@@ -275,7 +275,7 @@ fn leader_send_missing_entries_mid_log_on_append_entries_results() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 11,
                     },
                     seq: 2,
@@ -309,7 +309,7 @@ fn leader_send_missing_entries_mid_log_on_append_entries_results() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 11,
                     },
                     seq: 2,
@@ -345,7 +345,7 @@ fn leader_send_missing_entries_mid_log_on_append_entries_results() {
 }
 
 #[test]
-fn leader_send_missing_entries_all_log_on_append_entries_results() {
+fn leader_send_missing_entries_all_log_on_append_entries_response() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
@@ -383,7 +383,7 @@ fn leader_send_missing_entries_all_log_on_append_entries_results() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 10,
                     },
                     seq: 2,
@@ -422,7 +422,7 @@ fn leader_send_missing_entries_all_log_on_append_entries_results() {
 }
 
 #[test]
-fn follower_ignore_append_entries_results() {
+fn follower_ignore_append_entries_response() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
@@ -433,7 +433,7 @@ fn follower_ignore_append_entries_results() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 1,
                     },
                     seq: 2,
@@ -465,7 +465,7 @@ fn follower_ignore_append_entries_results() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 1,
                     },
                     seq: 2,
@@ -491,7 +491,7 @@ fn leader_send_heartbeat_when_follower_up_to_date() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 1,
                     },
                     seq: 2,
@@ -611,7 +611,7 @@ fn install_snapshot_if_match_index_before_base() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 0,
                     },
                     seq: 2,
@@ -638,7 +638,7 @@ fn install_snapshot_if_match_index_before_base() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::InstallSnapshotResults,
+                    content: MessageContent::InstallSnapshotResponse,
                     seq: 3,
                     term: 11,
                 },
@@ -671,7 +671,7 @@ fn install_snapshot_if_match_index_before_base() {
 }
 
 #[test]
-fn install_snapshot_ignore_results_if_term_old() {
+fn install_snapshot_ignore_response_if_term_old() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
@@ -698,7 +698,7 @@ fn install_snapshot_ignore_results_if_term_old() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::AppendEntriesResults {
+                    content: MessageContent::AppendEntriesResponse {
                         match_index: 0,
                     },
                     seq: 2,
@@ -714,7 +714,7 @@ fn install_snapshot_ignore_results_if_term_old() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::InstallSnapshotResults,
+                    content: MessageContent::InstallSnapshotResponse,
                     seq: 3,
                     term: 10,
                 },

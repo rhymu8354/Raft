@@ -650,4 +650,4 @@ fn follower_installs_snapshot() {
 
 // TODO:
 // * Cancel election timer when `InstallSnapshot` is received, and start it
-//   again after `InstallSnapshotResults` is sent.
+//   again after `InstallSnapshotResponse` is sent.

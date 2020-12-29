@@ -23,11 +23,11 @@ pub enum MessageContent<T> {
         last_log_index: usize,
         last_log_term: usize,
     },
-    RequestVoteResults {
+    RequestVoteResponse {
         vote_granted: bool,
     },
     AppendEntries(AppendEntriesContent<T>),
-    AppendEntriesResults {
+    AppendEntriesResponse {
         match_index: usize,
     },
     InstallSnapshot {
@@ -35,7 +35,7 @@ pub enum MessageContent<T> {
         last_included_term: usize,
         snapshot: Vec<u8>,
     },
-    InstallSnapshotResults,
+    InstallSnapshotResponse,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -119,9 +119,9 @@ mod tests {
     }
 
     #[test]
-    fn request_vote_results() {
+    fn request_vote_response() {
         let message_in = Message {
-            content: MessageContent::RequestVoteResults {
+            content: MessageContent::RequestVoteResponse {
                 vote_granted: true,
             },
             seq: 8,
@@ -191,9 +191,9 @@ mod tests {
     }
 
     #[test]
-    fn append_entries_results() {
+    fn append_entries_response() {
         let message_in = Message {
-            content: MessageContent::AppendEntriesResults {
+            content: MessageContent::AppendEntriesResponse {
                 match_index: 10,
             },
             seq: 4,
@@ -223,9 +223,9 @@ mod tests {
     }
 
     #[test]
-    fn install_snapshot_results() {
+    fn install_snapshot_response() {
         let message_in = Message {
-            content: MessageContent::InstallSnapshotResults,
+            content: MessageContent::InstallSnapshotResponse,
             seq: 17,
             term: 8,
         };

@@ -563,7 +563,7 @@ impl Fixture {
         receiver_id: usize,
         args: &AwaitVoteArgs,
     ) -> bool {
-        if let MessageContent::RequestVoteResults {
+        if let MessageContent::RequestVoteResponse {
             vote_granted,
         } = message.content
         {
@@ -1137,7 +1137,7 @@ impl Fixture {
         receiver_id: usize,
         args: &AwaitAppendEntriesResponseArgs,
     ) -> bool {
-        if let MessageContent::AppendEntriesResults {
+        if let MessageContent::AppendEntriesResponse {
             match_index,
         } = message.content
         {
@@ -1224,7 +1224,7 @@ impl Fixture {
         self.expect_append_entries_response_now(args);
     }
 
-    fn is_verified_install_snapshot_results(
+    fn is_verified_install_snapshot_response(
         &self,
         message: &Message<DummyCommand>,
         receiver_id: usize,
@@ -1232,20 +1232,20 @@ impl Fixture {
         expected_seq: usize,
         expected_term: usize,
     ) -> bool {
-        if let MessageContent::InstallSnapshotResults = message.content {
+        if let MessageContent::InstallSnapshotResponse = message.content {
             assert_eq!(
                 message.term, expected_term,
-                "wrong term in install snapshot results (was {}, should be {})",
+                "wrong term in install snapshot response (was {}, should be {})",
                 message.term, expected_term
             );
             assert_eq!(
                 message.seq, expected_seq,
-                "wrong sequence number in install snapshot results (was {}, should be {})",
+                "wrong sequence number in install snapshot response (was {}, should be {})",
                 message.seq, expected_seq
             );
             assert_eq!(
                 receiver_id, expected_receiver_id,
-                "install snapshot results sent to wrong receiver (was {}, should be {})",
+                "install snapshot response sent to wrong receiver (was {}, should be {})",
                 receiver_id, expected_receiver_id
             );
             true
@@ -1274,7 +1274,7 @@ impl Fixture {
                     message,
                     receiver_id,
                 } => {
-                    if self.is_verified_install_snapshot_results(
+                    if self.is_verified_install_snapshot_response(
                         &message,
                         receiver_id,
                         expected_receiver_id,
@@ -1457,7 +1457,7 @@ async fn cast_vote(
     send_server_message(
         server,
         Message {
-            content: MessageContent::RequestVoteResults {
+            content: MessageContent::RequestVoteResponse {
                 vote_granted: vote,
             },
             seq,

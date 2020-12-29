@@ -157,7 +157,7 @@ fn not_elected_leader_because_no_majority_votes() {
 }
 
 #[test]
-fn not_elected_leader_because_request_vote_results_old_term() {
+fn not_elected_leader_because_request_vote_responaw_old_term() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
