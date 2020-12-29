@@ -35,9 +35,7 @@ pub enum MessageContent<T> {
         last_included_term: usize,
         snapshot: Vec<u8>,
     },
-    InstallSnapshotResults {
-        match_index: usize,
-    },
+    InstallSnapshotResults,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -227,9 +225,7 @@ mod tests {
     #[test]
     fn install_snapshot_results() {
         let message_in = Message {
-            content: MessageContent::InstallSnapshotResults {
-                match_index: 100,
-            },
+            content: MessageContent::InstallSnapshotResults,
             seq: 17,
             term: 8,
         };
