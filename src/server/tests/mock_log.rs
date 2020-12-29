@@ -64,6 +64,17 @@ impl MockLogShared {
         }
     }
 
+    fn install_snapshot(
+        &mut self,
+        base_index: usize,
+        base_term: usize,
+        snapshot: Vec<u8>,
+    ) {
+        self.base_index = base_index;
+        self.base_term = base_term;
+        self.snapshot = snapshot;
+    }
+
     fn truncate(
         &mut self,
         index: usize,
@@ -151,6 +162,16 @@ impl Log for MockLog {
     ) -> Option<usize> {
         let shared = self.shared.lock().unwrap();
         shared.entry_term(index)
+    }
+
+    fn install_snapshot(
+        &mut self,
+        base_index: usize,
+        base_term: usize,
+        snapshot: Vec<u8>,
+    ) {
+        let mut shared = self.shared.lock().unwrap();
+        shared.install_snapshot(base_index, base_term, snapshot);
     }
 
     fn last_term(&self) -> usize {

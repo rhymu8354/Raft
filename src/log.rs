@@ -21,6 +21,12 @@ pub trait Log: Send + Sync {
         &self,
         index: usize,
     ) -> Option<usize>;
+    fn install_snapshot(
+        &mut self,
+        base_index: usize,
+        base_term: usize,
+        snapshot: Vec<u8>,
+    );
     fn last_term(&self) -> usize;
     fn last_index(&self) -> usize;
     fn snapshot(&self) -> Vec<u8>;

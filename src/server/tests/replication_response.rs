@@ -59,10 +59,16 @@ fn follower_receive_append_entries() {
             election_timeout_duration,
             fixture.configuration.election_timeout
         );
-        verify_log(&mock_log_back_end, 0, 0, &vec![LogEntry {
-            term: 1,
-            command: None,
-        }]);
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [LogEntry {
+                term: 1,
+                command: None,
+            }],
+            [],
+        );
         verify_persistent_storage(&mock_persistent_storage_back_end, 1, None);
     });
 }
@@ -125,16 +131,22 @@ fn leader_revert_to_follower_on_append_entries_new_term() {
             election_timeout_duration,
             fixture.configuration.election_timeout
         );
-        verify_log(&mock_log_back_end, 0, 0, &vec![
-            LogEntry {
-                term: 1,
-                command: None,
-            },
-            LogEntry {
-                term: 2,
-                command: None,
-            },
-        ]);
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [
+                LogEntry {
+                    term: 1,
+                    command: None,
+                },
+                LogEntry {
+                    term: 2,
+                    command: None,
+                },
+            ],
+            [],
+        );
         verify_persistent_storage(&mock_persistent_storage_back_end, 2, None);
     });
 }
@@ -186,10 +198,16 @@ fn leader_reject_append_entries_same_term() {
             })
             .await;
         fixture.expect_no_election_state_changes_now();
-        verify_log(&mock_log_back_end, 0, 0, &vec![LogEntry {
-            term: 1,
-            command: None,
-        }]);
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [LogEntry {
+                term: 1,
+                command: None,
+            }],
+            [],
+        );
         verify_persistent_storage(
             &mock_persistent_storage_back_end,
             1,
@@ -243,10 +261,16 @@ fn candidate_append_entries_same_term() {
             })
             .await;
         fixture.expect_no_election_state_changes_now();
-        verify_log(&mock_log_back_end, 0, 0, &vec![LogEntry {
-            term: 1,
-            command: None,
-        }]);
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [LogEntry {
+                term: 1,
+                command: None,
+            }],
+            [],
+        );
         verify_persistent_storage(
             &mock_persistent_storage_back_end,
             1,
@@ -308,16 +332,22 @@ fn follower_match_appended_entries() {
                 term: 2,
             })
             .await;
-        verify_log(&mock_log_back_end, 0, 0, &vec![
-            LogEntry {
-                term: 1,
-                command: None,
-            },
-            LogEntry {
-                term: 2,
-                command: None,
-            },
-        ]);
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [
+                LogEntry {
+                    term: 1,
+                    command: None,
+                },
+                LogEntry {
+                    term: 2,
+                    command: None,
+                },
+            ],
+            [],
+        );
         verify_persistent_storage(&mock_persistent_storage_back_end, 2, None);
     });
 }
@@ -375,16 +405,22 @@ fn follower_replaces_mismatched_appended_entries() {
                 term: 2,
             })
             .await;
-        verify_log(&mock_log_back_end, 0, 0, &vec![
-            LogEntry {
-                term: 2,
-                command: None,
-            },
-            LogEntry {
-                term: 3,
-                command: None,
-            },
-        ]);
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [
+                LogEntry {
+                    term: 2,
+                    command: None,
+                },
+                LogEntry {
+                    term: 3,
+                    command: None,
+                },
+            ],
+            [],
+        );
         verify_persistent_storage(&mock_persistent_storage_back_end, 2, None);
     });
 }
@@ -451,16 +487,22 @@ fn follower_rejects_appended_entries_with_mismatched_previous_term() {
                 term: 4,
             })
             .await;
-        verify_log(&mock_log_back_end, 0, 0, &vec![
-            LogEntry {
-                term: 1,
-                command: None,
-            },
-            LogEntry {
-                term: 2, // <-- leader says this should be 3 not 2
-                command: None,
-            },
-        ]);
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [
+                LogEntry {
+                    term: 1,
+                    command: None,
+                },
+                LogEntry {
+                    term: 2, // <-- leader says this should be 3 not 2
+                    command: None,
+                },
+            ],
+            [],
+        );
         verify_persistent_storage(&mock_persistent_storage_back_end, 4, None);
     });
 }
@@ -514,7 +556,7 @@ fn follower_rejects_appended_entries_with_mismatched_base() {
                 term: 4,
             })
             .await;
-        verify_log(&mock_log_back_end, 2, 2, &vec![]);
+        verify_log(&mock_log_back_end, 2, 2, [], []);
         verify_persistent_storage(&mock_persistent_storage_back_end, 4, None);
     });
 }
@@ -568,14 +610,44 @@ fn follower_rejects_appended_entries_with_no_common_base() {
                 term: 4,
             })
             .await;
-        verify_log(&mock_log_back_end, 0, 0, &vec![]);
+        verify_log(&mock_log_back_end, 0, 0, [], []);
         verify_persistent_storage(&mock_persistent_storage_back_end, 4, None);
     });
 }
 
+#[test]
+fn follower_installs_snapshot() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(0, None);
+        let (mock_log, mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 0, []);
+        fixture.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            Box::new(mock_persistent_storage),
+        );
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::InstallSnapshot {
+                        last_included_index: 1,
+                        last_included_term: 10,
+                        snapshot: vec![1, 2, 3, 4, 5],
+                    },
+                    seq: 42,
+                    term: 11,
+                },
+                6,
+            )
+            .await;
+        fixture.expect_install_snapshot_response(6, 42, 11, false).await;
+        verify_log(&mock_log_back_end, 10, 1, [], [1, 2, 3, 4, 5]);
+        verify_persistent_storage(&mock_persistent_storage_back_end, 11, None);
+    });
+}
+
 // TODO:
-// * Tell log to make snapshot when an `InstallSnapshot` is received with term
-//   newer or the same as ours.
 // * Cancel election timer when `InstallSnapshot` is received, and start it
 //   again after `InstallSnapshotResults` is sent.
-// * Reply with `InstallSnapshotResults` when an `InstallSnapshot` is received.

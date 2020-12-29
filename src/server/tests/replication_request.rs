@@ -25,10 +25,16 @@ fn leader_sends_no_op_log_entry_upon_election() {
                 }],
             })
             .await;
-        verify_log(&mock_log_back_end, 0, 0, &vec![LogEntry {
-            term: 1,
-            command: None,
-        }]);
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [LogEntry {
+                term: 1,
+                command: None,
+            }],
+            [],
+        );
     });
 }
 

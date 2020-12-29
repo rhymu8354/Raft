@@ -1224,6 +1224,105 @@ impl Fixture {
         self.expect_append_entries_response_now(args);
     }
 
+    fn is_verified_install_snapshot_results(
+        &self,
+        message: &Message<DummyCommand>,
+        receiver_id: usize,
+        expected_receiver_id: usize,
+        expected_seq: usize,
+        expected_term: usize,
+    ) -> bool {
+        if let MessageContent::InstallSnapshotResults = message.content {
+            assert_eq!(
+                message.term, expected_term,
+                "wrong term in install snapshot results (was {}, should be {})",
+                message.term, expected_term
+            );
+            assert_eq!(
+                message.seq, expected_seq,
+                "wrong sequence number in install snapshot results (was {}, should be {})",
+                message.seq, expected_seq
+            );
+            assert_eq!(
+                receiver_id, expected_receiver_id,
+                "install snapshot results sent to wrong receiver (was {}, should be {})",
+                receiver_id, expected_receiver_id
+            );
+            true
+        } else {
+            false
+        }
+    }
+
+    fn expect_install_snapshot_response_now(
+        &mut self,
+        expected_receiver_id: usize,
+        expected_seq: usize,
+        expected_term: usize,
+        expect_state_change: bool,
+    ) {
+        let mut state_changed = false;
+        loop {
+            let event = self
+                .server
+                .next()
+                .now_or_never()
+                .flatten()
+                .expect("no install snapshot response sent");
+            match event {
+                ServerEvent::SendMessage {
+                    message,
+                    receiver_id,
+                } => {
+                    if self.is_verified_install_snapshot_results(
+                        &message,
+                        receiver_id,
+                        expected_receiver_id,
+                        expected_seq,
+                        expected_term,
+                    ) {
+                        break;
+                    }
+                },
+                ServerEvent::ElectionStateChange {
+                    election_state,
+                    term,
+                    ..
+                } => {
+                    state_changed = true;
+                    assert_eq!(election_state, ServerElectionState::Follower);
+                    assert_eq!(
+                        term, expected_term,
+                        "wrong term in election state change (was {}, should be {})",
+                        term, expected_term
+                    );
+                },
+                ServerEvent::LogCommitted(_) => {
+                    panic!("Unexpectedly committed log entries")
+                },
+            }
+        }
+        if expect_state_change {
+            assert!(state_changed, "server did not change election state");
+        }
+    }
+
+    async fn expect_install_snapshot_response(
+        &mut self,
+        receiver_id: usize,
+        seq: usize,
+        term: usize,
+        expect_state_change: bool,
+    ) {
+        self.synchronize().await;
+        self.expect_install_snapshot_response_now(
+            receiver_id,
+            seq,
+            term,
+            expect_state_change,
+        );
+    }
+
     async fn send_server_message(
         &mut self,
         message: Message<DummyCommand>,
@@ -1272,13 +1371,15 @@ fn new_mock_persistent_storage_with_non_defaults(
     (mock_persistent_storage, mock_persistent_storage_back_end)
 }
 
-fn verify_log<L>(
+fn verify_log<L, S>(
     mock_log_back_end: &MockLogBackEnd,
     base_term: usize,
     base_index: usize,
     entries: L,
+    snapshot: S,
 ) where
     L: AsRef<[LogEntry<DummyCommand>]>,
+    S: AsRef<[u8]>,
 {
     let log_shared = mock_log_back_end.shared.lock().unwrap();
     assert_eq!(
@@ -1296,6 +1397,12 @@ fn verify_log<L>(
         entries, log_shared.entries,
         "log should be {:?} but is {:?}",
         entries, log_shared.entries
+    );
+    let snapshot = snapshot.as_ref();
+    assert_eq!(
+        snapshot, log_shared.snapshot,
+        "snapshot should be {:?} but is {:?}",
+        snapshot, log_shared.snapshot
     );
 }
 

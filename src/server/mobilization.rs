@@ -53,6 +53,16 @@ struct ProcessAppendEntriesResultsArgs<'a, 'b, T> {
     term: usize,
 }
 
+struct ProcessInstallSnapshotArgs<'a, T> {
+    sender_id: usize,
+    seq: usize,
+    term: usize,
+    last_included_index: usize,
+    last_included_term: usize,
+    snapshot: Vec<u8>,
+    event_sender: &'a EventSender<T>,
+}
+
 #[derive(PartialEq)]
 enum RequestDecision {
     Accept,
@@ -611,6 +621,36 @@ impl<T> Mobilization<T> {
         }
     }
 
+    fn process_install_snapshot(
+        &mut self,
+        args: ProcessInstallSnapshotArgs<T>,
+    ) {
+        let decision = self.decide_request_verdict(args.term);
+        if decision == RequestDecision::AcceptAndUpdateTerm {
+            self.persistent_storage.update(args.term, None);
+        }
+        if decision != RequestDecision::Reject {
+            if self.election_state != ElectionState::Follower {
+                self.become_follower(args.event_sender);
+            }
+            self.log.install_snapshot(
+                args.last_included_index,
+                args.last_included_term,
+                args.snapshot,
+            );
+        }
+        let message = Message {
+            content: MessageContent::InstallSnapshotResults,
+            seq: args.seq,
+            term: self.persistent_storage.term(),
+        };
+        debug!("Sending InstallSnapshotResults to {}", args.sender_id);
+        let _ = args.event_sender.unbounded_send(Event::SendMessage {
+            message,
+            receiver_id: args.sender_id,
+        });
+    }
+
     fn process_install_snapshot_results(
         &mut self,
         sender_id: usize,
@@ -709,14 +749,26 @@ impl<T> Mobilization<T> {
                 last_log_term,
                 event_sender,
             ),
-            MessageContent::AppendEntries(append_entries) => self
-                .process_append_entries(
+            MessageContent::AppendEntries(append_entries) => {
+                debug!(
+                    "Received AppendEntries({} on top of {}/{};{}) from {} for term {} (we are {:?} in term {})",
+                    append_entries.log.len(),
+                    append_entries.leader_commit,
+                    append_entries.prev_log_index,
+                    append_entries.prev_log_term,
+                    sender_id,
+                    message.term,
+                    self.election_state,
+                    self.persistent_storage.term()
+                );
+                self.process_append_entries(
                     sender_id,
                     message.seq,
                     message.term,
                     append_entries,
                     event_sender,
-                ),
+                )
+            },
             MessageContent::AppendEntriesResults {
                 match_index,
             } => {
@@ -753,8 +805,34 @@ impl<T> Mobilization<T> {
                 );
                 false
             },
+            MessageContent::InstallSnapshot {
+                last_included_index,
+                last_included_term,
+                snapshot,
+            } => {
+                info!(
+                    "Received InstallSnapshot({};{}, {} bytes) from {} for term {} (we are {:?} in term {})",
+                    last_included_index,
+                    last_included_term,
+                    snapshot.len(),
+                    sender_id,
+                    message.term,
+                    self.election_state,
+                    self.persistent_storage.term()
+                );
+                self.process_install_snapshot(ProcessInstallSnapshotArgs {
+                    sender_id,
+                    seq: message.seq,
+                    term: message.term,
+                    last_included_index,
+                    last_included_term,
+                    snapshot,
+                    event_sender,
+                });
+                false
+            },
             MessageContent::InstallSnapshotResults => {
-                debug!(
+                info!(
                     "Received InstallSnapshotResults from {} for term {} (we are {:?} in term {})",
                     sender_id,
                     message.term,
@@ -782,7 +860,6 @@ impl<T> Mobilization<T> {
                 );
                 false
             },
-            _ => todo!(),
         }
     }
 
@@ -798,6 +875,15 @@ impl<T> Mobilization<T> {
     where
         T: Debug,
     {
+        info!(
+            "Received RequestVote({};{}) from {} for term {} (we are {:?} in term {})",
+            last_log_index,
+            last_log_term,
+            sender_id,
+            term,
+            self.election_state,
+            self.persistent_storage.term()
+        );
         let vote_granted = self.decide_vote_grant(
             sender_id,
             term,
