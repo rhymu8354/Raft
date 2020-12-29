@@ -627,22 +627,39 @@ fn install_snapshot_if_match_index_before_base() {
             },
             fixture.expect_message_now(2)
         );
-        let (duration, completer) =
+        let (duration, _completer) =
             fixture.expect_retransmission_timer_registration(2).await;
-        let (sender, _receiver) = oneshot::channel();
-        assert!(
-            completer.send(sender).is_ok(),
-            "server cancelled retransmission timer"
-        );
         assert_eq!(fixture.configuration.install_snapshot_timeout, duration);
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::InstallSnapshotResults,
+                    seq: 3,
+                    term: 11,
+                },
+                2,
+            )
+            .await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_index: 1,
+                    prev_log_term: 10,
+                    log: vec![LogEntry {
+                        term: 11,
+                        command: None
+                    }],
+                }),
+                seq: 4,
+                term: 11,
+            },
+            fixture.expect_message(2).await
+        );
     });
 }
 
 // TODO:
-// * Send `AppendEntries` message with entire log if receive
-//   `InstallSnapshotResults`.
-// * Do not send `AppendEntries` message if receive `InstallSnapshotResults`
-//   when the log is empty.
 // * Send `AppendEntries` messages and reset heartbeat if more entries are given
 //   to the leader from the host.
 // * Ignore `InstallSnapshot` if term is old.

@@ -611,6 +611,47 @@ impl<T> Mobilization<T> {
         }
     }
 
+    fn process_install_snapshot_results(
+        &mut self,
+        sender_id: usize,
+        term: usize,
+        event_sender: &EventSender<T>,
+        rpc_timeout: Duration,
+        scheduler: &Scheduler,
+    ) where
+        T: 'static + Clone + Debug + Send,
+    {
+        if term > self.persistent_storage.term() {
+            self.persistent_storage.update(term, None);
+            self.become_follower(event_sender);
+        }
+        if self.election_state != ElectionState::Leader {
+            warn!(
+                "Not processing InstallSnapshotResults from {} because we are {:?}, not Leader",
+                sender_id,
+                self.election_state
+            );
+            return;
+        }
+        if let Some(peer) = self.peers.get_mut(&sender_id) {
+            let prev_log_index = self.log.base_index();
+            let prev_log_term = self.log.base_term();
+            peer.send_new_request(
+                MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: self.commit_index,
+                    prev_log_index,
+                    prev_log_term,
+                    log: self.log.entries(prev_log_index),
+                }),
+                sender_id,
+                self.persistent_storage.term(),
+                event_sender,
+                rpc_timeout,
+                scheduler,
+            );
+        }
+    }
+
     fn process_receive_message(
         &mut self,
         message: Message<T>,
@@ -709,6 +750,35 @@ impl<T> Mobilization<T> {
                         sender_id,
                         term: message.term,
                     },
+                );
+                false
+            },
+            MessageContent::InstallSnapshotResults => {
+                debug!(
+                    "Received InstallSnapshotResults from {} for term {} (we are {:?} in term {})",
+                    sender_id,
+                    message.term,
+                    self.election_state,
+                    self.persistent_storage.term()
+                );
+                if message.term < self.persistent_storage.term() {
+                    return false;
+                }
+                if self
+                    .peers
+                    .get(&sender_id)
+                    .filter(|peer| peer.last_seq == message.seq)
+                    .is_none()
+                {
+                    return false;
+                }
+                self.cancel_retransmission(sender_id);
+                self.process_install_snapshot_results(
+                    sender_id,
+                    message.term,
+                    event_sender,
+                    rpc_timeout,
+                    scheduler,
                 );
                 false
             },
