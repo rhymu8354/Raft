@@ -162,6 +162,7 @@ pub enum WorkItemContent<T> {
     },
     ElectionTimeout,
     Heartbeat,
+    MinElectionTimeout,
     RpcTimeout(usize),
     Stop,
 }

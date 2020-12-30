@@ -53,7 +53,7 @@ impl<T> Inner<T> {
             Command::Configure(configuration) => {
                 self.configuration = configuration;
                 if let Some(mobilization) = &mut self.mobilization {
-                    mobilization.cancel_election_timer();
+                    mobilization.cancel_election_timers();
                 }
             },
             Command::Demobilize(completed) => {
@@ -119,8 +119,16 @@ impl<T> Inner<T> {
 
             // Upkeep timers while mobilized.
             if let Some(mobilization) = &mut self.mobilization {
-                // Make election timeout future if we don't have one and we are
-                // not the leader of the cluster.
+                // Make election timeout futures if we don't have them and we
+                // are not the leader of the cluster.
+                if let Some(future) = mobilization
+                    .upkeep_min_election_timeout_future(
+                        &self.configuration.election_timeout,
+                        &self.scheduler,
+                    )
+                {
+                    futures.push(future);
+                }
                 if let Some(future) = mobilization
                     .upkeep_election_timeout_future(
                         &self.configuration.election_timeout,
@@ -196,6 +204,12 @@ impl<T> Inner<T> {
                             self.configuration.rpc_timeout,
                             &self.scheduler,
                         );
+                    }
+                },
+                WorkItemContent::MinElectionTimeout => {
+                    debug!("minimum election timeout");
+                    if let Some(mobilization) = &mut self.mobilization {
+                        mobilization.minimum_election_timeout();
                     }
                 },
                 WorkItemContent::RpcTimeout(peer_id) => {

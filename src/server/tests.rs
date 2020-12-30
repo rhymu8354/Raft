@@ -230,6 +230,75 @@ impl Fixture {
         registration
     }
 
+    fn expect_min_election_timer_registration_now(
+        &mut self
+    ) -> (Duration, oneshot::Sender<oneshot::Sender<()>>) {
+        loop {
+            let event_with_completer = self
+                .scheduled_event_receiver
+                .next()
+                .now_or_never()
+                .flatten()
+                .expect("no minimum election timer registered");
+            if let ScheduledEventWithCompleter {
+                scheduled_event: ScheduledEvent::MinElectionTimeout,
+                duration,
+                completer,
+            } = event_with_completer
+            {
+                break (duration, completer);
+            }
+        }
+    }
+
+    fn expect_no_min_election_timer_registrations_now(&mut self) {
+        while let Some(event_with_completer) =
+            self.scheduled_event_receiver.next().now_or_never().flatten()
+        {
+            assert!(!matches!(
+                event_with_completer,
+                ScheduledEventWithCompleter {
+                    scheduled_event: ScheduledEvent::MinElectionTimeout,
+                    ..
+                }
+            ));
+        }
+    }
+
+    fn expect_min_election_timer_registrations_now(
+        &mut self,
+        num_timers_to_await: usize,
+    ) -> (Duration, oneshot::Sender<oneshot::Sender<()>>) {
+        for _ in 0..num_timers_to_await - 1 {
+            self.expect_min_election_timer_registration_now();
+        }
+        self.expect_min_election_timer_registration_now()
+    }
+
+    async fn expect_min_election_timer_registrations(
+        &mut self,
+        num_timers_to_await: usize,
+    ) -> (Duration, oneshot::Sender<oneshot::Sender<()>>) {
+        self.synchronize().await;
+        let registration = self
+            .expect_min_election_timer_registrations_now(num_timers_to_await);
+        self.expect_no_min_election_timer_registrations_now();
+        registration
+    }
+
+    async fn trigger_min_election_timeout(&mut self) {
+        let (duration, timeout) =
+            self.expect_min_election_timer_registrations(1).await;
+        assert_eq!(self.configuration.election_timeout.start, duration);
+        let (sender, receiver) = oneshot::channel();
+        timeout
+            .send(sender)
+            .expect("server dropped minimum election timeout future");
+        receiver
+            .await
+            .expect("server dropped minimum election timeout acknowledgment");
+    }
+
     async fn trigger_election_timeout(&mut self) {
         let (election_timeout_duration, election_timeout_completer) =
             self.expect_election_timer_registrations(1).await;
@@ -631,6 +700,44 @@ impl Fixture {
     ) {
         self.synchronize().await;
         self.expect_vote_now(args);
+    }
+
+    fn expect_no_vote_now(&mut self) {
+        while let Some(event) = self.server.next().now_or_never().flatten() {
+            match event {
+                ServerEvent::SendMessage {
+                    message,
+                    receiver_id,
+                } => {
+                    if let MessageContent::RequestVoteResponse {
+                        vote_granted,
+                    } = message.content
+                    {
+                        panic!(
+                            "unexpected vote ({:?}) sent to {}",
+                            vote_granted, receiver_id
+                        );
+                    }
+                },
+                ServerEvent::ElectionStateChange {
+                    election_state,
+                    ..
+                } => {
+                    panic!(
+                        "unexpected election state change to {:?}",
+                        election_state
+                    );
+                },
+                ServerEvent::LogCommitted(_) => {
+                    panic!("Unexpectedly committed log entries")
+                },
+            }
+        }
+    }
+
+    async fn expect_no_vote(&mut self) {
+        self.synchronize().await;
+        self.expect_no_vote_now();
     }
 
     fn expect_election_state_change_now(

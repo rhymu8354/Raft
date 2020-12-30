@@ -85,6 +85,7 @@ enum LogEntryDisposition {
 pub struct Mobilization<T> {
     cancel_election_timeout: Option<oneshot::Sender<()>>,
     cancel_heartbeat: Option<oneshot::Sender<()>>,
+    cancel_min_election_timeout: Option<oneshot::Sender<()>>,
     #[cfg(test)]
     cancellations_pending: usize,
     cluster: HashSet<usize>,
@@ -94,6 +95,7 @@ pub struct Mobilization<T> {
     log: Box<dyn Log<Command = T>>,
     peers: HashMap<usize, Peer<T>>,
     persistent_storage: Box<dyn PersistentStorage>,
+    ignore_vote_requests: bool,
     rng: StdRng,
     #[cfg(test)]
     synchronize_ack: Option<oneshot::Sender<()>>,
@@ -210,7 +212,7 @@ impl<T> Mobilization<T> {
         );
     }
 
-    pub fn cancel_election_timer(&mut self) {
+    pub fn cancel_election_timers(&mut self) {
         if let Some(cancel) = self.cancel_election_timeout.take() {
             let _ = cancel.send(());
             #[cfg(test)]
@@ -218,6 +220,17 @@ impl<T> Mobilization<T> {
                 self.cancellations_pending += 1;
                 debug!(
                     "Canceling election timer; {} cancellations pending",
+                    self.cancellations_pending
+                );
+            }
+        }
+        if let Some(cancel) = self.cancel_min_election_timeout.take() {
+            let _ = cancel.send(());
+            #[cfg(test)]
+            {
+                self.cancellations_pending += 1;
+                debug!(
+                    "Canceling minimum election timer; {} cancellations pending",
                     self.cancellations_pending
                 );
             }
@@ -408,6 +421,7 @@ impl<T> Mobilization<T> {
         T: Clone + Debug + Send + 'static,
     {
         self.cancel_election_timeout.take();
+        self.ignore_vote_requests = false;
         if self.election_state != ElectionState::Leader {
             self.become_candidate(event_sender, rpc_timeout, &scheduler);
         }
@@ -487,6 +501,7 @@ impl<T> Mobilization<T> {
         Self {
             cancel_election_timeout: None,
             cancel_heartbeat: None,
+            cancel_min_election_timeout: None,
             #[cfg(test)]
             cancellations_pending: 0,
             cluster: mobilize_args.cluster,
@@ -496,10 +511,16 @@ impl<T> Mobilization<T> {
             log: mobilize_args.log,
             peers,
             persistent_storage: mobilize_args.persistent_storage,
+            ignore_vote_requests: true,
             rng: StdRng::from_entropy(),
             #[cfg(test)]
             synchronize_ack: None,
         }
+    }
+
+    pub fn minimum_election_timeout(&mut self) {
+        self.cancel_min_election_timeout.take();
+        self.ignore_vote_requests = false;
     }
 
     fn process_append_entries(
@@ -540,7 +561,7 @@ impl<T> Mobilization<T> {
             message,
             receiver_id: sender_id,
         });
-        self.cancel_election_timer();
+        self.cancel_election_timers();
     }
 
     fn process_append_entries_response(
@@ -877,6 +898,10 @@ impl<T> Mobilization<T> {
             self.election_state,
             self.persistent_storage.term()
         );
+        if self.ignore_vote_requests {
+            info!("Ignoring RequestVote because minimum election time has not yet elapsed");
+            return;
+        }
         let vote_granted = self.decide_vote_grant(
             sender_id,
             term,
@@ -900,7 +925,7 @@ impl<T> Mobilization<T> {
             receiver_id: sender_id,
         });
         if vote_granted {
-            self.cancel_election_timer();
+            self.cancel_election_timers();
         }
     }
 
@@ -939,7 +964,7 @@ impl<T> Mobilization<T> {
             + 1; // we always vote for ourselves (it's implicit)
         if votes > self.cluster.len() - votes {
             self.become_leader(event_sender, rpc_timeout, scheduler);
-            self.cancel_election_timer();
+            self.cancel_election_timers();
         }
     }
 
@@ -1086,6 +1111,36 @@ impl<T> Mobilization<T> {
             &scheduler,
         );
         self.cancel_heartbeat.replace(cancel_future);
+        Some(future)
+    }
+
+    pub fn upkeep_min_election_timeout_future(
+        &mut self,
+        election_timeout: &Range<Duration>,
+        scheduler: &Scheduler,
+    ) -> Option<WorkItemFuture<T>>
+    where
+        T: 'static + Clone + Debug + Send,
+    {
+        if self.election_state == ElectionState::Leader
+            || self.cancel_min_election_timeout.is_some()
+            || self.cancel_election_timeout.is_some()
+        {
+            return None;
+        }
+        debug!(
+            "Setting minimum election timer to {:?}",
+            election_timeout.start
+        );
+        self.ignore_vote_requests = true;
+        let (future, cancel_future) = make_cancellable_timeout_future(
+            WorkItemContent::MinElectionTimeout,
+            election_timeout.start,
+            #[cfg(test)]
+            ScheduledEvent::MinElectionTimeout,
+            &scheduler,
+        );
+        self.cancel_min_election_timeout.replace(cancel_future);
         Some(future)
     }
 }

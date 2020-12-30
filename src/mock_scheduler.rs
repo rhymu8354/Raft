@@ -13,6 +13,7 @@ use std::time::Duration;
 pub enum ScheduledEvent {
     ElectionTimeout,
     Heartbeat,
+    MinElectionTimeout,
     Retransmit(usize),
 }
 

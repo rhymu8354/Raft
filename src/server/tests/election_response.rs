@@ -12,6 +12,7 @@ fn follower_votes_for_first_candidate() {
         fixture.mobilize_server_with_persistent_storage(Box::new(
             mock_persistent_storage,
         ));
+        fixture.trigger_min_election_timeout().await;
         fixture
             .receive_vote_request(ReceiveVoteRequestArgs {
                 sender_id: 6,
@@ -48,6 +49,7 @@ fn follower_rejects_subsequent_votes_after_first_candidate_same_term() {
         fixture.mobilize_server_with_persistent_storage(Box::new(
             mock_persistent_storage,
         ));
+        fixture.trigger_min_election_timeout().await;
         fixture
             .receive_vote_request(ReceiveVoteRequestArgs {
                 sender_id: 6,
@@ -84,6 +86,7 @@ fn follower_affirm_vote_upon_repeated_request() {
         fixture.mobilize_server_with_persistent_storage(Box::new(
             mock_persistent_storage,
         ));
+        fixture.trigger_min_election_timeout().await;
         fixture
             .receive_vote_request(ReceiveVoteRequestArgs {
                 sender_id: 6,
@@ -120,6 +123,7 @@ fn follower_rejects_vote_from_old_term() {
         fixture.mobilize_server_with_persistent_storage(Box::new(
             mock_persistent_storage,
         ));
+        fixture.trigger_min_election_timeout().await;
         fixture
             .receive_vote_request(ReceiveVoteRequestArgs {
                 sender_id: 6,
@@ -228,6 +232,7 @@ fn vote_rejected_if_candidate_log_old() {
             let (mock_log, _mock_log_back_end) =
                 new_mock_log_with_non_defaults(*our_term, *our_index, []);
             fixture.mobilize_server_with_log(Box::new(mock_log));
+            fixture.trigger_min_election_timeout().await;
             fixture
                 .receive_vote_request(ReceiveVoteRequestArgs {
                     sender_id: 6,
@@ -247,6 +252,25 @@ fn vote_rejected_if_candidate_log_old() {
                 })
                 .await;
         }
+    });
+}
+
+#[test]
+fn follower_ignores_vote_request_within_minimum_election_time() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture
+            .receive_vote_request(ReceiveVoteRequestArgs {
+                sender_id: 6,
+                last_log_term: 7,
+                last_log_index: 42,
+                seq: 1,
+                term: 1,
+            })
+            .await;
+        fixture.expect_no_vote().await;
     });
 }
 

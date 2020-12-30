@@ -690,11 +690,11 @@ fn install_snapshot_ignore_response_if_term_old() {
                 term: 11,
             })
             .await;
-        fixture.cast_votes(1, 11).await;
         fixture.expect_retransmission_timer_registration(2).await;
+        fixture.cast_votes(1, 11).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
         fixture.expect_retransmission_timer_registration(2).await;
-        fixture.expect_message_now(2);
+        fixture.expect_message(2).await;
         fixture
             .send_server_message(
                 Message {
@@ -707,10 +707,10 @@ fn install_snapshot_ignore_response_if_term_old() {
                 2,
             )
             .await;
-        fixture.expect_message(2).await;
         let (duration, completer) =
             fixture.expect_retransmission_timer_registration(2).await;
         assert_eq!(fixture.configuration.install_snapshot_timeout, duration);
+        fixture.expect_message(2).await;
         fixture
             .send_server_message(
                 Message {
@@ -722,10 +722,10 @@ fn install_snapshot_ignore_response_if_term_old() {
             )
             .await;
         fixture.synchronize().await;
-        let (sender, _receiver) = oneshot::channel();
-        assert!(
-            completer.send(sender).is_ok(),
-            "server cancelled retransmission timer"
+        let (sender, receiver) = oneshot::channel();
+        completer.send(sender).expect("server cancelled retransmission timer");
+        receiver.await.expect(
+            "server dropped retransmission timer acknowledgment sender",
         );
         assert_eq!(
             Message {
