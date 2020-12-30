@@ -652,6 +652,7 @@ impl<T> Mobilization<T> {
             if self.election_state != ElectionState::Follower {
                 self.become_follower(args.event_sender);
             }
+            self.cancel_election_timers();
             self.log.install_snapshot(
                 args.last_included_index,
                 args.last_included_term,

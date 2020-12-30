@@ -628,6 +628,8 @@ fn follower_installs_snapshot() {
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
         );
+        let (_duration, timeout) =
+            fixture.expect_election_timer_registrations(1).await;
         fixture
             .send_server_message(
                 Message {
@@ -642,12 +644,14 @@ fn follower_installs_snapshot() {
                 6,
             )
             .await;
+        fixture.synchronize().await;
+        let (timeout_ack_sender, _timeout_ack_receiver) = oneshot::channel();
+        timeout
+            .send(timeout_ack_sender)
+            .expect_err("server did not cancel election timer");
         fixture.expect_install_snapshot_response(6, 42, 11, false).await;
         verify_log(&mock_log_back_end, 10, 1, [], [1, 2, 3, 4, 5]);
         verify_persistent_storage(&mock_persistent_storage_back_end, 11, None);
+        fixture.expect_election_timer_registrations(1).await;
     });
 }
-
-// TODO:
-// * Cancel election timer when `InstallSnapshot` is received, and start it
-//   again after `InstallSnapshotResponse` is sent.
