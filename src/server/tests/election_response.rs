@@ -273,7 +273,3 @@ fn follower_ignores_vote_request_within_minimum_election_time() {
         fixture.expect_no_vote().await;
     });
 }
-
-// TODO:
-// * Ignore `RequestVote` if received within the minimum election timeout
-//   interval since the last `AppendEntries` was received.
