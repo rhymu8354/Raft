@@ -160,7 +160,6 @@ impl<T> Mobilization<T> {
         }
         self.send_new_message_broadcast(
             MessageContent::RequestVote {
-                candidate_id: self.id,
                 last_log_index: self.log.last_index(),
                 last_log_term: self.log.last_term(),
             },

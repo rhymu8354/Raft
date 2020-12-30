@@ -325,16 +325,10 @@ impl Fixture {
         args: VerifyVoteRequestArgs,
     ) -> bool {
         if let MessageContent::RequestVote {
-            candidate_id,
             last_log_index,
             last_log_term,
         } = args.message.content
         {
-            assert_eq!(
-                candidate_id, self.id,
-                "wrong candidate_id in vote request (was {}, should be {})",
-                candidate_id, self.id
-            );
             assert_eq!(
                 last_log_term, args.expected_last_log_term,
                 "wrong last_log_term in vote request (was {}, should be {})",
@@ -1482,7 +1476,6 @@ async fn receive_vote_request(
         server,
         Message {
             content: MessageContent::RequestVote {
-                candidate_id: sender_id,
                 last_log_index,
                 last_log_term,
             },
