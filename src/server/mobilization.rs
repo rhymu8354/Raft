@@ -22,6 +22,8 @@ use crate::{
     Scheduler,
 };
 use futures::channel::oneshot;
+#[cfg(test)]
+use log::trace;
 use log::{
     debug,
     info,
@@ -161,10 +163,13 @@ impl<T> Mobilization<T> {
         for peer in self.peers.values_mut() {
             peer.vote = None;
         }
+        let last_log_index = self.log.last_index();
+        let last_log_term = self.log.last_term();
+        info!("Requesting votes ({};{})", last_log_index, last_log_term);
         self.send_new_message_broadcast(
             MessageContent::RequestVote {
-                last_log_index: self.log.last_index(),
-                last_log_term: self.log.last_term(),
+                last_log_index,
+                last_log_term,
             },
             event_sender,
             rpc_timeout,
@@ -219,7 +224,7 @@ impl<T> Mobilization<T> {
             #[cfg(test)]
             {
                 self.cancellations_pending += 1;
-                debug!(
+                trace!(
                     "Canceling election timer; {} cancellations pending",
                     self.cancellations_pending
                 );
@@ -230,7 +235,7 @@ impl<T> Mobilization<T> {
             #[cfg(test)]
             {
                 self.cancellations_pending += 1;
-                debug!(
+                trace!(
                     "Canceling minimum election timer; {} cancellations pending",
                     self.cancellations_pending
                 );
@@ -244,7 +249,7 @@ impl<T> Mobilization<T> {
             #[cfg(test)]
             {
                 self.cancellations_pending += 1;
-                debug!(
+                trace!(
                     "Cancelling heartbeat timer; {} cancellations pending",
                     self.cancellations_pending
                 );
@@ -262,7 +267,7 @@ impl<T> Mobilization<T> {
             #[cfg(test)]
             if peer.cancel_retransmission().is_some() {
                 self.cancellations_pending += 1;
-                debug!(
+                trace!(
                     "Cancelling retransmission timer; {} cancellations pending",
                     self.cancellations_pending
                 );
@@ -289,7 +294,7 @@ impl<T> Mobilization<T> {
             #[cfg(test)]
             if peer.cancel_retransmission().is_some() {
                 cancellations += 1;
-                debug!("Cancelling retransmission timer (Mobilization)");
+                trace!("Cancelling retransmission timer (Mobilization)");
             }
         }
         #[cfg(test)]
@@ -460,6 +465,7 @@ impl<T> Mobilization<T> {
                 if peer.match_index == prev_log_index
                     && !peer.awaiting_response()
                 {
+                    debug!("Sending heartbeat to {}", peer_id);
                     peer.send_new_request(
                         MessageContent::AppendEntries(AppendEntriesContent {
                             leader_commit: self.commit_index,
@@ -656,12 +662,19 @@ impl<T> Mobilization<T> {
                     Ordering::Greater => self.log.entry_term(peer.match_index),
                 };
                 if let Some(prev_log_term) = prev_log_term {
+                    let log = self.log.entries(peer.match_index);
+                    info!(
+                        "Sending {} entries from {} to {}",
+                        log.len(),
+                        peer.match_index,
+                        args.sender_id
+                    );
                     peer.send_new_request(
                         MessageContent::AppendEntries(AppendEntriesContent {
                             leader_commit: self.commit_index,
                             prev_log_index: peer.match_index,
                             prev_log_term,
-                            log: self.log.entries(peer.match_index),
+                            log,
                         }),
                         args.sender_id,
                         self.persistent_storage.term(),
@@ -670,6 +683,7 @@ impl<T> Mobilization<T> {
                         args.scheduler,
                     );
                 } else {
+                    info!("Sending snapshot to {}", args.sender_id);
                     peer.send_new_request(
                         MessageContent::InstallSnapshot {
                             last_included_index: self.log.base_index(),
@@ -743,12 +757,19 @@ impl<T> Mobilization<T> {
         if let Some(peer) = self.peers.get_mut(&sender_id) {
             let prev_log_index = self.log.base_index();
             let prev_log_term = self.log.base_term();
+            let log = self.log.entries(prev_log_index);
+            info!(
+                "Sending {} entries from {} to {}",
+                log.len(),
+                prev_log_index,
+                sender_id
+            );
             peer.send_new_request(
                 MessageContent::AppendEntries(AppendEntriesContent {
                     leader_commit: self.commit_index,
                     prev_log_index,
                     prev_log_term,
-                    log: self.log.entries(prev_log_index),
+                    log,
                 }),
                 sender_id,
                 self.persistent_storage.term(),
@@ -1047,12 +1068,12 @@ impl<T> Mobilization<T> {
             #[cfg(test)]
             SinkItem::Synchronize(received) => {
                 if self.cancellations_pending == 0 {
-                    debug!(
+                    trace!(
                         "No cancellations counted; completing synchronization"
                     );
                     let _ = received.send(());
                 } else {
-                    debug!(
+                    trace!(
                         "{} cancellations pending; awaiting synchronization",
                         self.cancellations_pending
                     );

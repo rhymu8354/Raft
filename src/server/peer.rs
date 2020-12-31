@@ -13,7 +13,10 @@ use crate::{
     Scheduler,
 };
 use futures::channel::oneshot;
-use log::debug;
+use log::{
+    debug,
+    trace,
+};
 use std::{
     fmt::Debug,
     time::Duration,
@@ -36,7 +39,7 @@ impl<T> Peer<T> {
     pub fn cancel_retransmission(&mut self) -> Option<Message<T>> {
         if let Some(cancel_retransmission) = self.cancel_retransmission.take() {
             let _ = cancel_retransmission.send(());
-            debug!("Cancelling retransmission timer (Peer)");
+            trace!("Cancelling retransmission timer (Peer)");
         }
         self.retransmission_future.take();
         self.last_message.take()

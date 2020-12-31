@@ -6,7 +6,7 @@ use futures::{
     future::BoxFuture,
     FutureExt,
 };
-use log::debug;
+use log::trace;
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -57,7 +57,7 @@ impl Scheduler {
         event: ScheduledEvent,
         duration: Duration,
     ) -> BoxFuture<'static, oneshot::Sender<()>> {
-        debug!("Scheduling {:?} in {:?}", event, duration);
+        trace!("Scheduling {:?} in {:?}", event, duration);
         let (sender, receiver) = oneshot::channel();
         let _ = self.sender.unbounded_send(ScheduledEventWithCompleter {
             scheduled_event: event,

@@ -13,6 +13,7 @@ use crate::{
     Configuration,
     Log,
     LogEntry,
+    LogEntryCommand,
     LogEntryCustomCommand,
     Message,
     MessageContent,
@@ -321,13 +322,13 @@ impl Fixture {
         while let Some(event_with_completer) =
             self.scheduled_event_receiver.next().now_or_never().flatten()
         {
-            assert!(!matches!(
-                event_with_completer,
-                ScheduledEventWithCompleter {
+            assert!(
+                !matches!(event_with_completer, ScheduledEventWithCompleter {
                     scheduled_event: ScheduledEvent::Heartbeat,
                     ..
-                }
-            ));
+                }),
+                "server registered unexpected heartbeat timer"
+            );
         }
     }
 

@@ -182,7 +182,7 @@ impl<T> Inner<T> {
                     command,
                     command_receiver: command_receiver_out,
                 } => {
-                    debug!("Command: {:?}", command);
+                    trace!("Command: {:?}", command);
                     self.process_command(command);
                     command_receiver.replace(command_receiver_out);
                 },
