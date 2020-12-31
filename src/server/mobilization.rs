@@ -15,6 +15,7 @@ use crate::{
     log_entry::LogEntry,
     AppendEntriesContent,
     Log,
+    LogEntryCommand,
     Message,
     MessageContent,
     PersistentStorage,
@@ -523,6 +524,52 @@ impl<T> Mobilization<T> {
         self.ignore_vote_requests = false;
     }
 
+    fn process_add_commands(
+        &mut self,
+        commands: Vec<T>,
+        event_sender: &EventSender<T>,
+        rpc_timeout: Duration,
+        scheduler: &Scheduler,
+    ) where
+        T: 'static + Clone + Debug + Send,
+    {
+        self.cancel_heartbeat_timer();
+        let term = self.persistent_storage.term();
+        let prev_log_index = self.log.last_index();
+        let prev_log_term = self.log.last_term();
+        info!(
+            "Adding {} commands from index {}",
+            commands.len(),
+            prev_log_index
+        );
+        let new_entries = commands
+            .into_iter()
+            .map(move |command| LogEntry {
+                term,
+                command: Some(LogEntryCommand::Custom(command)),
+            })
+            .collect::<Vec<_>>();
+        for (&peer_id, peer) in self.peers.iter_mut() {
+            if !peer.awaiting_response() {
+                info!("Sending new commands to {}", peer_id);
+                peer.send_new_request(
+                    MessageContent::AppendEntries(AppendEntriesContent {
+                        leader_commit: self.commit_index,
+                        prev_log_index,
+                        prev_log_term,
+                        log: new_entries.clone(),
+                    }),
+                    peer_id,
+                    term,
+                    event_sender,
+                    rpc_timeout,
+                    scheduler,
+                )
+            }
+        }
+        self.log.append(Box::new(new_entries.into_iter()));
+    }
+
     fn process_append_entries(
         &mut self,
         sender_id: usize,
@@ -980,6 +1027,12 @@ impl<T> Mobilization<T> {
         T: Clone + Debug + Send + 'static,
     {
         match sink_item {
+            SinkItem::AddCommands(commands) => self.process_add_commands(
+                commands,
+                event_sender,
+                rpc_timeout,
+                scheduler,
+            ),
             SinkItem::ReceiveMessage {
                 message,
                 sender_id,
@@ -1101,6 +1154,7 @@ impl<T> Mobilization<T> {
     {
         if self.election_state != ElectionState::Leader
             || self.cancel_heartbeat.is_some()
+            || self.peers.values().all(|peer| peer.awaiting_response())
         {
             return None;
         }

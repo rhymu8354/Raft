@@ -742,6 +742,132 @@ fn install_snapshot_ignore_response_if_term_old() {
     });
 }
 
+#[test]
+fn leader_send_new_log_entries() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_log, mock_log_back_end) = MockLog::new();
+        fixture.mobilize_server_with_log(Box::new(mock_log));
+        fixture.expect_election_with_defaults().await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_messages_now(hashset! {2, 6, 7, 11});
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.synchronize().await;
+        let (_duration, timeout) =
+            fixture.expect_heartbeat_timer_registrations(1).await;
+        fixture
+            .server
+            .send(ServerSinkItem::AddCommands(vec![DummyCommand {}]))
+            .await
+            .unwrap();
+        fixture.synchronize().await;
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [
+                LogEntry {
+                    term: 1,
+                    command: None,
+                },
+                LogEntry {
+                    term: 1,
+                    command: Some(LogEntryCommand::Custom(DummyCommand {})),
+                },
+            ],
+            [],
+        );
+        let (sender, _receiver) = oneshot::channel();
+        timeout.send(sender).expect_err("server did not drop heartbeat future");
+        fixture.expect_no_heartbeat_timer_registrations_now();
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_index: 1,
+                    prev_log_term: 1,
+                    log: vec![LogEntry {
+                        term: 1,
+                        command: Some(LogEntryCommand::Custom(DummyCommand {}))
+                    }]
+                }),
+                seq: 3,
+                term: 1
+            },
+            fixture.expect_message(2).await
+        );
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                6,
+            )
+            .await;
+        fixture.expect_commit(1).await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 1,
+                    prev_log_index: 1,
+                    prev_log_term: 1,
+                    log: vec![LogEntry {
+                        term: 1,
+                        command: Some(LogEntryCommand::Custom(DummyCommand {}))
+                    }]
+                }),
+                seq: 3,
+                term: 1
+            },
+            fixture.expect_message(6).await
+        );
+        fixture.expect_no_heartbeat_timer_registrations_now();
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 2,
+                    },
+                    seq: 3,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.trigger_heartbeat_timeout().await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 1,
+                    prev_log_term: 1,
+                    prev_log_index: 2,
+                    log: vec![],
+                }),
+                seq: 4,
+                term: 1,
+            },
+            fixture.expect_message(2).await
+        );
+    });
+}
+
 // TODO:
-// * Send `AppendEntries` messages and reset heartbeat if more entries are given
-//   to the leader from the host.
+// * Do not append log entries when processing `SinkItem::AddCommands` if not
+//   the leader.

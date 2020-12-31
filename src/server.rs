@@ -70,6 +70,7 @@ type EventReceiver<T> = mpsc::UnboundedReceiver<Event<T>>;
 type EventSender<T> = mpsc::UnboundedSender<Event<T>>;
 
 pub enum SinkItem<T> {
+    AddCommands(Vec<T>),
     ReceiveMessage {
         message: Message<T>,
         sender_id: usize,
@@ -87,6 +88,9 @@ where
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result where {
         match self {
+            SinkItem::AddCommands(commands) => {
+                write!(f, "AddCommands({})", commands.len())?;
+            },
             SinkItem::ReceiveMessage {
                 message,
                 sender_id,

@@ -14,6 +14,7 @@ pub use self::log::Log;
 pub use configuration::Configuration;
 pub use error::Error;
 pub use log_entry::{
+    Command as LogEntryCommand,
     CustomCommand as LogEntryCustomCommand,
     LogEntry,
 };
