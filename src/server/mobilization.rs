@@ -539,6 +539,14 @@ impl<T> Mobilization<T> {
     ) where
         T: 'static + Clone + Debug + Send,
     {
+        if self.election_state != ElectionState::Leader {
+            warn!(
+                "Not adding {} commands because we are {:?}",
+                commands.len(),
+                self.election_state
+            );
+            return;
+        }
         self.cancel_heartbeat_timer();
         let term = self.persistent_storage.term();
         let prev_log_index = self.log.last_index();

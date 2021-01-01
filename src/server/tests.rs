@@ -1017,6 +1017,34 @@ impl Fixture {
         self.expect_messages_now(receiver_ids)
     }
 
+    fn expect_no_messages_now(&mut self) {
+        while let Some(event) = self.server.next().now_or_never().flatten() {
+            match event {
+                ServerEvent::SendMessage {
+                    message,
+                    receiver_id,
+                } => {
+                    panic!(
+                        "Unexpectedly sent {:?} to {}",
+                        message, receiver_id
+                    );
+                },
+                ServerEvent::ElectionStateChange {
+                    election_state,
+                    ..
+                } => {
+                    panic!(
+                        "Unexpected state transition to {:?}",
+                        election_state
+                    );
+                },
+                ServerEvent::LogCommitted(_) => {
+                    panic!("Unexpectedly committed log entries")
+                },
+            }
+        }
+    }
+
     async fn expect_retransmission(
         &mut self,
         expected_receiver_id: usize,
