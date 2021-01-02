@@ -150,10 +150,8 @@ impl<S, T> Inner<S, T> {
                 ) {
                     futures.push(future);
                 }
-            }
 
-            // Add any RPC timeout futures that have been set up.
-            if let Some(mobilization) = &mut self.mobilization {
+                // Add any RPC timeout futures that have been set up.
                 futures.extend(mobilization.take_retransmission_futures());
             }
 
