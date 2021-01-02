@@ -89,10 +89,6 @@ struct VerifyVoteRequestArgs<'a> {
     expected_term: usize,
 }
 
-struct AwaitAssumeLeadershipArgs {
-    term: usize,
-}
-
 struct CastVoteArgs {
     sender_id: usize,
     seq: usize,
@@ -564,7 +560,7 @@ impl Fixture {
 
     fn expect_assume_leadership_now(
         &mut self,
-        args: AwaitAssumeLeadershipArgs,
+        expected_term: usize,
     ) {
         loop {
             let event = self
@@ -584,10 +580,10 @@ impl Fixture {
                 assert_eq!(ServerElectionState::Leader, new_election_state);
                 assert_eq!(
                     term,
-                    args.term,
+                    expected_term,
                     "wrong term in election state change (was {}, should be {})",
                     term,
-                    args.term
+                    expected_term
                 );
                 assert!(
                     matches!(voted_for, Some(id) if id == self.id),
@@ -602,10 +598,10 @@ impl Fixture {
 
     async fn expect_assume_leadership(
         &mut self,
-        args: AwaitAssumeLeadershipArgs,
+        term: usize,
     ) {
         self.synchronize().await;
-        self.expect_assume_leadership_now(args);
+        self.expect_assume_leadership_now(term);
     }
 
     fn verify_vote(args: VerifyVoteArgs) {

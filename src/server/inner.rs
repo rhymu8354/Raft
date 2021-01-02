@@ -13,6 +13,7 @@ use super::{
 #[cfg(test)]
 use crate::ScheduledEvent;
 use crate::{
+    utilities::spread,
     AppendEntriesContent,
     Log,
     LogEntry,
@@ -554,6 +555,17 @@ impl<S, T> Inner<S, T> {
     ) where
         T: 'static + Debug,
     {
+        debug!(
+            "Received AppendEntries({} on top of {}/{};{}) from {} for term {} (we are {:?} in term {})",
+            append_entries.log.len(),
+            append_entries.leader_commit,
+            append_entries.prev_log_index,
+            append_entries.prev_log_term,
+            sender_id,
+            term,
+            self.election_state,
+            self.persistent_storage.term()
+        );
         let decision = self.decide_request_verdict(term);
         if decision == RequestDecision::AcceptAndUpdateTerm {
             self.persistent_storage.update(term, None);
@@ -590,10 +602,31 @@ impl<S, T> Inner<S, T> {
         match_index: usize,
         sender_id: usize,
         term: usize,
+        seq: usize,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
+        debug!(
+            "Received AppendEntriesResponse ({}) from {} for term {} (we are {:?} in term {})",
+            match_index,
+            sender_id,
+            term,
+            self.election_state,
+            self.persistent_storage.term()
+        );
+        if term < self.persistent_storage.term() {
+            return;
+        }
+        if self
+            .peers
+            .get(&sender_id)
+            .filter(|peer| peer.last_seq == seq)
+            .is_none()
+        {
+            return;
+        }
+        self.cancel_retransmission(sender_id);
         if term > self.persistent_storage.term() {
             self.persistent_storage.update(term, None);
             self.become_follower();
@@ -712,7 +745,19 @@ impl<S, T> Inner<S, T> {
         last_included_index: usize,
         last_included_term: usize,
         snapshot: Snapshot<S>,
-    ) {
+    ) where
+        S: Debug,
+    {
+        info!(
+            "Received InstallSnapshot({};{}, {:?}) from {} for term {} (we are {:?} in term {})",
+            last_included_index,
+            last_included_term,
+            snapshot,
+            sender_id,
+            term,
+            self.election_state,
+            self.persistent_storage.term()
+        );
         let decision = self.decide_request_verdict(term);
         if decision == RequestDecision::AcceptAndUpdateTerm {
             self.persistent_storage.update(term, None);
@@ -744,10 +789,30 @@ impl<S, T> Inner<S, T> {
         &mut self,
         sender_id: usize,
         term: usize,
+        seq: usize,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
+        info!(
+            "Received InstallSnapshotResponse from {} for term {} (we are {:?} in term {})",
+            sender_id,
+            term,
+            self.election_state,
+            self.persistent_storage.term()
+        );
+        if term < self.persistent_storage.term() {
+            return;
+        }
+        if self
+            .peers
+            .get(&sender_id)
+            .filter(|peer| peer.last_seq == seq)
+            .is_none()
+        {
+            return;
+        }
+        self.cancel_retransmission(sender_id);
         if term > self.persistent_storage.term() {
             self.persistent_storage.update(term, None);
             self.become_follower();
@@ -797,37 +862,15 @@ impl<S, T> Inner<S, T> {
         match message.content {
             MessageContent::RequestVoteResponse {
                 vote_granted,
-            } => {
-                info!(
-                    "Received vote {} from {} for term {} (we are {:?} in term {})",
-                    vote_granted,
-                    sender_id,
-                    message.term,
-                    self.election_state,
-                    self.persistent_storage.term()
-                );
-                if message.term < self.persistent_storage.term() {
-                    return;
-                }
-                if self
-                    .peers
-                    .get(&sender_id)
-                    .filter(|peer| peer.last_seq == message.seq)
-                    .is_none()
-                {
-                    return;
-                }
-                self.cancel_retransmission(sender_id);
-                self.process_request_vote_response(
-                    sender_id,
-                    vote_granted,
-                    message.term,
-                )
-            },
+            } => self.process_request_vote_response(
+                sender_id,
+                vote_granted,
+                message.term,
+                message.seq,
+            ),
             MessageContent::RequestVote {
                 last_log_index,
                 last_log_term,
-                ..
             } => self.process_request_vote(
                 sender_id,
                 message.seq,
@@ -836,17 +879,6 @@ impl<S, T> Inner<S, T> {
                 last_log_term,
             ),
             MessageContent::AppendEntries(append_entries) => {
-                debug!(
-                    "Received AppendEntries({} on top of {}/{};{}) from {} for term {} (we are {:?} in term {})",
-                    append_entries.log.len(),
-                    append_entries.leader_commit,
-                    append_entries.prev_log_index,
-                    append_entries.prev_log_term,
-                    sender_id,
-                    message.term,
-                    self.election_state,
-                    self.persistent_storage.term()
-                );
                 self.process_append_entries(
                     sender_id,
                     message.seq,
@@ -857,30 +889,11 @@ impl<S, T> Inner<S, T> {
             MessageContent::AppendEntriesResponse {
                 match_index,
             } => {
-                debug!(
-                    "Received AppendEntriesResponse ({}) from {} for term {} (we are {:?} in term {})",
-                    match_index,
-                    sender_id,
-                    message.term,
-                    self.election_state,
-                    self.persistent_storage.term()
-                );
-                if message.term < self.persistent_storage.term() {
-                    return;
-                }
-                if self
-                    .peers
-                    .get(&sender_id)
-                    .filter(|peer| peer.last_seq == message.seq)
-                    .is_none()
-                {
-                    return;
-                }
-                self.cancel_retransmission(sender_id);
                 self.process_append_entries_response(
                     match_index,
                     sender_id,
                     message.term,
+                    message.seq,
                 );
             },
             MessageContent::InstallSnapshot {
@@ -888,16 +901,6 @@ impl<S, T> Inner<S, T> {
                 last_included_term,
                 snapshot,
             } => {
-                info!(
-                    "Received InstallSnapshot({};{}, {:?}) from {} for term {} (we are {:?} in term {})",
-                    last_included_index,
-                    last_included_term,
-                    snapshot,
-                    sender_id,
-                    message.term,
-                    self.election_state,
-                    self.persistent_storage.term()
-                );
                 self.process_install_snapshot(
                     sender_id,
                     message.seq,
@@ -908,26 +911,11 @@ impl<S, T> Inner<S, T> {
                 );
             },
             MessageContent::InstallSnapshotResponse => {
-                info!(
-                    "Received InstallSnapshotResponse from {} for term {} (we are {:?} in term {})",
+                self.process_install_snapshot_response(
                     sender_id,
                     message.term,
-                    self.election_state,
-                    self.persistent_storage.term()
+                    message.seq,
                 );
-                if message.term < self.persistent_storage.term() {
-                    return;
-                }
-                if self
-                    .peers
-                    .get(&sender_id)
-                    .filter(|peer| peer.last_seq == message.seq)
-                    .is_none()
-                {
-                    return;
-                }
-                self.cancel_retransmission(sender_id);
-                self.process_install_snapshot_response(sender_id, message.term);
             },
         }
     }
@@ -986,10 +974,31 @@ impl<S, T> Inner<S, T> {
         sender_id: usize,
         vote_granted: bool,
         term: usize,
+        seq: usize,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
+        info!(
+            "Received vote {} from {} for term {} (we are {:?} in term {})",
+            vote_granted,
+            sender_id,
+            term,
+            self.election_state,
+            self.persistent_storage.term()
+        );
+        if term < self.persistent_storage.term() {
+            return;
+        }
+        if self
+            .peers
+            .get(&sender_id)
+            .filter(|peer| peer.last_seq == seq)
+            .is_none()
+        {
+            return;
+        }
+        self.cancel_retransmission(sender_id);
         if term > self.persistent_storage.term() {
             self.persistent_storage.update(term, None);
             self.become_follower();
@@ -1046,16 +1055,19 @@ impl<S, T> Inner<S, T> {
         T: 'static + Clone + Debug + Send,
     {
         let term = self.persistent_storage.term();
-        for (&peer_id, peer) in &mut self.peers {
+        let event_sender = &self.event_sender;
+        let rpc_timeout = self.configuration.rpc_timeout;
+        let scheduler = &self.scheduler;
+        spread(&mut self.peers, content, |(&peer_id, peer), content| {
             peer.send_new_request(
-                content.clone(),
+                content,
                 peer_id,
                 term,
-                &self.event_sender,
-                self.configuration.rpc_timeout,
-                &self.scheduler,
-            );
-        }
+                event_sender,
+                rpc_timeout,
+                scheduler,
+            )
+        });
     }
 
     pub async fn serve(

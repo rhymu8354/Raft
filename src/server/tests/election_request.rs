@@ -47,11 +47,7 @@ fn elected_leader_unanimously() {
         fixture.mobilize_server();
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture
-            .expect_assume_leadership(AwaitAssumeLeadershipArgs {
-                term: 1,
-            })
-            .await;
+        fixture.expect_assume_leadership(1).await;
         let (_election_timeout_duration, election_timeout_completer) =
             fixture.expect_election_timer_registrations(1).await;
         let (sender, _receiver) = oneshot::channel();
@@ -87,11 +83,7 @@ fn elected_leader_non_unanimous_majority() {
                 vote: true,
             })
             .await;
-        fixture
-            .expect_assume_leadership(AwaitAssumeLeadershipArgs {
-                term: 1,
-            })
-            .await;
+        fixture.expect_assume_leadership(1).await;
     });
 }
 
@@ -118,11 +110,7 @@ fn elected_leader_does_not_process_extra_votes() {
                 vote: true,
             })
             .await;
-        fixture
-            .expect_assume_leadership(AwaitAssumeLeadershipArgs {
-                term: 1,
-            })
-            .await;
+        fixture.expect_assume_leadership(1).await;
         fixture
             .cast_vote(CastVoteArgs {
                 sender_id: 11,
@@ -314,11 +302,7 @@ fn timeout_before_majority_vote_or_new_leader_heart_beat() {
             })
             .await;
         fixture.cast_votes(2, 2).await;
-        fixture
-            .expect_assume_leadership(AwaitAssumeLeadershipArgs {
-                term: 2,
-            })
-            .await;
+        fixture.expect_assume_leadership(2).await;
     });
 }
 

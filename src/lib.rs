@@ -18,6 +18,7 @@ mod scheduler;
 mod server;
 mod server_configuration;
 mod snapshot;
+mod utilities;
 
 pub use self::log::Log;
 pub use cluster_configuration::ClusterConfiguration;
