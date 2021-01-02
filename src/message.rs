@@ -1,4 +1,6 @@
 // TODO: Revisit the way we import/export various parts of the crate.
+use crate::Snapshot;
+
 use super::log_entry::LogEntry;
 use serde::{
     Deserialize,
@@ -14,7 +16,7 @@ pub struct AppendEntriesContent<T> {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub enum MessageContent<T> {
+pub enum MessageContent<S, T> {
     RequestVote {
         last_log_index: usize,
         last_log_term: usize,
@@ -29,14 +31,14 @@ pub enum MessageContent<T> {
     InstallSnapshot {
         last_included_index: usize,
         last_included_term: usize,
-        snapshot: Vec<u8>,
+        snapshot: Snapshot<S>,
     },
     InstallSnapshotResponse,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Message<T> {
-    pub content: MessageContent<T>,
+pub struct Message<S, T> {
+    pub content: MessageContent<S, T>,
     pub seq: usize,
     pub term: usize,
 }
@@ -45,9 +47,12 @@ pub struct Message<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::log_entry::{
-        Command,
-        CustomCommand,
+    use crate::{
+        log_entry::{
+            Command,
+            CustomCommand,
+        },
+        ClusterConfiguration,
     };
     use maplit::hashset;
     use serde_json::Value as JsonValue;
@@ -108,7 +113,7 @@ mod tests {
             term: 42,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
-        let message_out: Message<DummyCommand> =
+        let message_out: Message<(), DummyCommand> =
             from_bytes(&serialized_message).unwrap();
         assert_eq!(message_in, message_out);
     }
@@ -123,7 +128,7 @@ mod tests {
             term: 16,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
-        let message_out: Message<DummyCommand> =
+        let message_out: Message<(), DummyCommand> =
             from_bytes(&serialized_message).unwrap();
         assert_eq!(message_in, message_out);
     }
@@ -141,7 +146,7 @@ mod tests {
             term: 8,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
-        let message_out: Message<DummyCommand> =
+        let message_out: Message<(), DummyCommand> =
             from_bytes(&serialized_message).unwrap();
         assert_eq!(message_in, message_out);
     }
@@ -172,7 +177,7 @@ mod tests {
             term: 8,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
-        let message_out: Message<DummyCommand> =
+        let message_out: Message<(), DummyCommand> =
             from_bytes(&serialized_message).unwrap();
         assert_eq!(message_in, message_out);
     }
@@ -180,7 +185,7 @@ mod tests {
     #[test]
     fn deserialize_garbage() {
         let serialized_message = "PogChamp";
-        let message: Result<Message<DummyCommand>, _> =
+        let message: Result<Message<(), DummyCommand>, _> =
             from_bytes(&serialized_message.as_bytes());
         assert!(message.is_err());
     }
@@ -195,7 +200,7 @@ mod tests {
             term: 5,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
-        let message_out: Message<DummyCommand> =
+        let message_out: Message<(), DummyCommand> =
             from_bytes(&serialized_message).unwrap();
         assert_eq!(message_in, message_out);
     }
@@ -206,13 +211,18 @@ mod tests {
             content: MessageContent::InstallSnapshot {
                 last_included_index: 2,
                 last_included_term: 7,
-                snapshot: "Hello, World!".as_bytes().to_vec(),
+                snapshot: Snapshot {
+                    cluster_configuration: ClusterConfiguration::Single(
+                        hashset![2, 5, 6, 7, 11],
+                    ),
+                    state: (),
+                },
             },
             seq: 2,
             term: 8,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
-        let message_out: Message<DummyCommand> =
+        let message_out: Message<(), DummyCommand> =
             from_bytes(&serialized_message).unwrap();
         assert_eq!(message_in, message_out);
     }
@@ -225,7 +235,7 @@ mod tests {
             term: 8,
         };
         let serialized_message = to_bytes(&message_in).unwrap();
-        let message_out: Message<DummyCommand> =
+        let message_out: Message<(), DummyCommand> =
             from_bytes(&serialized_message).unwrap();
         assert_eq!(message_in, message_out);
     }

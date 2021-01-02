@@ -10,7 +10,6 @@ mod replication_response;
 use super::Server;
 use crate::{
     AppendEntriesContent,
-    Configuration,
     Log,
     LogEntry,
     LogEntryCommand,
@@ -21,10 +20,12 @@ use crate::{
     ScheduledEvent,
     ScheduledEventReceiver,
     ScheduledEventWithCompleter,
+    ServerConfiguration,
     ServerElectionState,
     ServerEvent,
     ServerMobilizeArgs,
     ServerSinkItem,
+    Snapshot,
 };
 use futures::{
     channel::oneshot,
@@ -82,7 +83,7 @@ struct AwaitElectionTimeoutArgs {
 }
 
 struct VerifyVoteRequestArgs<'a> {
-    message: &'a Message<DummyCommand>,
+    message: &'a Message<(), DummyCommand>,
     expected_last_log_term: usize,
     expected_last_log_index: usize,
     expected_seq: Option<usize>,
@@ -134,7 +135,7 @@ struct AwaitAppendEntriesArgs {
 }
 
 struct VerifyAppendEntriesArgs<'a, 'b> {
-    message: &'a Message<DummyCommand>,
+    message: &'a Message<(), DummyCommand>,
     expected_leader_commit: usize,
     expected_prev_log_index: usize,
     expected_prev_log_term: usize,
@@ -162,7 +163,7 @@ struct VerifyAppendEntriesResponseArgs<'a> {
 
 struct Fixture {
     cluster: HashSet<usize>,
-    configuration: Configuration,
+    configuration: ServerConfiguration,
     configured: bool,
     id: usize,
 
@@ -170,7 +171,7 @@ struct Fixture {
     // because the mock scheduler produces futures which will
     // complete immediately if `scheduled_event_receiver` is dropped,
     // causing `server` to get stuck in a constant loop of timeout processing.
-    server: Server<DummyCommand>,
+    server: Server<(), DummyCommand>,
     scheduled_event_receiver: ScheduledEventReceiver,
 }
 
@@ -623,7 +624,7 @@ impl Fixture {
 
     fn is_verified_vote(
         &self,
-        message: &Message<DummyCommand>,
+        message: &Message<(), DummyCommand>,
         receiver_id: usize,
         args: &AwaitVoteArgs,
     ) -> bool {
@@ -930,7 +931,7 @@ impl Fixture {
     fn expect_message_now(
         &mut self,
         expected_receiver_id: usize,
-    ) -> Message<DummyCommand> {
+    ) -> Message<(), DummyCommand> {
         loop {
             let event = self
                 .server
@@ -966,7 +967,7 @@ impl Fixture {
     async fn expect_message(
         &mut self,
         receiver_id: usize,
-    ) -> Message<DummyCommand> {
+    ) -> Message<(), DummyCommand> {
         self.synchronize().await;
         self.expect_message_now(receiver_id)
     }
@@ -974,7 +975,7 @@ impl Fixture {
     fn expect_messages_now(
         &mut self,
         mut expected_receiver_ids: HashSet<usize>,
-    ) -> HashMap<usize, Message<DummyCommand>> {
+    ) -> HashMap<usize, Message<(), DummyCommand>> {
         let mut messages = HashMap::new();
         while !expected_receiver_ids.is_empty() {
             let event = self
@@ -1012,7 +1013,7 @@ impl Fixture {
     async fn expect_messages(
         &mut self,
         receiver_ids: HashSet<usize>,
-    ) -> HashMap<usize, Message<DummyCommand>> {
+    ) -> HashMap<usize, Message<(), DummyCommand>> {
         self.synchronize().await;
         self.expect_messages_now(receiver_ids)
     }
@@ -1048,7 +1049,7 @@ impl Fixture {
     async fn expect_retransmission(
         &mut self,
         expected_receiver_id: usize,
-    ) -> Message<DummyCommand> {
+    ) -> Message<(), DummyCommand> {
         let (retransmit_duration, completer) = self
             .expect_retransmission_timer_registration(expected_receiver_id)
             .await;
@@ -1065,7 +1066,7 @@ impl Fixture {
         let (server, scheduled_event_receiver) = Server::new();
         Self {
             cluster: hashset! {2, 5, 6, 7, 11},
-            configuration: Configuration {
+            configuration: ServerConfiguration {
                 election_timeout: Duration::from_millis(100)
                     ..Duration::from_millis(200),
                 heartbeat_interval: Duration::from_millis(50),
@@ -1086,7 +1087,7 @@ impl Fixture {
 
     fn mobilize_server_with_log(
         &mut self,
-        log: Box<dyn Log<Command = DummyCommand>>,
+        log: Box<dyn Log<(), Command = DummyCommand>>,
     ) {
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             MockPersistentStorage::new();
@@ -1098,7 +1099,7 @@ impl Fixture {
 
     fn mobilize_server_with_log_and_persistent_storage(
         &mut self,
-        log: Box<dyn Log<Command = DummyCommand>>,
+        log: Box<dyn Log<(), Command = DummyCommand>>,
         persistent_storage: Box<dyn PersistentStorage>,
     ) {
         if !self.configured {
@@ -1263,7 +1264,7 @@ impl Fixture {
 
     fn is_verified_append_entries_response(
         &self,
-        message: &Message<DummyCommand>,
+        message: &Message<(), DummyCommand>,
         receiver_id: usize,
         args: &AwaitAppendEntriesResponseArgs,
     ) -> bool {
@@ -1356,7 +1357,7 @@ impl Fixture {
 
     fn is_verified_install_snapshot_response(
         &self,
-        message: &Message<DummyCommand>,
+        message: &Message<(), DummyCommand>,
         receiver_id: usize,
         expected_receiver_id: usize,
         expected_seq: usize,
@@ -1455,7 +1456,7 @@ impl Fixture {
 
     async fn send_server_message(
         &mut self,
-        message: Message<DummyCommand>,
+        message: Message<(), DummyCommand>,
         sender_id: usize,
     ) {
         send_server_message(&mut self.server, message, sender_id).await
@@ -1472,7 +1473,7 @@ fn new_mock_log_with_non_defaults<T>(
     snapshot: T,
 ) -> (MockLog, MockLogBackEnd)
 where
-    T: Into<Vec<u8>>,
+    T: Into<Snapshot<()>>,
 {
     let (mock_log, mock_log_back_end) = MockLog::new();
     {
@@ -1509,7 +1510,7 @@ fn verify_log<L, S>(
     snapshot: S,
 ) where
     L: AsRef<[LogEntry<DummyCommand>]>,
-    S: AsRef<[u8]>,
+    S: AsRef<Snapshot<()>>,
 {
     let log_shared = mock_log_back_end.shared.lock().unwrap();
     assert_eq!(
@@ -1530,9 +1531,9 @@ fn verify_log<L, S>(
     );
     let snapshot = snapshot.as_ref();
     assert_eq!(
-        snapshot, log_shared.snapshot,
+        *snapshot, log_shared.snapshot,
         "snapshot should be {:?} but is {:?}",
-        snapshot, log_shared.snapshot
+        *snapshot, log_shared.snapshot
     );
 }
 
@@ -1556,8 +1557,8 @@ fn verify_persistent_storage(
 }
 
 async fn send_server_message(
-    server: &mut Server<DummyCommand>,
-    message: Message<DummyCommand>,
+    server: &mut Server<(), DummyCommand>,
+    message: Message<(), DummyCommand>,
     sender_id: usize,
 ) {
     server
@@ -1569,14 +1570,14 @@ async fn send_server_message(
         .unwrap();
 }
 
-async fn synchronize(server: &mut Server<DummyCommand>) {
+async fn synchronize(server: &mut Server<(), DummyCommand>) {
     let (completed_sender, completed_receiver) = oneshot::channel();
     server.send(ServerSinkItem::Synchronize(completed_sender)).await.unwrap();
     let _ = completed_receiver.await;
 }
 
 async fn cast_vote(
-    server: &mut Server<DummyCommand>,
+    server: &mut Server<(), DummyCommand>,
     CastVoteArgs {
         sender_id,
         seq,
@@ -1599,7 +1600,7 @@ async fn cast_vote(
 }
 
 async fn receive_vote_request(
-    server: &mut Server<DummyCommand>,
+    server: &mut Server<(), DummyCommand>,
     ReceiveVoteRequestArgs {
         sender_id,
         last_log_term,

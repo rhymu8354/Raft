@@ -20,6 +20,7 @@ use crate::{
     MessageContent,
     PersistentStorage,
     Scheduler,
+    Snapshot,
 };
 use futures::channel::oneshot;
 #[cfg(test)]
@@ -46,8 +47,8 @@ use std::{
     time::Duration,
 };
 
-struct ProcessAppendEntriesResponseArgs<'a, 'b, T> {
-    event_sender: &'a EventSender<T>,
+struct ProcessAppendEntriesResponseArgs<'a, 'b, S, T> {
+    event_sender: &'a EventSender<S, T>,
     install_snapshot_timeout: Duration,
     match_index: usize,
     rpc_timeout: Duration,
@@ -56,14 +57,14 @@ struct ProcessAppendEntriesResponseArgs<'a, 'b, T> {
     term: usize,
 }
 
-struct ProcessInstallSnapshotArgs<'a, T> {
+struct ProcessInstallSnapshotArgs<'a, S, T> {
     sender_id: usize,
     seq: usize,
     term: usize,
     last_included_index: usize,
     last_included_term: usize,
-    snapshot: Vec<u8>,
-    event_sender: &'a EventSender<T>,
+    snapshot: Snapshot<S>,
+    event_sender: &'a EventSender<S, T>,
 }
 
 #[derive(PartialEq)]
@@ -85,7 +86,7 @@ enum LogEntryDisposition {
     Possessed,
 }
 
-pub struct Mobilization<T> {
+pub struct Mobilization<S, T> {
     cancel_election_timeout: Option<oneshot::Sender<()>>,
     cancel_heartbeat: Option<oneshot::Sender<()>>,
     cancel_min_election_timeout: Option<oneshot::Sender<()>>,
@@ -95,8 +96,8 @@ pub struct Mobilization<T> {
     commit_index: usize,
     election_state: ElectionState,
     id: usize,
-    log: Box<dyn Log<Command = T>>,
-    peers: HashMap<usize, Peer<T>>,
+    log: Box<dyn Log<S, Command = T>>,
+    peers: HashMap<usize, Peer<S, T>>,
     persistent_storage: Box<dyn PersistentStorage>,
     ignore_vote_requests: bool,
     rng: StdRng,
@@ -104,11 +105,11 @@ pub struct Mobilization<T> {
     synchronize_ack: Option<oneshot::Sender<()>>,
 }
 
-impl<T> Mobilization<T> {
+impl<S, T> Mobilization<S, T> {
     fn attempt_accept_append_entries(
         &mut self,
         append_entries: AppendEntriesContent<T>,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
     ) -> usize {
         if self.election_state != ElectionState::Follower {
             self.become_follower(event_sender);
@@ -151,11 +152,12 @@ impl<T> Mobilization<T> {
 
     fn become_candidate(
         &mut self,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) where
-        T: Clone + Debug + Send + 'static,
+        S: 'static + Clone + Debug + Send,
+        T: 'static + Clone + Debug + Send,
     {
         let term = self.persistent_storage.term() + 1;
         self.persistent_storage.update(term, Some(self.id));
@@ -179,7 +181,7 @@ impl<T> Mobilization<T> {
 
     fn become_follower(
         &mut self,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
     ) {
         self.change_election_state(ElectionState::Follower, event_sender);
         self.cancel_heartbeat_timer();
@@ -187,11 +189,12 @@ impl<T> Mobilization<T> {
 
     fn become_leader(
         &mut self,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) where
-        T: Clone + Debug + Send + 'static,
+        S: 'static + Clone + Debug + Send,
+        T: 'static + Clone + Debug + Send,
     {
         self.change_election_state(ElectionState::Leader, event_sender);
         let no_op = LogEntry {
@@ -278,7 +281,7 @@ impl<T> Mobilization<T> {
     fn change_election_state(
         &mut self,
         new_election_state: ElectionState,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
     ) {
         let term = self.persistent_storage.term();
         info!(
@@ -311,7 +314,7 @@ impl<T> Mobilization<T> {
     fn commit_log(
         &mut self,
         leader_commit: usize,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
     ) {
         let new_commit_index =
             std::cmp::min(leader_commit, self.log.last_index());
@@ -377,7 +380,7 @@ impl<T> Mobilization<T> {
         candidate_term: usize,
         candidate_last_log_term: usize,
         candidate_last_log_index: usize,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
     ) -> bool {
         match candidate_term.cmp(&self.persistent_storage.term()) {
             Ordering::Less => return false,
@@ -420,11 +423,12 @@ impl<T> Mobilization<T> {
 
     pub fn election_timeout(
         &mut self,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) where
-        T: Clone + Debug + Send + 'static,
+        S: 'static + Clone + Debug + Send,
+        T: 'static + Clone + Debug + Send,
     {
         self.cancel_election_timeout.take();
         self.ignore_vote_requests = false;
@@ -452,10 +456,11 @@ impl<T> Mobilization<T> {
 
     pub fn heartbeat(
         &mut self,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) where
+        S: Clone + Debug + Send + 'static,
         T: Clone + Debug + Send + 'static,
     {
         self.cancel_heartbeat.take();
@@ -493,7 +498,7 @@ impl<T> Mobilization<T> {
         })
     }
 
-    pub fn new(mobilize_args: MobilizeArgs<T>) -> Self {
+    pub fn new(mobilize_args: MobilizeArgs<S, T>) -> Self {
         let peers = mobilize_args
             .cluster
             .iter()
@@ -533,10 +538,11 @@ impl<T> Mobilization<T> {
     fn process_add_commands(
         &mut self,
         commands: Vec<T>,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         if self.election_state != ElectionState::Leader {
@@ -590,7 +596,7 @@ impl<T> Mobilization<T> {
         seq: usize,
         term: usize,
         append_entries: AppendEntriesContent<T>,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
     ) where
         T: 'static + Debug,
     {
@@ -627,8 +633,9 @@ impl<T> Mobilization<T> {
 
     fn process_append_entries_response(
         &mut self,
-        args: ProcessAppendEntriesResponseArgs<T>,
+        args: ProcessAppendEntriesResponseArgs<S, T>,
     ) where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         if args.term > self.persistent_storage.term() {
@@ -711,7 +718,7 @@ impl<T> Mobilization<T> {
 
     fn process_install_snapshot(
         &mut self,
-        args: ProcessInstallSnapshotArgs<T>,
+        args: ProcessInstallSnapshotArgs<S, T>,
     ) {
         let decision = self.decide_request_verdict(args.term);
         if decision == RequestDecision::AcceptAndUpdateTerm {
@@ -744,10 +751,11 @@ impl<T> Mobilization<T> {
         &mut self,
         sender_id: usize,
         term: usize,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         if term > self.persistent_storage.term() {
@@ -790,14 +798,15 @@ impl<T> Mobilization<T> {
 
     fn process_receive_message(
         &mut self,
-        message: Message<T>,
+        message: Message<S, T>,
         sender_id: usize,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         install_snapshot_timeout: Duration,
         scheduler: &Scheduler,
     ) where
-        T: Clone + Debug + Send + 'static,
+        S: 'static + Clone + Debug + Send,
+        T: 'static + Clone + Debug + Send,
     {
         match message.content {
             MessageContent::RequestVoteResponse {
@@ -905,10 +914,10 @@ impl<T> Mobilization<T> {
                 snapshot,
             } => {
                 info!(
-                    "Received InstallSnapshot({};{}, {} bytes) from {} for term {} (we are {:?} in term {})",
+                    "Received InstallSnapshot({};{}, {:?}) from {} for term {} (we are {:?} in term {})",
                     last_included_index,
                     last_included_term,
-                    snapshot.len(),
+                    snapshot,
                     sender_id,
                     message.term,
                     self.election_state,
@@ -962,7 +971,7 @@ impl<T> Mobilization<T> {
         term: usize,
         last_log_index: usize,
         last_log_term: usize,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
     ) where
         T: Debug,
     {
@@ -1011,11 +1020,12 @@ impl<T> Mobilization<T> {
         sender_id: usize,
         vote_granted: bool,
         term: usize,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) where
-        T: Clone + Debug + Send + 'static,
+        S: 'static + Clone + Debug + Send,
+        T: 'static + Clone + Debug + Send,
     {
         if term > self.persistent_storage.term() {
             self.persistent_storage.update(term, None);
@@ -1047,13 +1057,14 @@ impl<T> Mobilization<T> {
 
     pub fn process_sink_item(
         &mut self,
-        sink_item: SinkItem<T>,
-        event_sender: &EventSender<T>,
+        sink_item: SinkItem<S, T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         install_snapshot_timeout: Duration,
         scheduler: &Scheduler,
     ) where
-        T: Clone + Debug + Send + 'static,
+        S: 'static + Clone + Debug + Send,
+        T: 'static + Clone + Debug + Send,
     {
         match sink_item {
             SinkItem::AddCommands(commands) => self.process_add_commands(
@@ -1094,10 +1105,11 @@ impl<T> Mobilization<T> {
     pub fn retransmit(
         &mut self,
         peer_id: usize,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         if let Some(peer) = self.peers.get_mut(&peer_id) {
@@ -1115,11 +1127,12 @@ impl<T> Mobilization<T> {
 
     fn send_new_message_broadcast(
         &mut self,
-        content: MessageContent<T>,
-        event_sender: &EventSender<T>,
+        content: MessageContent<S, T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         let term = self.persistent_storage.term();
@@ -1137,7 +1150,7 @@ impl<T> Mobilization<T> {
 
     pub fn take_retransmission_futures(
         &mut self
-    ) -> impl Iterator<Item = WorkItemFuture<T>> + '_ {
+    ) -> impl Iterator<Item = WorkItemFuture<S, T>> + '_ {
         self.peers
             .values_mut()
             .filter_map(|peer| peer.retransmission_future.take())
@@ -1147,8 +1160,9 @@ impl<T> Mobilization<T> {
         &mut self,
         election_timeout: &Range<Duration>,
         scheduler: &Scheduler,
-    ) -> Option<WorkItemFuture<T>>
+    ) -> Option<WorkItemFuture<S, T>>
     where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         if self.election_state == ElectionState::Leader
@@ -1177,8 +1191,9 @@ impl<T> Mobilization<T> {
         &mut self,
         heartbeat_interval: Duration,
         scheduler: &Scheduler,
-    ) -> Option<WorkItemFuture<T>>
+    ) -> Option<WorkItemFuture<S, T>>
     where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         if self.election_state != ElectionState::Leader
@@ -1202,8 +1217,9 @@ impl<T> Mobilization<T> {
         &mut self,
         election_timeout: &Range<Duration>,
         scheduler: &Scheduler,
-    ) -> Option<WorkItemFuture<T>>
+    ) -> Option<WorkItemFuture<S, T>>
     where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         if self.election_state == ElectionState::Leader

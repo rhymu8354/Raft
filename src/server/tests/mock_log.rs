@@ -1,7 +1,11 @@
+use maplit::hashset;
+
 use super::DummyCommand;
 use crate::{
+    ClusterConfiguration,
     Log,
     LogEntry,
+    Snapshot,
 };
 use std::sync::{
     Arc,
@@ -15,7 +19,7 @@ pub struct MockLogShared {
     pub entries: Vec<LogEntry<DummyCommand>>,
     pub last_term: usize,
     pub last_index: usize,
-    pub snapshot: Vec<u8>,
+    pub snapshot: Snapshot<()>,
 }
 
 impl MockLogShared {
@@ -68,7 +72,7 @@ impl MockLogShared {
         &mut self,
         base_index: usize,
         base_term: usize,
-        snapshot: Vec<u8>,
+        snapshot: Snapshot<()>,
     ) {
         self.base_index = base_index;
         self.base_term = base_term;
@@ -106,7 +110,12 @@ impl MockLog {
             entries: vec![],
             last_term: 0,
             last_index: 0,
-            snapshot: vec![],
+            snapshot: Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            },
         }));
         (
             Self {
@@ -119,7 +128,7 @@ impl MockLog {
     }
 }
 
-impl Log for MockLog {
+impl Log<()> for MockLog {
     type Command = DummyCommand;
 
     fn append_one(
@@ -168,7 +177,7 @@ impl Log for MockLog {
         &mut self,
         base_index: usize,
         base_term: usize,
-        snapshot: Vec<u8>,
+        snapshot: Snapshot<()>,
     ) {
         let mut shared = self.shared.lock().unwrap();
         shared.install_snapshot(base_index, base_term, snapshot);
@@ -184,7 +193,7 @@ impl Log for MockLog {
         shared.last_index
     }
 
-    fn snapshot(&self) -> Vec<u8> {
+    fn snapshot(&self) -> Snapshot<()> {
         let shared = self.shared.lock().unwrap();
         shared.snapshot.clone()
     }

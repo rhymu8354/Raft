@@ -8,8 +8,8 @@ use super::{
     WorkItemContent,
 };
 use crate::{
-    Configuration,
     Scheduler,
+    ServerConfiguration,
 };
 use futures::{
     future,
@@ -23,20 +23,20 @@ use log::{
 };
 use std::fmt::Debug;
 
-pub struct Inner<T> {
-    configuration: Configuration,
-    event_sender: EventSender<T>,
-    mobilization: Option<Mobilization<T>>,
+pub struct Inner<S, T> {
+    configuration: ServerConfiguration,
+    event_sender: EventSender<S, T>,
+    mobilization: Option<Mobilization<S, T>>,
     scheduler: Scheduler,
 }
 
-impl<T> Inner<T> {
+impl<S, T> Inner<S, T> {
     pub fn new(
-        event_sender: EventSender<T>,
+        event_sender: EventSender<S, T>,
         scheduler: Scheduler,
     ) -> Self {
         Self {
-            configuration: Configuration::default(),
+            configuration: ServerConfiguration::default(),
             mobilization: None,
             event_sender,
             scheduler,
@@ -45,8 +45,9 @@ impl<T> Inner<T> {
 
     fn process_command(
         &mut self,
-        command: Command<T>,
+        command: Command<S, T>,
     ) where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         match command {
@@ -71,8 +72,9 @@ impl<T> Inner<T> {
 
     fn process_sink_item(
         &mut self,
-        sink_item: SinkItem<T>,
+        sink_item: SinkItem<S, T>,
     ) where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         if let Some(mobilization) = &mut self.mobilization {
@@ -90,6 +92,7 @@ impl<T> Inner<T> {
         &mut self,
         peer_id: usize,
     ) where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         if let Some(mobilization) = &mut self.mobilization {
@@ -104,8 +107,9 @@ impl<T> Inner<T> {
 
     pub async fn serve(
         mut self,
-        command_receiver: CommandReceiver<T>,
+        command_receiver: CommandReceiver<S, T>,
     ) where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         let mut command_receiver = Some(command_receiver);
@@ -229,9 +233,9 @@ impl<T> Inner<T> {
     }
 }
 
-async fn process_command_receiver<T>(
-    command_receiver: CommandReceiver<T>
-) -> WorkItem<T> {
+async fn process_command_receiver<S, T>(
+    command_receiver: CommandReceiver<S, T>
+) -> WorkItem<S, T> {
     let (command, command_receiver) = command_receiver.into_future().await;
     let content = if let Some(command) = command {
         WorkItemContent::Command {

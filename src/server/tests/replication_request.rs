@@ -1,5 +1,8 @@
 use super::*;
-use crate::tests::assert_logger;
+use crate::{
+    tests::assert_logger,
+    ClusterConfiguration,
+};
 use futures::executor;
 
 #[test]
@@ -8,7 +11,12 @@ fn leader_sends_no_op_log_entry_upon_election() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0, []);
+            new_mock_log_with_non_defaults(0, 0, Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            });
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
@@ -33,7 +41,12 @@ fn leader_sends_no_op_log_entry_upon_election() {
                 term: 1,
                 command: None,
             }],
-            [],
+            Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            },
         );
     });
 }
@@ -244,7 +257,12 @@ fn leader_send_missing_entries_mid_log_on_append_entries_response() {
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(6, None);
         let (mut mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(4, 10, []);
+            new_mock_log_with_non_defaults(4, 10, Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            });
         mock_log.append(Box::new(
             vec![
                 LogEntry {
@@ -352,7 +370,12 @@ fn leader_send_missing_entries_all_log_on_append_entries_response() {
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(6, None);
         let (mut mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(4, 10, []);
+            new_mock_log_with_non_defaults(4, 10, Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            });
         mock_log.append(Box::new(
             vec![
                 LogEntry {
@@ -591,7 +614,12 @@ fn install_snapshot_if_match_index_before_base() {
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(10, None);
         let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(10, 1, [1, 2, 3, 4, 5]);
+            new_mock_log_with_non_defaults(10, 1, Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            });
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
@@ -625,7 +653,12 @@ fn install_snapshot_if_match_index_before_base() {
                 content: MessageContent::InstallSnapshot {
                     last_included_index: 1,
                     last_included_term: 10,
-                    snapshot: vec![1, 2, 3, 4, 5],
+                    snapshot: Snapshot {
+                        cluster_configuration: ClusterConfiguration::Single(
+                            hashset![2, 5, 6, 7, 11]
+                        ),
+                        state: (),
+                    },
                 },
                 seq: 3,
                 term: 11,
@@ -678,7 +711,12 @@ fn install_snapshot_ignore_response_if_term_old() {
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(10, None);
         let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(10, 1, [1, 2, 3, 4, 5]);
+            new_mock_log_with_non_defaults(10, 1, Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            });
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
@@ -732,7 +770,12 @@ fn install_snapshot_ignore_response_if_term_old() {
                 content: MessageContent::InstallSnapshot {
                     last_included_index: 1,
                     last_included_term: 10,
-                    snapshot: vec![1, 2, 3, 4, 5],
+                    snapshot: Snapshot {
+                        cluster_configuration: ClusterConfiguration::Single(
+                            hashset![2, 5, 6, 7, 11]
+                        ),
+                        state: (),
+                    },
                 },
                 seq: 3,
                 term: 11,
@@ -788,7 +831,12 @@ fn leader_send_new_log_entries() {
                     command: Some(LogEntryCommand::Custom(DummyCommand {})),
                 },
             ],
-            [],
+            Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            },
         );
         let (sender, _receiver) = oneshot::channel();
         timeout.send(sender).expect_err("server did not drop heartbeat future");
@@ -881,7 +929,12 @@ fn non_leader_should_not_accept_commands() {
             .await
             .unwrap();
         fixture.synchronize().await;
-        verify_log(&mock_log_back_end, 0, 0, [], []);
+        verify_log(&mock_log_back_end, 0, 0, [], Snapshot {
+            cluster_configuration: ClusterConfiguration::Single(hashset![
+                2, 5, 6, 7, 11
+            ]),
+            state: (),
+        });
         fixture.expect_no_messages_now();
     });
 }

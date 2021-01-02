@@ -1,4 +1,4 @@
-mod configuration;
+mod cluster_configuration;
 mod error;
 mod log;
 mod log_entry;
@@ -9,9 +9,11 @@ mod persistent_storage;
 #[cfg(not(test))]
 mod scheduler;
 mod server;
+mod server_configuration;
+mod snapshot;
 
 pub use self::log::Log;
-pub use configuration::Configuration;
+pub use cluster_configuration::ClusterConfiguration;
 pub use error::Error;
 pub use log_entry::{
     Command as LogEntryCommand,
@@ -40,6 +42,8 @@ pub use server::{
     Server,
     SinkItem as ServerSinkItem,
 };
+pub use server_configuration::ServerConfiguration;
+pub use snapshot::Snapshot;
 
 #[cfg(test)]
 mod tests {

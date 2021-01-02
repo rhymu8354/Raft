@@ -5,12 +5,12 @@ mod peer;
 mod tests;
 
 use crate::{
-    Configuration,
     Error,
     Log,
     Message,
     PersistentStorage,
     Scheduler,
+    ServerConfiguration,
 };
 #[cfg(test)]
 use crate::{
@@ -46,41 +46,42 @@ pub enum ElectionState {
     Leader,
 }
 
-pub struct MobilizeArgs<T> {
+pub struct MobilizeArgs<S, T> {
     pub cluster: HashSet<usize>,
     pub id: usize,
-    pub log: Box<dyn Log<Command = T>>,
+    pub log: Box<dyn Log<S, Command = T>>,
     pub persistent_storage: Box<dyn PersistentStorage>,
 }
 
-pub enum Event<T> {
+pub enum Event<S, T> {
     ElectionStateChange {
         election_state: ElectionState,
         term: usize,
         voted_for: Option<usize>,
     },
     SendMessage {
-        message: Message<T>,
+        message: Message<S, T>,
         receiver_id: usize,
     },
     LogCommitted(usize),
 }
 
-type EventReceiver<T> = mpsc::UnboundedReceiver<Event<T>>;
-type EventSender<T> = mpsc::UnboundedSender<Event<T>>;
+type EventReceiver<S, T> = mpsc::UnboundedReceiver<Event<S, T>>;
+type EventSender<S, T> = mpsc::UnboundedSender<Event<S, T>>;
 
-pub enum SinkItem<T> {
+pub enum SinkItem<S, T> {
     AddCommands(Vec<T>),
     ReceiveMessage {
-        message: Message<T>,
+        message: Message<S, T>,
         sender_id: usize,
     },
     #[cfg(test)]
     Synchronize(oneshot::Sender<()>),
 }
 
-impl<T> Debug for SinkItem<T>
+impl<S, T> Debug for SinkItem<S, T>
 where
+    S: Debug,
     T: Debug,
 {
     fn fmt(
@@ -110,15 +111,16 @@ where
     }
 }
 
-pub enum Command<T> {
-    Configure(Configuration),
+pub enum Command<S, T> {
+    Configure(ServerConfiguration),
     Demobilize(oneshot::Sender<()>),
-    Mobilize(MobilizeArgs<T>),
-    ProcessSinkItem(SinkItem<T>),
+    Mobilize(MobilizeArgs<S, T>),
+    ProcessSinkItem(SinkItem<S, T>),
 }
 
-impl<T> Debug for Command<T>
+impl<S, T> Debug for Command<S, T>
 where
+    S: Debug,
     T: Debug,
 {
     fn fmt(
@@ -136,22 +138,22 @@ where
     }
 }
 
-type CommandReceiver<T> = mpsc::UnboundedReceiver<Command<T>>;
-type CommandSender<T> = mpsc::UnboundedSender<Command<T>>;
+type CommandReceiver<S, T> = mpsc::UnboundedReceiver<Command<S, T>>;
+type CommandSender<S, T> = mpsc::UnboundedSender<Command<S, T>>;
 
 #[cfg(test)]
 type TimeoutArg = oneshot::Sender<()>;
 #[cfg(not(test))]
 type TimeoutArg = ();
 
-pub struct WorkItem<T> {
-    content: WorkItemContent<T>,
+pub struct WorkItem<S, T> {
+    content: WorkItemContent<S, T>,
     #[cfg(test)]
     ack: Option<TimeoutArg>,
 }
 
 #[derive(Debug)]
-pub enum WorkItemContent<T> {
+pub enum WorkItemContent<S, T> {
     #[cfg(test)]
     Abandoned(String),
     #[cfg(not(test))]
@@ -161,8 +163,8 @@ pub enum WorkItemContent<T> {
     #[cfg(not(test))]
     Cancelled,
     Command {
-        command: Command<T>,
-        command_receiver: CommandReceiver<T>,
+        command: Command<S, T>,
+        command_receiver: CommandReceiver<S, T>,
     },
     ElectionTimeout,
     Heartbeat,
@@ -171,18 +173,19 @@ pub enum WorkItemContent<T> {
     Stop,
 }
 
-pub type WorkItemFuture<T> = BoxFuture<'static, WorkItem<T>>;
+pub type WorkItemFuture<S, T> = BoxFuture<'static, WorkItem<S, T>>;
 
 async fn await_cancellation(cancel: oneshot::Receiver<()>) -> bool {
     cancel.await.is_ok()
 }
 
-async fn await_cancellable_timeout<T>(
-    work_item_content: WorkItemContent<T>,
+async fn await_cancellable_timeout<S, T>(
+    work_item_content: WorkItemContent<S, T>,
     timeout: BoxFuture<'static, TimeoutArg>,
     cancel: oneshot::Receiver<()>,
-) -> WorkItem<T>
+) -> WorkItem<S, T>
 where
+    S: Debug,
     T: Debug,
 {
     #[cfg(test)]
@@ -215,13 +218,14 @@ where
     }
 }
 
-fn make_cancellable_timeout_future<T>(
-    work_item_content: WorkItemContent<T>,
+fn make_cancellable_timeout_future<S, T>(
+    work_item_content: WorkItemContent<S, T>,
     duration: Duration,
     #[cfg(test)] scheduled_event: ScheduledEvent,
     scheduler: &Scheduler,
-) -> (WorkItemFuture<T>, oneshot::Sender<()>)
+) -> (WorkItemFuture<S, T>, oneshot::Sender<()>)
 where
+    S: 'static + Debug + Send,
     T: 'static + Debug + Send,
 {
     let (sender, receiver) = oneshot::channel();
@@ -235,18 +239,18 @@ where
     (future, sender)
 }
 
-pub struct Server<T> {
+pub struct Server<S, T> {
     thread_join_handle: Option<thread::JoinHandle<()>>,
-    command_sender: CommandSender<T>,
-    event_receiver: EventReceiver<T>,
+    command_sender: CommandSender<S, T>,
+    event_receiver: EventReceiver<S, T>,
 }
 
-impl<T> Server<T> {
+impl<S, T> Server<S, T> {
     pub fn configure<C>(
         &self,
         configuration: C,
     ) where
-        C: Into<Configuration>,
+        C: Into<ServerConfiguration>,
     {
         self.command_sender
             .unbounded_send(Command::Configure(configuration.into()))
@@ -263,7 +267,7 @@ impl<T> Server<T> {
 
     pub fn mobilize(
         &self,
-        args: MobilizeArgs<T>,
+        args: MobilizeArgs<S, T>,
     ) {
         self.command_sender
             .unbounded_send(Command::Mobilize(args))
@@ -273,6 +277,7 @@ impl<T> Server<T> {
     #[cfg(test)]
     pub fn new() -> (Self, ScheduledEventReceiver)
     where
+        S: Clone + Debug + Send + 'static,
         T: Clone + Debug + Send + 'static,
     {
         let (scheduler, scheduled_event_receiver) = Scheduler::new();
@@ -282,6 +287,7 @@ impl<T> Server<T> {
     #[cfg(not(test))]
     pub fn new() -> Self
     where
+        S: Clone + Debug + Send + 'static,
         T: Clone + Debug + Send + 'static,
     {
         let scheduler = Scheduler::new();
@@ -290,6 +296,7 @@ impl<T> Server<T> {
 
     fn new_with_scheduler(scheduler: Scheduler) -> Self
     where
+        S: Clone + Debug + Send + 'static,
         T: Clone + Debug + Send + 'static,
     {
         let (command_sender, command_receiver) = mpsc::unbounded();
@@ -306,8 +313,9 @@ impl<T> Server<T> {
 }
 
 #[cfg(not(test))]
-impl<T> Default for Server<T>
+impl<S, T> Default for Server<S, T>
 where
+    S: Clone + Debug + Send + 'static,
     T: Clone + Debug + Send + Sync + 'static,
 {
     fn default() -> Self {
@@ -315,7 +323,7 @@ where
     }
 }
 
-impl<T> Drop for Server<T> {
+impl<S, T> Drop for Server<S, T> {
     fn drop(&mut self) {
         let _ = self.command_sender.close_channel();
         self.thread_join_handle
@@ -326,11 +334,11 @@ impl<T> Drop for Server<T> {
     }
 }
 
-impl<T> Stream for Server<T>
+impl<S, T> Stream for Server<S, T>
 where
     T: Debug,
 {
-    type Item = Event<T>;
+    type Item = Event<S, T>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -340,7 +348,7 @@ where
     }
 }
 
-impl<T> Sink<SinkItem<T>> for Server<T> {
+impl<S, T> Sink<SinkItem<S, T>> for Server<S, T> {
     type Error = Error;
 
     fn poll_ready(
@@ -352,7 +360,7 @@ impl<T> Sink<SinkItem<T>> for Server<T> {
 
     fn start_send(
         mut self: Pin<&mut Self>,
-        item: SinkItem<T>,
+        item: SinkItem<S, T>,
     ) -> Result<(), Self::Error> {
         self.command_sender
             .start_send(Command::ProcessSinkItem(item))

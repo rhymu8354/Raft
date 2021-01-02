@@ -1,6 +1,9 @@
-use crate::LogEntry;
+use crate::{
+    LogEntry,
+    Snapshot,
+};
 
-pub trait Log: Send + Sync {
+pub trait Log<S>: Send + Sync {
     type Command;
 
     fn append_one(
@@ -25,11 +28,11 @@ pub trait Log: Send + Sync {
         &mut self,
         base_index: usize,
         base_term: usize,
-        snapshot: Vec<u8>,
+        snapshot: Snapshot<S>,
     );
     fn last_term(&self) -> usize;
     fn last_index(&self) -> usize;
-    fn snapshot(&self) -> Vec<u8>;
+    fn snapshot(&self) -> Snapshot<S>;
     fn truncate(
         &mut self,
         index: usize,

@@ -22,21 +22,21 @@ use std::{
     time::Duration,
 };
 
-pub struct Peer<T> {
+pub struct Peer<S, T> {
     cancel_retransmission: Option<oneshot::Sender<()>>,
-    last_message: Option<Message<T>>,
+    last_message: Option<Message<S, T>>,
     pub last_seq: usize,
     pub match_index: usize,
-    pub retransmission_future: Option<WorkItemFuture<T>>,
+    pub retransmission_future: Option<WorkItemFuture<S, T>>,
     pub vote: Option<bool>,
 }
 
-impl<T> Peer<T> {
+impl<S, T> Peer<S, T> {
     pub fn awaiting_response(&self) -> bool {
         self.last_message.is_some()
     }
 
-    pub fn cancel_retransmission(&mut self) -> Option<Message<T>> {
+    pub fn cancel_retransmission(&mut self) -> Option<Message<S, T>> {
         if let Some(cancel_retransmission) = self.cancel_retransmission.take() {
             let _ = cancel_retransmission.send(());
             trace!("Cancelling retransmission timer (Peer)");
@@ -47,12 +47,13 @@ impl<T> Peer<T> {
 
     pub fn send_request(
         &mut self,
-        message: Message<T>,
+        message: Message<S, T>,
         peer_id: usize,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         self.last_message = Some(message.clone());
@@ -74,13 +75,14 @@ impl<T> Peer<T> {
 
     pub fn send_new_request(
         &mut self,
-        content: MessageContent<T>,
+        content: MessageContent<S, T>,
         peer_id: usize,
         term: usize,
-        event_sender: &EventSender<T>,
+        event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
         scheduler: &Scheduler,
     ) where
+        S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
         self.vote = None;
@@ -102,7 +104,7 @@ impl<T> Peer<T> {
 
 // We can't #[derive(Default)] without constraining `T: Default`,
 // so let's just implement it ourselves.
-impl<T> Default for Peer<T> {
+impl<S, T> Default for Peer<S, T> {
     fn default() -> Self {
         Peer {
             cancel_retransmission: None,

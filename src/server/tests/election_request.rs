@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     tests::assert_logger,
+    ClusterConfiguration,
     ServerElectionState,
 };
 use futures::executor;
@@ -11,7 +12,12 @@ fn new_election() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(7, 42, []);
+            new_mock_log_with_non_defaults(7, 42, Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            });
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(9, None);
         fixture.mobilize_server_with_log_and_persistent_storage(

@@ -1,5 +1,8 @@
 use super::*;
-use crate::tests::assert_logger;
+use crate::{
+    tests::assert_logger,
+    ClusterConfiguration,
+};
 use futures::executor;
 
 #[test]
@@ -229,8 +232,16 @@ fn vote_rejected_if_candidate_log_old() {
             &[(1, 199, 1, 42), (2, 199, 1, 399), (2, 199, 1, 42)];
         for (our_term, our_index, their_term, their_index) in combinations {
             let mut fixture = Fixture::new();
-            let (mock_log, _mock_log_back_end) =
-                new_mock_log_with_non_defaults(*our_term, *our_index, []);
+            let (mock_log, _mock_log_back_end) = new_mock_log_with_non_defaults(
+                *our_term,
+                *our_index,
+                Snapshot {
+                    cluster_configuration: ClusterConfiguration::Single(
+                        hashset![2, 5, 6, 7, 11],
+                    ),
+                    state: (),
+                },
+            );
             fixture.mobilize_server_with_log(Box::new(mock_log));
             fixture.trigger_min_election_timeout().await;
             fixture
