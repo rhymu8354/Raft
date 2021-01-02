@@ -4,7 +4,7 @@ use crate::{
     Snapshot,
 };
 
-pub trait Log<S>: Send + Sync {
+pub trait Log<S>: Send {
     type Command;
 
     fn append_one(
