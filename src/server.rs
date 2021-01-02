@@ -31,7 +31,6 @@ use futures::{
 };
 use inner::Inner;
 use std::{
-    collections::HashSet,
     fmt::Debug,
     pin::Pin,
     task::Poll,
@@ -47,7 +46,6 @@ pub enum ElectionState {
 }
 
 pub struct MobilizeArgs<S, T> {
-    pub cluster: HashSet<usize>,
     pub id: usize,
     pub log: Box<dyn Log<S, Command = T>>,
     pub persistent_storage: Box<dyn PersistentStorage>,

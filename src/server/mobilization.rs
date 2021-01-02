@@ -40,7 +40,6 @@ use std::{
     collections::{
         BinaryHeap,
         HashMap,
-        HashSet,
     },
     fmt::Debug,
     ops::Range,
@@ -92,7 +91,6 @@ pub struct Mobilization<S, T> {
     cancel_min_election_timeout: Option<oneshot::Sender<()>>,
     #[cfg(test)]
     cancellations_pending: usize,
-    cluster: HashSet<usize>,
     commit_index: usize,
     election_state: ElectionState,
     id: usize,
@@ -443,7 +441,7 @@ impl<S, T> Mobilization<S, T> {
             .values()
             .map(|peer| peer.match_index)
             .collect::<BinaryHeap<_>>();
-        let mut n = self.cluster.len() / 2 - 1;
+        let mut n = (self.peers.len() - 1) / 2;
         loop {
             let match_index =
                 match_indices.pop().expect("unexpectedly short peer list");
@@ -500,8 +498,9 @@ impl<S, T> Mobilization<S, T> {
 
     pub fn new(mobilize_args: MobilizeArgs<S, T>) -> Self {
         let peers = mobilize_args
-            .cluster
-            .iter()
+            .log
+            .cluster_configuration()
+            .peers(mobilize_args.id)
             .filter_map(|&id| {
                 if id == mobilize_args.id {
                     None
@@ -516,7 +515,6 @@ impl<S, T> Mobilization<S, T> {
             cancel_min_election_timeout: None,
             #[cfg(test)]
             cancellations_pending: 0,
-            cluster: mobilize_args.cluster,
             commit_index: 0,
             election_state: ElectionState::Follower,
             id: mobilize_args.id,
@@ -1049,7 +1047,7 @@ impl<S, T> Mobilization<S, T> {
             .filter(|peer| matches!(peer.vote, Some(vote) if vote))
             .count()
             + 1; // we always vote for ourselves (it's implicit)
-        if votes > self.cluster.len() - votes {
+        if votes > self.peers.len() + 1 - votes {
             self.become_leader(event_sender, rpc_timeout, scheduler);
             self.cancel_election_timers();
         }

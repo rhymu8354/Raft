@@ -1,4 +1,5 @@
 use crate::{
+    ClusterConfiguration,
     LogEntry,
     Snapshot,
 };
@@ -16,6 +17,7 @@ pub trait Log<S>: Send + Sync {
     );
     fn base_term(&self) -> usize;
     fn base_index(&self) -> usize;
+    fn cluster_configuration(&self) -> ClusterConfiguration;
     fn entries(
         &self,
         prev_log_index: usize,

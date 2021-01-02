@@ -10,7 +10,6 @@ fn mobilize_twice_does_not_crash() {
     let (mock_persistent_storage, _) = MockPersistentStorage::new();
     fixture.server.mobilize(ServerMobilizeArgs {
         id: fixture.id,
-        cluster: fixture.cluster.clone(),
         log: Box::new(mock_log),
         persistent_storage: Box::new(mock_persistent_storage),
     });
@@ -18,7 +17,6 @@ fn mobilize_twice_does_not_crash() {
     let (mock_persistent_storage, _) = MockPersistentStorage::new();
     fixture.server.mobilize(ServerMobilizeArgs {
         id: fixture.id,
-        cluster: fixture.cluster.clone(),
         log: Box::new(mock_log),
         persistent_storage: Box::new(mock_persistent_storage),
     });

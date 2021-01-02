@@ -7,9 +7,12 @@ use crate::{
     LogEntry,
     Snapshot,
 };
-use std::sync::{
-    Arc,
-    Mutex,
+use std::{
+    self,
+    sync::{
+        Arc,
+        Mutex,
+    },
 };
 
 pub struct MockLogShared {
@@ -41,6 +44,13 @@ impl MockLogShared {
         for entry in entries.into_iter() {
             self.append_one(entry);
         }
+    }
+
+    fn cluster_configuration(&self) -> ClusterConfiguration {
+        self.entries.iter().fold(
+            self.snapshot.cluster_configuration.clone(),
+            ClusterConfiguration::update,
+        )
     }
 
     fn entries(
@@ -155,6 +165,11 @@ impl Log<()> for MockLog {
     fn base_index(&self) -> usize {
         let shared = self.shared.lock().unwrap();
         shared.base_index
+    }
+
+    fn cluster_configuration(&self) -> ClusterConfiguration {
+        let shared = self.shared.lock().unwrap();
+        shared.cluster_configuration()
     }
 
     fn entries(

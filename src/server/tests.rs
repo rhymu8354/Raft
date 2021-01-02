@@ -162,10 +162,10 @@ struct VerifyAppendEntriesResponseArgs<'a> {
 }
 
 struct Fixture {
-    cluster: HashSet<usize>,
     configuration: ServerConfiguration,
     configured: bool,
     id: usize,
+    peer_ids: HashSet<usize>,
 
     // IMPORTANT: `server` must be listed before `scheduled_event_receiver`
     // because the mock scheduler produces futures which will
@@ -502,19 +502,16 @@ impl Fixture {
 
     async fn expect_server_to_start_election(
         &mut self,
-        expected_last_log_term: usize,
-        expected_last_log_index: usize,
-        expected_term: usize,
+        args: AwaitElectionTimeoutArgs,
     ) {
-        let mut awaiting_vote_requests = self.cluster.clone();
-        awaiting_vote_requests.remove(&self.id);
+        let mut awaiting_vote_requests = self.peer_ids.clone();
         while !awaiting_vote_requests.is_empty() {
             let receiver_id = self
                 .expect_vote_request(
-                    expected_last_log_term,
-                    expected_last_log_index,
+                    args.last_log_term,
+                    args.last_log_index,
                     None,
-                    expected_term,
+                    args.term,
                 )
                 .await;
             assert!(
@@ -535,12 +532,7 @@ impl Fixture {
 
         // Wait on server stream until we receive all the expected
         // vote requests.
-        self.expect_server_to_start_election(
-            args.last_log_term,
-            args.last_log_index,
-            args.term,
-        )
-        .await;
+        self.expect_server_to_start_election(args).await;
     }
 
     async fn expect_election_with_defaults(&mut self) {
@@ -846,10 +838,7 @@ impl Fixture {
         seq: usize,
         term: usize,
     ) {
-        for &id in self.cluster.iter() {
-            if id == self.id {
-                continue;
-            }
+        for &id in self.peer_ids.iter() {
             cast_vote(&mut self.server, CastVoteArgs {
                 sender_id: id,
                 seq,
@@ -1065,7 +1054,6 @@ impl Fixture {
     fn new() -> Self {
         let (server, scheduled_event_receiver) = Server::new();
         Self {
-            cluster: hashset! {2, 5, 6, 7, 11},
             configuration: ServerConfiguration {
                 election_timeout: Duration::from_millis(100)
                     ..Duration::from_millis(200),
@@ -1075,6 +1063,7 @@ impl Fixture {
             },
             configured: false,
             id: 5,
+            peer_ids: HashSet::new(),
             scheduled_event_receiver,
             server,
         }
@@ -1105,9 +1094,10 @@ impl Fixture {
         if !self.configured {
             self.configure_server();
         }
+        self.peer_ids =
+            log.cluster_configuration().peers(self.id).copied().collect();
         self.server.mobilize(ServerMobilizeArgs {
             id: self.id,
-            cluster: self.cluster.clone(),
             log,
             persistent_storage,
         });
@@ -1224,8 +1214,7 @@ impl Fixture {
         args: AwaitAppendEntriesArgs,
     ) {
         self.synchronize().await;
-        let mut recipients = self.cluster.clone();
-        recipients.remove(&self.id);
+        let mut recipients = self.peer_ids.clone();
         while !recipients.is_empty() {
             let recipient_id = self.expect_append_entries_now(&args);
             assert!(
