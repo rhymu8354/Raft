@@ -1,11 +1,9 @@
 mod inner;
-mod mobilization;
 mod peer;
 #[cfg(test)]
 mod tests;
 
 use crate::{
-    Error,
     Log,
     Message,
     PersistentStorage,
@@ -45,12 +43,6 @@ pub enum ElectionState {
     Leader,
 }
 
-pub struct MobilizeArgs<S, T> {
-    pub id: usize,
-    pub log: Box<dyn Log<S, Command = T>>,
-    pub persistent_storage: Box<dyn PersistentStorage>,
-}
-
 pub enum Event<S, T> {
     ElectionStateChange {
         election_state: ElectionState,
@@ -67,7 +59,7 @@ pub enum Event<S, T> {
 type EventReceiver<S, T> = mpsc::UnboundedReceiver<Event<S, T>>;
 type EventSender<S, T> = mpsc::UnboundedSender<Event<S, T>>;
 
-pub enum SinkItem<S, T> {
+pub enum Command<S, T> {
     AddCommands(Vec<T>),
     ReceiveMessage {
         message: Message<S, T>,
@@ -75,45 +67,6 @@ pub enum SinkItem<S, T> {
     },
     #[cfg(test)]
     Synchronize(oneshot::Sender<()>),
-}
-
-impl<S, T> Debug for SinkItem<S, T>
-where
-    S: Debug,
-    T: Debug,
-{
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result where {
-        match self {
-            SinkItem::AddCommands(commands) => {
-                write!(f, "AddCommands({})", commands.len())?;
-            },
-            SinkItem::ReceiveMessage {
-                message,
-                sender_id,
-            } => {
-                write!(
-                    f,
-                    "ReceiveMessage(from: {:?}, message: {:?})",
-                    sender_id, message
-                )?;
-            },
-            #[cfg(test)]
-            SinkItem::Synchronize(_) => {
-                write!(f, "Synchronize")?;
-            },
-        }
-        Ok(())
-    }
-}
-
-pub enum Command<S, T> {
-    Configure(ServerConfiguration),
-    Demobilize(oneshot::Sender<()>),
-    Mobilize(MobilizeArgs<S, T>),
-    ProcessSinkItem(SinkItem<S, T>),
 }
 
 impl<S, T> Debug for Command<S, T>
@@ -124,15 +77,27 @@ where
     fn fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    ) -> std::fmt::Result where {
         match self {
-            Command::Configure(_) => write!(f, "Configure"),
-            Command::Demobilize(_) => write!(f, "Demobilize"),
-            Command::Mobilize(_) => write!(f, "Mobilize"),
-            Command::ProcessSinkItem(sink_item) => {
-                write!(f, "ProcessSinkItem({:?})", sink_item)
+            Command::AddCommands(commands) => {
+                write!(f, "AddCommands({})", commands.len())?;
+            },
+            Command::ReceiveMessage {
+                message,
+                sender_id,
+            } => {
+                write!(
+                    f,
+                    "ReceiveMessage(from: {:?}, message: {:?})",
+                    sender_id, message
+                )?;
+            },
+            #[cfg(test)]
+            Command::Synchronize(_) => {
+                write!(f, "Synchronize")?;
             },
         }
+        Ok(())
     }
 }
 
@@ -244,62 +209,76 @@ pub struct Server<S, T> {
 }
 
 impl<S, T> Server<S, T> {
-    pub fn configure<C>(
-        &self,
-        configuration: C,
-    ) where
-        C: Into<ServerConfiguration>,
-    {
-        self.command_sender
-            .unbounded_send(Command::Configure(configuration.into()))
-            .expect("server command receiver dropped prematurely");
-    }
-
-    pub async fn demobilize(&self) {
-        let (sender, receiver) = oneshot::channel();
-        self.command_sender
-            .unbounded_send(Command::Demobilize(sender))
-            .expect("server command receiver dropped prematurely");
-        receiver.await.expect("server dropped demobilize results sender");
-    }
-
-    pub fn mobilize(
-        &self,
-        args: MobilizeArgs<S, T>,
-    ) {
-        self.command_sender
-            .unbounded_send(Command::Mobilize(args))
-            .expect("server command receiver dropped prematurely");
-    }
-
     #[cfg(test)]
-    pub fn new() -> (Self, ScheduledEventReceiver)
+    pub fn new<C>(
+        id: usize,
+        configuration: C,
+        log: Box<dyn Log<S, Command = T>>,
+        persistent_storage: Box<dyn PersistentStorage>,
+    ) -> (Self, ScheduledEventReceiver)
     where
+        C: Into<ServerConfiguration>,
         S: Clone + Debug + Send + 'static,
         T: Clone + Debug + Send + 'static,
     {
         let (scheduler, scheduled_event_receiver) = Scheduler::new();
-        (Self::new_with_scheduler(scheduler), scheduled_event_receiver)
+        (
+            Self::new_with_scheduler(
+                id,
+                configuration,
+                log,
+                persistent_storage,
+                scheduler,
+            ),
+            scheduled_event_receiver,
+        )
     }
 
     #[cfg(not(test))]
-    pub fn new() -> Self
+    pub fn new<C>(
+        id: usize,
+        configuration: C,
+        log: Box<dyn Log<S, Command = T>>,
+        persistent_storage: Box<dyn PersistentStorage>,
+    ) -> Self
     where
+        C: Into<ServerConfiguration>,
         S: Clone + Debug + Send + 'static,
         T: Clone + Debug + Send + 'static,
     {
         let scheduler = Scheduler::new();
-        Self::new_with_scheduler(scheduler)
+        Self::new_with_scheduler(
+            id,
+            configuration,
+            log,
+            persistent_storage,
+            scheduler,
+        )
     }
 
-    fn new_with_scheduler(scheduler: Scheduler) -> Self
+    fn new_with_scheduler<C>(
+        id: usize,
+        configuration: C,
+        log: Box<dyn Log<S, Command = T>>,
+        persistent_storage: Box<dyn PersistentStorage>,
+        scheduler: Scheduler,
+    ) -> Self
     where
+        C: Into<ServerConfiguration>,
         S: Clone + Debug + Send + 'static,
         T: Clone + Debug + Send + 'static,
     {
+        let configuration = configuration.into();
         let (command_sender, command_receiver) = mpsc::unbounded();
         let (event_sender, event_receiver) = mpsc::unbounded();
-        let inner = Inner::new(event_sender, scheduler);
+        let inner = Inner::new(
+            id,
+            configuration,
+            log,
+            persistent_storage,
+            event_sender,
+            scheduler,
+        );
         Self {
             command_sender,
             event_receiver,
@@ -310,20 +289,9 @@ impl<S, T> Server<S, T> {
     }
 }
 
-#[cfg(not(test))]
-impl<S, T> Default for Server<S, T>
-where
-    S: Clone + Debug + Send + 'static,
-    T: Clone + Debug + Send + Sync + 'static,
-{
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<S, T> Drop for Server<S, T> {
     fn drop(&mut self) {
-        let _ = self.command_sender.close_channel();
+        self.command_sender.close_channel();
         self.thread_join_handle
             .take()
             .expect("somehow the server thread join handle got lost before we could take it")
@@ -346,8 +314,8 @@ where
     }
 }
 
-impl<S, T> Sink<SinkItem<S, T>> for Server<S, T> {
-    type Error = Error;
+impl<S, T> Sink<Command<S, T>> for Server<S, T> {
+    type Error = ();
 
     fn poll_ready(
         self: Pin<&mut Self>,
@@ -358,10 +326,10 @@ impl<S, T> Sink<SinkItem<S, T>> for Server<S, T> {
 
     fn start_send(
         mut self: Pin<&mut Self>,
-        item: SinkItem<S, T>,
+        item: Command<S, T>,
     ) -> Result<(), Self::Error> {
         self.command_sender
-            .start_send(Command::ProcessSinkItem(item))
+            .start_send(item)
             .expect("server command receiver unexpectedly dropped");
         Ok(())
     }

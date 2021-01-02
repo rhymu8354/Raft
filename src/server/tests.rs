@@ -20,11 +20,10 @@ use crate::{
     ScheduledEvent,
     ScheduledEventReceiver,
     ScheduledEventWithCompleter,
+    ServerCommand,
     ServerConfiguration,
     ServerElectionState,
     ServerEvent,
-    ServerMobilizeArgs,
-    ServerSinkItem,
     Snapshot,
 };
 use futures::{
@@ -35,12 +34,12 @@ use futures::{
 };
 use maplit::hashset;
 use mock_log::{
+    BackEnd as MockLogBackEnd,
     MockLog,
-    MockLogBackEnd,
 };
 use mock_persistent_storage::{
+    BackEnd as MockPersistentStorageBackEnd,
     MockPersistentStorage,
-    MockPersistentStorageBackEnd,
 };
 use serde::{
     Deserialize,
@@ -163,7 +162,6 @@ struct VerifyAppendEntriesResponseArgs<'a> {
 
 struct Fixture {
     configuration: ServerConfiguration,
-    configured: bool,
     id: usize,
     peer_ids: HashSet<usize>,
 
@@ -171,8 +169,8 @@ struct Fixture {
     // because the mock scheduler produces futures which will
     // complete immediately if `scheduled_event_receiver` is dropped,
     // causing `server` to get stuck in a constant loop of timeout processing.
-    server: Server<(), DummyCommand>,
-    scheduled_event_receiver: ScheduledEventReceiver,
+    server: Option<Server<(), DummyCommand>>,
+    scheduled_event_receiver: Option<ScheduledEventReceiver>,
 }
 
 impl Fixture {
@@ -182,6 +180,8 @@ impl Fixture {
         loop {
             let event_with_completer = self
                 .scheduled_event_receiver
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -198,8 +198,13 @@ impl Fixture {
     }
 
     fn expect_no_election_timer_registrations_now(&mut self) {
-        while let Some(event_with_completer) =
-            self.scheduled_event_receiver.next().now_or_never().flatten()
+        while let Some(event_with_completer) = self
+            .scheduled_event_receiver
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+            .flatten()
         {
             assert!(!matches!(
                 event_with_completer,
@@ -238,6 +243,8 @@ impl Fixture {
         loop {
             let event_with_completer = self
                 .scheduled_event_receiver
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -254,8 +261,13 @@ impl Fixture {
     }
 
     fn expect_no_min_election_timer_registrations_now(&mut self) {
-        while let Some(event_with_completer) =
-            self.scheduled_event_receiver.next().now_or_never().flatten()
+        while let Some(event_with_completer) = self
+            .scheduled_event_receiver
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+            .flatten()
         {
             assert!(!matches!(
                 event_with_completer,
@@ -320,8 +332,13 @@ impl Fixture {
     }
 
     fn expect_no_heartbeat_timer_registrations_now(&mut self) {
-        while let Some(event_with_completer) =
-            self.scheduled_event_receiver.next().now_or_never().flatten()
+        while let Some(event_with_completer) = self
+            .scheduled_event_receiver
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+            .flatten()
         {
             assert!(
                 !matches!(event_with_completer, ScheduledEventWithCompleter {
@@ -339,6 +356,8 @@ impl Fixture {
         loop {
             let event_with_completer = self
                 .scheduled_event_receiver
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -391,10 +410,7 @@ impl Fixture {
             .expect("server dropped heartbeat timeout acknowledgment");
     }
 
-    fn is_verified_vote_request(
-        &self,
-        args: VerifyVoteRequestArgs,
-    ) -> bool {
+    fn is_verified_vote_request(args: VerifyVoteRequestArgs) -> bool {
         if let MessageContent::RequestVote {
             last_log_index,
             last_log_term,
@@ -438,6 +454,8 @@ impl Fixture {
         loop {
             let event = self
                 .server
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -447,7 +465,7 @@ impl Fixture {
                     message,
                     receiver_id,
                 } => {
-                    if self.is_verified_vote_request(VerifyVoteRequestArgs {
+                    if Self::is_verified_vote_request(VerifyVoteRequestArgs {
                         message: &message,
                         expected_last_log_term,
                         expected_last_log_index,
@@ -551,6 +569,8 @@ impl Fixture {
         loop {
             let event = self
                 .server
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -588,10 +608,7 @@ impl Fixture {
         self.expect_assume_leadership_now(args);
     }
 
-    fn verify_vote(
-        &self,
-        args: VerifyVoteArgs,
-    ) {
+    fn verify_vote(args: VerifyVoteArgs) {
         assert_eq!(
             args.vote, args.expected.vote_granted,
             "unexpected vote (was {}, should be {})",
@@ -615,7 +632,6 @@ impl Fixture {
     }
 
     fn is_verified_vote(
-        &self,
         message: &Message<(), DummyCommand>,
         receiver_id: usize,
         args: &AwaitVoteArgs,
@@ -624,7 +640,7 @@ impl Fixture {
             vote_granted,
         } = message.content
         {
-            self.verify_vote(VerifyVoteArgs {
+            Self::verify_vote(VerifyVoteArgs {
                 seq: message.seq,
                 term: message.term,
                 vote: vote_granted,
@@ -645,6 +661,8 @@ impl Fixture {
         loop {
             let event = self
                 .server
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -654,7 +672,7 @@ impl Fixture {
                     message,
                     receiver_id,
                 } => {
-                    if self.is_verified_vote(&message, receiver_id, &args) {
+                    if Self::is_verified_vote(&message, receiver_id, &args) {
                         break;
                     }
                 },
@@ -697,7 +715,14 @@ impl Fixture {
     }
 
     fn expect_no_vote_now(&mut self) {
-        while let Some(event) = self.server.next().now_or_never().flatten() {
+        while let Some(event) = self
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+            .flatten()
+        {
             match event {
                 ServerEvent::SendMessage {
                     message,
@@ -738,7 +763,13 @@ impl Fixture {
         &mut self,
         election_state: ServerElectionState,
     ) {
-        while let Some(event) = self.server.next().now_or_never() {
+        while let Some(event) = self
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+        {
             if let ServerEvent::ElectionStateChange {
                 election_state: new_election_state,
                 ..
@@ -760,7 +791,14 @@ impl Fixture {
     }
 
     fn expect_no_election_state_changes_now(&mut self) {
-        while let Some(event) = self.server.next().now_or_never().flatten() {
+        while let Some(event) = self
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+            .flatten()
+        {
             if let ServerEvent::ElectionStateChange {
                 election_state,
                 ..
@@ -783,7 +821,13 @@ impl Fixture {
         &mut self,
         expected_index: usize,
     ) {
-        while let Some(event) = self.server.next().now_or_never() {
+        while let Some(event) = self
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+        {
             if let ServerEvent::LogCommitted(index) =
                 event.expect("unexpected end of server events")
             {
@@ -807,7 +851,14 @@ impl Fixture {
     }
 
     fn expect_no_commit_now(&mut self) {
-        while let Some(event) = self.server.next().now_or_never().flatten() {
+        while let Some(event) = self
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+            .flatten()
+        {
             if let ServerEvent::LogCommitted(index) = event {
                 panic!("unexpected commit to {:?}", index);
             }
@@ -823,14 +874,19 @@ impl Fixture {
         &mut self,
         args: CastVoteArgs,
     ) {
-        cast_vote(&mut self.server, args).await;
+        cast_vote(self.server.as_mut().expect("no server mobilized"), args)
+            .await;
     }
 
     async fn receive_vote_request(
         &mut self,
         args: ReceiveVoteRequestArgs,
     ) {
-        receive_vote_request(&mut self.server, args).await;
+        receive_vote_request(
+            self.server.as_mut().expect("no server mobilized"),
+            args,
+        )
+        .await;
     }
 
     async fn cast_votes(
@@ -838,20 +894,18 @@ impl Fixture {
         seq: usize,
         term: usize,
     ) {
-        for &id in self.peer_ids.iter() {
-            cast_vote(&mut self.server, CastVoteArgs {
-                sender_id: id,
-                seq,
-                term,
-                vote: true,
-            })
+        for &id in &self.peer_ids {
+            cast_vote(
+                self.server.as_mut().expect("no server mobilized"),
+                CastVoteArgs {
+                    sender_id: id,
+                    seq,
+                    term,
+                    vote: true,
+                },
+            )
             .await;
         }
-    }
-
-    fn configure_server(&mut self) {
-        self.server.configure(self.configuration.clone());
-        self.configured = true;
     }
 
     fn expect_retransmission_timer_registration_now(
@@ -861,6 +915,8 @@ impl Fixture {
         loop {
             let event_with_completer = self
                 .scheduled_event_receiver
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -899,6 +955,8 @@ impl Fixture {
         while !expected_receiver_ids.is_empty() {
             let event_with_completer = self
                 .scheduled_event_receiver
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -924,6 +982,8 @@ impl Fixture {
         loop {
             let event = self
                 .server
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -969,6 +1029,8 @@ impl Fixture {
         while !expected_receiver_ids.is_empty() {
             let event = self
                 .server
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -1008,7 +1070,14 @@ impl Fixture {
     }
 
     fn expect_no_messages_now(&mut self) {
-        while let Some(event) = self.server.next().now_or_never().flatten() {
+        while let Some(event) = self
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+            .flatten()
+        {
             match event {
                 ServerEvent::SendMessage {
                     message,
@@ -1052,7 +1121,6 @@ impl Fixture {
     }
 
     fn new() -> Self {
-        let (server, scheduled_event_receiver) = Server::new();
         Self {
             configuration: ServerConfiguration {
                 election_timeout: Duration::from_millis(100)
@@ -1061,11 +1129,10 @@ impl Fixture {
                 rpc_timeout: Duration::from_millis(10),
                 install_snapshot_timeout: Duration::from_secs(10),
             },
-            configured: false,
             id: 5,
             peer_ids: HashSet::new(),
-            scheduled_event_receiver,
-            server,
+            scheduled_event_receiver: None,
+            server: None,
         }
     }
 
@@ -1091,16 +1158,16 @@ impl Fixture {
         log: Box<dyn Log<(), Command = DummyCommand>>,
         persistent_storage: Box<dyn PersistentStorage>,
     ) {
-        if !self.configured {
-            self.configure_server();
-        }
         self.peer_ids =
             log.cluster_configuration().peers(self.id).copied().collect();
-        self.server.mobilize(ServerMobilizeArgs {
-            id: self.id,
+        let (server, scheduled_event_receiver) = Server::new(
+            self.id,
+            self.configuration.clone(),
             log,
             persistent_storage,
-        });
+        );
+        self.scheduled_event_receiver.replace(scheduled_event_receiver);
+        self.server.replace(server);
     }
 
     fn mobilize_server_with_persistent_storage(
@@ -1114,10 +1181,7 @@ impl Fixture {
         );
     }
 
-    fn is_verified_append_entries(
-        &self,
-        args: VerifyAppendEntriesArgs,
-    ) -> bool {
+    fn is_verified_append_entries(args: VerifyAppendEntriesArgs) -> bool {
         if let MessageContent::AppendEntries(AppendEntriesContent {
             leader_commit,
             prev_log_index,
@@ -1170,6 +1234,8 @@ impl Fixture {
         loop {
             let event = self
                 .server
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -1179,7 +1245,7 @@ impl Fixture {
                     message,
                     receiver_id,
                 } => {
-                    if self.is_verified_append_entries(
+                    if Self::is_verified_append_entries(
                         VerifyAppendEntriesArgs {
                             message: &message,
                             expected_leader_commit: args.leader_commit,
@@ -1225,10 +1291,7 @@ impl Fixture {
         }
     }
 
-    fn verify_append_entries_response(
-        &self,
-        args: VerifyAppendEntriesResponseArgs,
-    ) {
+    fn verify_append_entries_response(args: VerifyAppendEntriesResponseArgs) {
         assert_eq!(
             args.match_index, args.expected.match_index,
             "unexpected match index (was {}, should be {})",
@@ -1252,7 +1315,6 @@ impl Fixture {
     }
 
     fn is_verified_append_entries_response(
-        &self,
         message: &Message<(), DummyCommand>,
         receiver_id: usize,
         args: &AwaitAppendEntriesResponseArgs,
@@ -1261,7 +1323,7 @@ impl Fixture {
             match_index,
         } = message.content
         {
-            self.verify_append_entries_response(
+            Self::verify_append_entries_response(
                 VerifyAppendEntriesResponseArgs {
                     seq: message.seq,
                     term: message.term,
@@ -1285,6 +1347,8 @@ impl Fixture {
         loop {
             let event = self
                 .server
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -1294,7 +1358,7 @@ impl Fixture {
                     message,
                     receiver_id,
                 } => {
-                    if self.is_verified_append_entries_response(
+                    if Self::is_verified_append_entries_response(
                         &message,
                         receiver_id,
                         &args,
@@ -1345,7 +1409,6 @@ impl Fixture {
     }
 
     fn is_verified_install_snapshot_response(
-        &self,
         message: &Message<(), DummyCommand>,
         receiver_id: usize,
         expected_receiver_id: usize,
@@ -1385,6 +1448,8 @@ impl Fixture {
         loop {
             let event = self
                 .server
+                .as_mut()
+                .expect("no server mobilized")
                 .next()
                 .now_or_never()
                 .flatten()
@@ -1394,7 +1459,7 @@ impl Fixture {
                     message,
                     receiver_id,
                 } => {
-                    if self.is_verified_install_snapshot_response(
+                    if Self::is_verified_install_snapshot_response(
                         &message,
                         receiver_id,
                         expected_receiver_id,
@@ -1448,11 +1513,16 @@ impl Fixture {
         message: Message<(), DummyCommand>,
         sender_id: usize,
     ) {
-        send_server_message(&mut self.server, message, sender_id).await
+        send_server_message(
+            self.server.as_mut().expect("no server mobilized"),
+            message,
+            sender_id,
+        )
+        .await
     }
 
     async fn synchronize(&mut self) {
-        synchronize(&mut self.server).await;
+        synchronize(self.server.as_mut().expect("no server mobilized")).await;
     }
 }
 
@@ -1551,7 +1621,7 @@ async fn send_server_message(
     sender_id: usize,
 ) {
     server
-        .send(ServerSinkItem::ReceiveMessage {
+        .send(ServerCommand::ReceiveMessage {
             message,
             sender_id,
         })
@@ -1561,7 +1631,7 @@ async fn send_server_message(
 
 async fn synchronize(server: &mut Server<(), DummyCommand>) {
     let (completed_sender, completed_receiver) = oneshot::channel();
-    server.send(ServerSinkItem::Synchronize(completed_sender)).await.unwrap();
+    server.send(ServerCommand::Synchronize(completed_sender)).await.unwrap();
     let _ = completed_receiver.await;
 }
 

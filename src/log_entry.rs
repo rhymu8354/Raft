@@ -106,24 +106,20 @@ impl<T: CustomCommand> TryFrom<&JsonValue> for Command<T> {
                     command.map(|command| Command::SingleConfiguration {
                         configuration: command
                             .get("configuration")
-                            .map(decode_instance_ids)
-                            .unwrap_or_else(HashSet::new),
+                            .map_or_else(HashSet::new, decode_instance_ids),
                         old_configuration: command
                             .get("oldConfiguration")
-                            .map(decode_instance_ids)
-                            .unwrap_or_else(HashSet::new),
+                            .map_or_else(HashSet::new, decode_instance_ids),
                     })
                 },
                 "JointConfiguration" => {
                     command.map(|command| Command::JointConfiguration {
                         new_configuration: command
                             .get("newConfiguration")
-                            .map(decode_instance_ids)
-                            .unwrap_or_else(HashSet::new),
+                            .map_or_else(HashSet::new, decode_instance_ids),
                         old_configuration: command
                             .get("oldConfiguration")
-                            .map(decode_instance_ids)
-                            .unwrap_or_else(HashSet::new),
+                            .map_or_else(HashSet::new, decode_instance_ids),
                     })
                 },
                 _ => command.and_then(|command| {
@@ -156,27 +152,26 @@ impl<T: CustomCommand> LogEntry<T> {
 }
 
 fn decode_instance_ids(configuration: &JsonValue) -> HashSet<usize> {
-    configuration
-        .get("instanceIds")
-        .and_then(JsonValue::as_array)
-        .map(|instance_ids| {
+    configuration.get("instanceIds").and_then(JsonValue::as_array).map_or_else(
+        HashSet::new,
+        |instance_ids| {
+            #[allow(clippy::cast_possible_truncation)]
             instance_ids
                 .iter()
-                .filter_map(JsonValue::as_u64)
-                .map(|value| value as usize)
+                .filter_map(|value| value.as_u64().map(|value| value as usize))
                 .collect()
-        })
-        .unwrap_or_else(HashSet::new)
+        },
+    )
 }
 
 impl<T: CustomCommand> From<&JsonValue> for LogEntry<T> {
     fn from(json: &JsonValue) -> Self {
+        #[allow(clippy::cast_possible_truncation)]
         Self {
             term: json
                 .get("term")
                 .and_then(JsonValue::as_u64)
-                .map(|term| term as usize)
-                .unwrap_or(0),
+                .map_or(0, |term| term as usize),
             command: Command::try_from(json).ok(),
         }
     }
@@ -397,6 +392,7 @@ mod tests {
             }
 
             fn from_json(json: &JsonValue) -> Option<Self> {
+                #[allow(clippy::cast_possible_truncation)]
                 json.get("payload")
                     .and_then(JsonValue::as_u64)
                     .map(|payload| payload as usize)

@@ -15,7 +15,7 @@ use std::{
     },
 };
 
-pub struct MockLogShared {
+pub struct Shared {
     pub base_term: usize,
     pub base_index: usize,
     pub dropped: bool,
@@ -25,7 +25,7 @@ pub struct MockLogShared {
     pub snapshot: Snapshot<()>,
 }
 
-impl MockLogShared {
+impl Shared {
     fn append_one(
         &mut self,
         entry: LogEntry<DummyCommand>,
@@ -41,7 +41,7 @@ impl MockLogShared {
     ) where
         T: IntoIterator<Item = LogEntry<DummyCommand>>,
     {
-        for entry in entries.into_iter() {
+        for entry in entries {
             self.append_one(entry);
         }
     }
@@ -95,25 +95,24 @@ impl MockLogShared {
     ) {
         self.entries.truncate(index.saturating_sub(self.base_index));
         self.last_index = self.base_index + self.entries.len();
-        self.last_term = if let Some(last_log_entry) = self.entries.last() {
-            last_log_entry.term
-        } else {
-            self.base_term
-        };
+        self.last_term = self
+            .entries
+            .last()
+            .map_or(self.base_term, |last_log_entry| last_log_entry.term);
     }
 }
 
 pub struct MockLog {
-    pub shared: Arc<Mutex<MockLogShared>>,
+    pub shared: Arc<Mutex<Shared>>,
 }
 
-pub struct MockLogBackEnd {
-    pub shared: Arc<Mutex<MockLogShared>>,
+pub struct BackEnd {
+    pub shared: Arc<Mutex<Shared>>,
 }
 
 impl MockLog {
-    pub fn new() -> (Self, MockLogBackEnd) {
-        let shared = Arc::new(Mutex::new(MockLogShared {
+    pub fn new() -> (Self, BackEnd) {
+        let shared = Arc::new(Mutex::new(Shared {
             base_term: 0,
             base_index: 0,
             dropped: false,
@@ -131,7 +130,7 @@ impl MockLog {
             Self {
                 shared: shared.clone(),
             },
-            MockLogBackEnd {
+            BackEnd {
                 shared,
             },
         )

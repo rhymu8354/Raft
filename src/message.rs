@@ -16,7 +16,7 @@ pub struct AppendEntriesContent<T> {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub enum MessageContent<S, T> {
+pub enum Content<S, T> {
     RequestVote {
         last_log_index: usize,
         last_log_term: usize,
@@ -38,7 +38,7 @@ pub enum MessageContent<S, T> {
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Message<S, T> {
-    pub content: MessageContent<S, T>,
+    pub content: Content<S, T>,
     pub seq: usize,
     pub term: usize,
 }
@@ -105,7 +105,7 @@ mod tests {
     #[test]
     fn request_vote() {
         let message_in = Message {
-            content: MessageContent::RequestVote {
+            content: Content::RequestVote {
                 last_log_index: 11,
                 last_log_term: 3,
             },
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn request_vote_response() {
         let message_in = Message {
-            content: MessageContent::RequestVoteResponse {
+            content: Content::RequestVoteResponse {
                 vote_granted: true,
             },
             seq: 8,
@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn heart_beat() {
         let message_in = Message {
-            content: MessageContent::AppendEntries(AppendEntriesContent {
+            content: Content::AppendEntries(AppendEntriesContent {
                 leader_commit: 18,
                 prev_log_index: 6,
                 prev_log_term: 1,
@@ -167,7 +167,7 @@ mod tests {
             },
         ];
         let message_in = Message {
-            content: MessageContent::AppendEntries(AppendEntriesContent {
+            content: Content::AppendEntries(AppendEntriesContent {
                 leader_commit: 33,
                 prev_log_index: 5,
                 prev_log_term: 6,
@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn append_entries_response() {
         let message_in = Message {
-            content: MessageContent::AppendEntriesResponse {
+            content: Content::AppendEntriesResponse {
                 match_index: 10,
             },
             seq: 4,
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn install_snapshot() {
         let message_in = Message {
-            content: MessageContent::InstallSnapshot {
+            content: Content::InstallSnapshot {
                 last_included_index: 2,
                 last_included_term: 7,
                 snapshot: Snapshot {
@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn install_snapshot_response() {
         let message_in = Message {
-            content: MessageContent::InstallSnapshotResponse,
+            content: Content::InstallSnapshotResponse,
             seq: 17,
             term: 8,
         };

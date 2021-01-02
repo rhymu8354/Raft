@@ -4,23 +4,23 @@ use std::sync::{
     Mutex,
 };
 
-pub struct MockPersistentStorageShared {
+pub struct Shared {
     pub dropped: bool,
     pub term: usize,
     pub voted_for: Option<usize>,
 }
 
 pub struct MockPersistentStorage {
-    pub shared: Arc<Mutex<MockPersistentStorageShared>>,
+    pub shared: Arc<Mutex<Shared>>,
 }
 
-pub struct MockPersistentStorageBackEnd {
-    pub shared: Arc<Mutex<MockPersistentStorageShared>>,
+pub struct BackEnd {
+    pub shared: Arc<Mutex<Shared>>,
 }
 
 impl MockPersistentStorage {
-    pub fn new() -> (Self, MockPersistentStorageBackEnd) {
-        let shared = Arc::new(Mutex::new(MockPersistentStorageShared {
+    pub fn new() -> (Self, BackEnd) {
+        let shared = Arc::new(Mutex::new(Shared {
             dropped: false,
             term: 0,
             voted_for: None,
@@ -29,7 +29,7 @@ impl MockPersistentStorage {
             Self {
                 shared: shared.clone(),
             },
-            MockPersistentStorageBackEnd {
+            BackEnd {
                 shared,
             },
         )

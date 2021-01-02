@@ -1,5 +1,12 @@
+#![warn(clippy::pedantic)]
+// TODO: Remove this once ready to publish.
+#![allow(clippy::missing_errors_doc)]
+// This warning falsely triggers when `future::select_all` is used.
+#![allow(clippy::mut_mut)]
+// TODO: Uncomment this once ready to publish.
+//#![warn(missing_docs)]
+
 mod cluster_configuration;
-mod error;
 mod log;
 mod log_entry;
 mod message;
@@ -14,7 +21,6 @@ mod snapshot;
 
 pub use self::log::Log;
 pub use cluster_configuration::ClusterConfiguration;
-pub use error::Error;
 pub use log_entry::{
     Command as LogEntryCommand,
     CustomCommand as LogEntryCustomCommand,
@@ -22,8 +28,8 @@ pub use log_entry::{
 };
 pub use message::{
     AppendEntriesContent,
+    Content as MessageContent,
     Message,
-    MessageContent,
 };
 #[cfg(test)]
 use mock_scheduler::{
@@ -36,11 +42,10 @@ pub use persistent_storage::PersistentStorage;
 #[cfg(not(test))]
 use scheduler::Scheduler;
 pub use server::{
+    Command as ServerCommand,
     ElectionState as ServerElectionState,
     Event as ServerEvent,
-    MobilizeArgs as ServerMobilizeArgs,
     Server,
-    SinkItem as ServerSinkItem,
 };
 pub use server_configuration::ServerConfiguration;
 pub use snapshot::Snapshot;

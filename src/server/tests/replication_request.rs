@@ -813,7 +813,9 @@ fn leader_send_new_log_entries() {
             fixture.expect_heartbeat_timer_registrations(1).await;
         fixture
             .server
-            .send(ServerSinkItem::AddCommands(vec![DummyCommand {}]))
+            .as_mut()
+            .expect("no server mobilized")
+            .send(ServerCommand::AddCommands(vec![DummyCommand {}]))
             .await
             .unwrap();
         fixture.synchronize().await;
@@ -925,7 +927,9 @@ fn non_leader_should_not_accept_commands() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture
             .server
-            .send(ServerSinkItem::AddCommands(vec![DummyCommand {}]))
+            .as_mut()
+            .expect("no server mobilized")
+            .send(ServerCommand::AddCommands(vec![DummyCommand {}]))
             .await
             .unwrap();
         fixture.synchronize().await;

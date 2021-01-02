@@ -15,6 +15,7 @@ pub enum ClusterConfiguration {
 }
 
 impl ClusterConfiguration {
+    #[must_use]
     pub fn peers(
         &self,
         self_id: usize,
@@ -43,13 +44,8 @@ impl ClusterConfiguration {
                 new_configuration,
                 ..
             }) => match self {
-                ClusterConfiguration::Single(old_configuration) => {
-                    ClusterConfiguration::Joint(
-                        old_configuration,
-                        new_configuration.clone(),
-                    )
-                },
-                ClusterConfiguration::Joint(old_configuration, _) => {
+                ClusterConfiguration::Single(old_configuration)
+                | ClusterConfiguration::Joint(old_configuration, _) => {
                     ClusterConfiguration::Joint(
                         old_configuration,
                         new_configuration.clone(),

@@ -232,7 +232,7 @@ fn server_retransmits_request_vote_for_slow_voters_in_election() {
         fixture.expect_election_with_defaults().await;
         let retransmission = fixture.expect_retransmission(2).await;
         assert!(
-            fixture.is_verified_vote_request(VerifyVoteRequestArgs {
+            Fixture::is_verified_vote_request(VerifyVoteRequestArgs {
                 message: &retransmission,
                 expected_last_log_term: 0,
                 expected_last_log_index: 0,
@@ -262,7 +262,7 @@ fn server_retransmits_request_vote_if_vote_had_wrong_seq() {
             .await;
         let retransmission = fixture.expect_retransmission(2).await;
         assert!(
-            fixture.is_verified_vote_request(VerifyVoteRequestArgs {
+            Fixture::is_verified_vote_request(VerifyVoteRequestArgs {
                 message: &retransmission,
                 expected_last_log_term: 0,
                 expected_last_log_index: 0,
