@@ -7,13 +7,13 @@ use crate::{
     Log,
     Message,
     PersistentStorage,
-    Scheduler,
     ServerConfiguration,
 };
 #[cfg(test)]
 use crate::{
     ScheduledEvent,
     ScheduledEventReceiver,
+    Scheduler,
 };
 use futures::{
     channel::{
@@ -27,6 +27,8 @@ use futures::{
     Stream,
     StreamExt as _,
 };
+#[cfg(not(test))]
+use futures_timer::Delay;
 use inner::Inner;
 use std::{
     fmt::Debug,
@@ -185,18 +187,17 @@ fn make_cancellable_timeout_future<S, T>(
     work_item_content: WorkItemContent<S, T>,
     duration: Duration,
     #[cfg(test)] scheduled_event: ScheduledEvent,
-    scheduler: &Scheduler,
+    #[cfg(test)] scheduler: &Scheduler,
 ) -> (WorkItemFuture<S, T>, oneshot::Sender<()>)
 where
     S: 'static + Debug + Send,
     T: 'static + Debug + Send,
 {
     let (sender, receiver) = oneshot::channel();
-    let timeout = scheduler.schedule(
-        #[cfg(test)]
-        scheduled_event,
-        duration,
-    );
+    #[cfg(test)]
+    let timeout = scheduler.schedule(scheduled_event, duration);
+    #[cfg(not(test))]
+    let timeout = Delay::new(duration).boxed();
     let future =
         await_cancellable_timeout(work_item_content, timeout, receiver).boxed();
     (future, sender)
@@ -210,7 +211,7 @@ pub struct Server<S, T> {
 
 impl<S, T> Server<S, T> {
     #[cfg(test)]
-    pub fn new<C>(
+    pub fn new_with_scheduler<C>(
         id: usize,
         configuration: C,
         log: Box<dyn Log<S, Command = T>>,
@@ -223,45 +224,17 @@ impl<S, T> Server<S, T> {
     {
         let (scheduler, scheduled_event_receiver) = Scheduler::new();
         (
-            Self::new_with_scheduler(
-                id,
-                configuration,
-                log,
-                persistent_storage,
-                scheduler,
-            ),
+            Self::new(id, configuration, log, persistent_storage, scheduler),
             scheduled_event_receiver,
         )
     }
 
-    #[cfg(not(test))]
     pub fn new<C>(
         id: usize,
         configuration: C,
         log: Box<dyn Log<S, Command = T>>,
         persistent_storage: Box<dyn PersistentStorage>,
-    ) -> Self
-    where
-        C: Into<ServerConfiguration>,
-        S: Clone + Debug + Send + 'static,
-        T: Clone + Debug + Send + 'static,
-    {
-        let scheduler = Scheduler::new();
-        Self::new_with_scheduler(
-            id,
-            configuration,
-            log,
-            persistent_storage,
-            scheduler,
-        )
-    }
-
-    fn new_with_scheduler<C>(
-        id: usize,
-        configuration: C,
-        log: Box<dyn Log<S, Command = T>>,
-        persistent_storage: Box<dyn PersistentStorage>,
-        scheduler: Scheduler,
+        #[cfg(test)] scheduler: Scheduler,
     ) -> Self
     where
         C: Into<ServerConfiguration>,
@@ -277,6 +250,7 @@ impl<S, T> Server<S, T> {
             log,
             persistent_storage,
             event_sender,
+            #[cfg(test)]
             scheduler,
         );
         Self {

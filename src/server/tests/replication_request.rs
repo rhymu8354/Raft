@@ -250,6 +250,7 @@ fn leader_commit_entry_when_majority_match() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn leader_send_missing_entries_mid_log_on_append_entries_response() {
     assert_logger();
     executor::block_on(async {
@@ -569,7 +570,7 @@ fn leader_no_op_non_zero_commit_index() {
             )
             .await;
         fixture
-            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+            .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: Some(1),
                 expect_state_change: false,
                 match_index: 1,
@@ -786,6 +787,7 @@ fn install_snapshot_ignore_response_if_term_old() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn leader_send_new_log_entries() {
     assert_logger();
     executor::block_on(async {

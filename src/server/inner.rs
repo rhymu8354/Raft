@@ -10,8 +10,6 @@ use super::{
     WorkItemContent,
     WorkItemFuture,
 };
-#[cfg(test)]
-use crate::ScheduledEvent;
 use crate::{
     utilities::spread,
     AppendEntriesContent,
@@ -21,9 +19,13 @@ use crate::{
     Message,
     MessageContent,
     PersistentStorage,
-    Scheduler,
     ServerConfiguration,
     Snapshot,
+};
+#[cfg(test)]
+use crate::{
+    ScheduledEvent,
+    Scheduler,
 };
 use futures::{
     channel::oneshot,
@@ -86,6 +88,7 @@ pub struct Inner<S, T> {
     persistent_storage: Box<dyn PersistentStorage>,
     ignore_vote_requests: bool,
     rng: StdRng,
+    #[cfg(test)]
     scheduler: Scheduler,
     #[cfg(test)]
     synchronize_ack: Option<oneshot::Sender<()>>,
@@ -438,6 +441,7 @@ impl<S, T> Inner<S, T> {
                         self.persistent_storage.term(),
                         &self.event_sender,
                         self.configuration.rpc_timeout,
+                        #[cfg(test)]
                         &self.scheduler,
                     );
                 }
@@ -465,7 +469,7 @@ impl<S, T> Inner<S, T> {
         log: Box<dyn Log<S, Command = T>>,
         persistent_storage: Box<dyn PersistentStorage>,
         event_sender: EventSender<S, T>,
-        scheduler: Scheduler,
+        #[cfg(test)] scheduler: Scheduler,
     ) -> Self {
         let peers = log
             .cluster_configuration()
@@ -488,6 +492,7 @@ impl<S, T> Inner<S, T> {
             persistent_storage,
             ignore_vote_requests: true,
             rng: StdRng::from_entropy(),
+            #[cfg(test)]
             scheduler,
             #[cfg(test)]
             synchronize_ack: None,
@@ -539,6 +544,7 @@ impl<S, T> Inner<S, T> {
                     term,
                     &self.event_sender,
                     self.configuration.rpc_timeout,
+                    #[cfg(test)]
                     &self.scheduler,
                 )
             }
@@ -683,6 +689,7 @@ impl<S, T> Inner<S, T> {
                         self.persistent_storage.term(),
                         &self.event_sender,
                         self.configuration.rpc_timeout,
+                        #[cfg(test)]
                         &self.scheduler,
                     );
                 } else {
@@ -697,6 +704,7 @@ impl<S, T> Inner<S, T> {
                         self.persistent_storage.term(),
                         &self.event_sender,
                         self.configuration.install_snapshot_timeout,
+                        #[cfg(test)]
                         &self.scheduler,
                     );
                 }
@@ -846,6 +854,7 @@ impl<S, T> Inner<S, T> {
                 self.persistent_storage.term(),
                 &self.event_sender,
                 self.configuration.rpc_timeout,
+                #[cfg(test)]
                 &self.scheduler,
             );
         }
@@ -1041,6 +1050,7 @@ impl<S, T> Inner<S, T> {
                     peer_id,
                     &self.event_sender,
                     self.configuration.rpc_timeout,
+                    #[cfg(test)]
                     &self.scheduler,
                 )
             }
@@ -1057,6 +1067,7 @@ impl<S, T> Inner<S, T> {
         let term = self.persistent_storage.term();
         let event_sender = &self.event_sender;
         let rpc_timeout = self.configuration.rpc_timeout;
+        #[cfg(test)]
         let scheduler = &self.scheduler;
         spread(&mut self.peers, content, |(&peer_id, peer), content| {
             peer.send_new_request(
@@ -1065,6 +1076,7 @@ impl<S, T> Inner<S, T> {
                 term,
                 event_sender,
                 rpc_timeout,
+                #[cfg(test)]
                 scheduler,
             )
         });
@@ -1196,6 +1208,7 @@ impl<S, T> Inner<S, T> {
             timeout_duration,
             #[cfg(test)]
             ScheduledEvent::ElectionTimeout,
+            #[cfg(test)]
             &self.scheduler,
         );
         self.cancel_election_timeout.replace(cancel_future);
@@ -1218,6 +1231,7 @@ impl<S, T> Inner<S, T> {
             self.configuration.heartbeat_interval,
             #[cfg(test)]
             ScheduledEvent::Heartbeat,
+            #[cfg(test)]
             &self.scheduler,
         );
         self.cancel_heartbeat.replace(cancel_future);
@@ -1247,6 +1261,7 @@ impl<S, T> Inner<S, T> {
             self.configuration.election_timeout.start,
             #[cfg(test)]
             ScheduledEvent::MinElectionTimeout,
+            #[cfg(test)]
             &self.scheduler,
         );
         self.cancel_min_election_timeout.replace(cancel_future);

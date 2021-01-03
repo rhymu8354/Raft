@@ -5,11 +5,13 @@ use super::{
     WorkItemContent,
     WorkItemFuture,
 };
-#[cfg(test)]
-use crate::ScheduledEvent;
 use crate::{
     Message,
     MessageContent,
+};
+#[cfg(test)]
+use crate::{
+    ScheduledEvent,
     Scheduler,
 };
 use futures::channel::oneshot;
@@ -51,7 +53,7 @@ impl<S, T> Peer<S, T> {
         peer_id: usize,
         event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
-        scheduler: &Scheduler,
+        #[cfg(test)] scheduler: &Scheduler,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
@@ -62,6 +64,7 @@ impl<S, T> Peer<S, T> {
             rpc_timeout,
             #[cfg(test)]
             ScheduledEvent::Retransmit(peer_id),
+            #[cfg(test)]
             &scheduler,
         );
         self.retransmission_future = Some(future);
@@ -80,7 +83,7 @@ impl<S, T> Peer<S, T> {
         term: usize,
         event_sender: &EventSender<S, T>,
         rpc_timeout: Duration,
-        scheduler: &Scheduler,
+        #[cfg(test)] scheduler: &Scheduler,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
@@ -97,6 +100,7 @@ impl<S, T> Peer<S, T> {
             peer_id,
             event_sender,
             rpc_timeout,
+            #[cfg(test)]
             scheduler,
         );
     }

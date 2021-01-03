@@ -46,7 +46,7 @@ fn follower_receive_append_entries() {
             )
             .await;
         fixture
-            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+            .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: Some(1),
                 expect_state_change: false,
                 match_index: 1,
@@ -128,7 +128,7 @@ fn leader_revert_to_follower_on_append_entries_new_term() {
             )
             .await;
         fixture
-            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+            .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: true,
                 match_index: 2,
@@ -215,7 +215,7 @@ fn leader_reject_append_entries_same_term() {
             )
             .await;
         fixture
-            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+            .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: false,
                 match_index: 0,
@@ -288,7 +288,7 @@ fn candidate_append_entries_same_term() {
             )
             .await;
         fixture
-            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+            .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: true,
                 match_index: 1,
@@ -370,7 +370,7 @@ fn follower_match_appended_entries() {
             )
             .await;
         fixture
-            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+            .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: false,
                 match_index: 2,
@@ -453,7 +453,7 @@ fn follower_replaces_mismatched_appended_entries() {
             )
             .await;
         fixture
-            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+            .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: Some(1),
                 expect_state_change: false,
                 match_index: 2,
@@ -545,7 +545,7 @@ fn follower_rejects_appended_entries_with_mismatched_previous_term() {
             )
             .await;
         fixture
-            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+            .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: false,
                 match_index: 0,
@@ -624,7 +624,7 @@ fn follower_rejects_appended_entries_with_mismatched_base() {
             )
             .await;
         fixture
-            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+            .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: false,
                 match_index: 0,
@@ -688,7 +688,7 @@ fn follower_rejects_appended_entries_with_no_common_base() {
             )
             .await;
         fixture
-            .expect_append_entries_response(AwaitAppendEntriesResponseArgs {
+            .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: false,
                 match_index: 0,

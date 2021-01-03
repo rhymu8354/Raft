@@ -13,8 +13,6 @@ mod message;
 #[cfg(test)]
 mod mock_scheduler;
 mod persistent_storage;
-#[cfg(not(test))]
-mod scheduler;
 mod server;
 mod server_configuration;
 mod snapshot;
@@ -40,8 +38,6 @@ use mock_scheduler::{
     Scheduler,
 };
 pub use persistent_storage::PersistentStorage;
-#[cfg(not(test))]
-use scheduler::Scheduler;
 pub use server::{
     Command as ServerCommand,
     ElectionState as ServerElectionState,

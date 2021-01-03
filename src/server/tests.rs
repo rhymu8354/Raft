@@ -406,7 +406,7 @@ impl Fixture {
             .expect("server dropped heartbeat timeout acknowledgment");
     }
 
-    fn is_verified_vote_request(args: VerifyVoteRequestArgs) -> bool {
+    fn is_verified_vote_request(args: &VerifyVoteRequestArgs) -> bool {
         if let MessageContent::RequestVote {
             last_log_index,
             last_log_term,
@@ -461,7 +461,7 @@ impl Fixture {
                     message,
                     receiver_id,
                 } => {
-                    if Self::is_verified_vote_request(VerifyVoteRequestArgs {
+                    if Self::is_verified_vote_request(&VerifyVoteRequestArgs {
                         message: &message,
                         expected_last_log_term,
                         expected_last_log_index,
@@ -604,7 +604,7 @@ impl Fixture {
         self.expect_assume_leadership_now(term);
     }
 
-    fn verify_vote(args: VerifyVoteArgs) {
+    fn verify_vote(args: &VerifyVoteArgs) {
         assert_eq!(
             args.vote, args.expected.vote_granted,
             "unexpected vote (was {}, should be {})",
@@ -636,7 +636,7 @@ impl Fixture {
             vote_granted,
         } = message.content
         {
-            Self::verify_vote(VerifyVoteArgs {
+            Self::verify_vote(&VerifyVoteArgs {
                 seq: message.seq,
                 term: message.term,
                 vote: vote_granted,
@@ -651,7 +651,7 @@ impl Fixture {
 
     fn expect_vote_now(
         &mut self,
-        args: AwaitVoteArgs,
+        args: &AwaitVoteArgs,
     ) {
         let mut state_changed = false;
         loop {
@@ -704,7 +704,7 @@ impl Fixture {
 
     async fn expect_vote(
         &mut self,
-        args: AwaitVoteArgs,
+        args: &AwaitVoteArgs,
     ) {
         self.synchronize().await;
         self.expect_vote_now(args);
@@ -1156,7 +1156,7 @@ impl Fixture {
     ) {
         self.peer_ids =
             log.cluster_configuration().peers(self.id).copied().collect();
-        let (server, scheduled_event_receiver) = Server::new(
+        let (server, scheduled_event_receiver) = Server::new_with_scheduler(
             self.id,
             self.configuration.clone(),
             log,
@@ -1177,7 +1177,7 @@ impl Fixture {
         );
     }
 
-    fn is_verified_append_entries(args: VerifyAppendEntriesArgs) -> bool {
+    fn is_verified_append_entries(args: &VerifyAppendEntriesArgs) -> bool {
         if let MessageContent::AppendEntries(AppendEntriesContent {
             leader_commit,
             prev_log_index,
@@ -1242,7 +1242,7 @@ impl Fixture {
                     receiver_id,
                 } => {
                     if Self::is_verified_append_entries(
-                        VerifyAppendEntriesArgs {
+                        &VerifyAppendEntriesArgs {
                             message: &message,
                             expected_leader_commit: args.leader_commit,
                             expected_prev_log_index: args.prev_log_index,
@@ -1287,7 +1287,7 @@ impl Fixture {
         }
     }
 
-    fn verify_append_entries_response(args: VerifyAppendEntriesResponseArgs) {
+    fn verify_append_entries_response(args: &VerifyAppendEntriesResponseArgs) {
         assert_eq!(
             args.match_index, args.expected.match_index,
             "unexpected match index (was {}, should be {})",
@@ -1320,7 +1320,7 @@ impl Fixture {
         } = message.content
         {
             Self::verify_append_entries_response(
-                VerifyAppendEntriesResponseArgs {
+                &VerifyAppendEntriesResponseArgs {
                     seq: message.seq,
                     term: message.term,
                     match_index,
@@ -1336,7 +1336,7 @@ impl Fixture {
 
     fn expect_append_entries_response_now(
         &mut self,
-        args: AwaitAppendEntriesResponseArgs,
+        args: &AwaitAppendEntriesResponseArgs,
     ) {
         let mut state_changed = false;
         let mut log_committed = false;
@@ -1398,7 +1398,7 @@ impl Fixture {
 
     async fn expect_append_entries_response(
         &mut self,
-        args: AwaitAppendEntriesResponseArgs,
+        args: &AwaitAppendEntriesResponseArgs,
     ) {
         self.synchronize().await;
         self.expect_append_entries_response_now(args);

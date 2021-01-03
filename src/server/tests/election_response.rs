@@ -26,7 +26,7 @@ fn follower_votes_for_first_candidate() {
             })
             .await;
         fixture
-            .expect_vote(AwaitVoteArgs {
+            .expect_vote(&AwaitVoteArgs {
                 expect_state_change: false,
                 receiver_id: 6,
                 seq: 1,
@@ -63,7 +63,7 @@ fn follower_rejects_subsequent_votes_after_first_candidate_same_term() {
             })
             .await;
         fixture
-            .expect_vote(AwaitVoteArgs {
+            .expect_vote(&AwaitVoteArgs {
                 expect_state_change: false,
                 receiver_id: 6,
                 seq: 1,
@@ -100,7 +100,7 @@ fn follower_affirm_vote_upon_repeated_request() {
             })
             .await;
         fixture
-            .expect_vote(AwaitVoteArgs {
+            .expect_vote(&AwaitVoteArgs {
                 expect_state_change: false,
                 receiver_id: 6,
                 seq: 1,
@@ -137,7 +137,7 @@ fn follower_rejects_vote_from_old_term() {
             })
             .await;
         fixture
-            .expect_vote(AwaitVoteArgs {
+            .expect_vote(&AwaitVoteArgs {
                 expect_state_change: false,
                 receiver_id: 6,
                 seq: 1,
@@ -170,7 +170,7 @@ fn non_follower_rejects_vote_from_same_term() {
             })
             .await;
         fixture
-            .expect_vote(AwaitVoteArgs {
+            .expect_vote(&AwaitVoteArgs {
                 expect_state_change: false,
                 receiver_id: 6,
                 seq: 1,
@@ -207,7 +207,7 @@ fn non_follower_revert_to_follower_and_vote_for_new_term_candidate() {
             })
             .await;
         fixture
-            .expect_vote(AwaitVoteArgs {
+            .expect_vote(&AwaitVoteArgs {
                 expect_state_change: true,
                 receiver_id: 6,
                 seq: 1,
@@ -254,7 +254,7 @@ fn vote_rejected_if_candidate_log_old() {
                 })
                 .await;
             fixture
-                .expect_vote(AwaitVoteArgs {
+                .expect_vote(&AwaitVoteArgs {
                     expect_state_change: false,
                     receiver_id: 6,
                     seq: 1,
