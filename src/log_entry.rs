@@ -22,26 +22,20 @@ pub trait CustomCommand {
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Command<T> {
-    SingleConfiguration {
-        old_configuration: HashSet<usize>,
-        configuration: HashSet<usize>,
-    },
-    JointConfiguration {
-        old_configuration: HashSet<usize>,
-        new_configuration: HashSet<usize>,
-    },
+    FinishReconfiguration,
+    StartReconfiguration(HashSet<usize>),
     Custom(T),
 }
 
 impl<T: CustomCommand> Command<T> {
     pub fn command_type(&self) -> &str {
         match self {
-            Command::SingleConfiguration {
+            Command::FinishReconfiguration {
                 ..
-            } => "SingleConfiguration",
-            Command::JointConfiguration {
+            } => "FinishReconfiguration",
+            Command::StartReconfiguration {
                 ..
-            } => "JointConfiguration",
+            } => "StartReconfiguration",
             Command::Custom(custom_command) => custom_command.command_type(),
         }
     }
@@ -51,43 +45,11 @@ impl<T: CustomCommand> Command<T> {
         // implement serde traits (`Serialize` and `Deserialize`), or become a
         // true serde ninja by using their derive macros.
         match self {
-            Command::SingleConfiguration {
-                configuration,
-                old_configuration,
-            } => {
-                let mut configuration =
-                    configuration.iter().copied().collect::<Vec<_>>();
-                configuration.sort_unstable();
-                let mut old_configuration =
-                    old_configuration.iter().copied().collect::<Vec<_>>();
-                old_configuration.sort_unstable();
-                json!({
-                    "configuration": {
-                        "instanceIds": configuration
-                    },
-                    "oldConfiguration": {
-                        "instanceIds": old_configuration
-                    },
-                })
-            },
-            Command::JointConfiguration {
-                new_configuration,
-                old_configuration,
-            } => {
-                let mut new_configuration =
-                    new_configuration.iter().copied().collect::<Vec<_>>();
-                new_configuration.sort_unstable();
-                let mut old_configuration =
-                    old_configuration.iter().copied().collect::<Vec<_>>();
-                old_configuration.sort_unstable();
-                json!({
-                    "newConfiguration": {
-                        "instanceIds": new_configuration
-                    },
-                    "oldConfiguration": {
-                        "instanceIds": old_configuration
-                    },
-                })
+            Command::FinishReconfiguration => JsonValue::Null,
+            Command::StartReconfiguration(ids) => {
+                let mut ids = ids.iter().copied().collect::<Vec<_>>();
+                ids.sort_unstable();
+                json!(ids)
             },
             Command::Custom(custom_command) => custom_command.to_json(),
         }
@@ -102,26 +64,10 @@ impl<T: CustomCommand> TryFrom<&JsonValue> for Command<T> {
         json.get("type")
             .and_then(JsonValue::as_str)
             .and_then(|command_type| match command_type {
-                "SingleConfiguration" => {
-                    command.map(|command| Command::SingleConfiguration {
-                        configuration: command
-                            .get("configuration")
-                            .map_or_else(HashSet::new, decode_instance_ids),
-                        old_configuration: command
-                            .get("oldConfiguration")
-                            .map_or_else(HashSet::new, decode_instance_ids),
-                    })
-                },
-                "JointConfiguration" => {
-                    command.map(|command| Command::JointConfiguration {
-                        new_configuration: command
-                            .get("newConfiguration")
-                            .map_or_else(HashSet::new, decode_instance_ids),
-                        old_configuration: command
-                            .get("oldConfiguration")
-                            .map_or_else(HashSet::new, decode_instance_ids),
-                    })
-                },
+                "FinishReconfiguration" => Some(Command::FinishReconfiguration),
+                "StartReconfiguration" => command.map(|command| {
+                    Command::StartReconfiguration(decode_instance_ids(command))
+                }),
                 _ => command.and_then(|command| {
                     T::from_json(command).map(Command::Custom)
                 }),
@@ -152,16 +98,13 @@ impl<T: CustomCommand> LogEntry<T> {
 }
 
 fn decode_instance_ids(configuration: &JsonValue) -> HashSet<usize> {
-    configuration.get("instanceIds").and_then(JsonValue::as_array).map_or_else(
-        HashSet::new,
-        |instance_ids| {
-            #[allow(clippy::cast_possible_truncation)]
-            instance_ids
-                .iter()
-                .filter_map(|value| value.as_u64().map(|value| value as usize))
-                .collect()
-        },
-    )
+    configuration.as_array().map_or_else(HashSet::new, |instance_ids| {
+        #[allow(clippy::cast_possible_truncation)]
+        instance_ids
+            .iter()
+            .filter_map(|value| value.as_u64().map(|value| value as usize))
+            .collect()
+    })
 }
 
 impl<T: CustomCommand> From<&JsonValue> for LogEntry<T> {
@@ -207,63 +150,40 @@ mod tests {
     }
 
     #[test]
-    fn single_configuration_command_to_json() {
+    fn finish_reconfiguration_command_to_json() {
         let entry = LogEntry::<DummyCommand> {
             term: 9,
-            command: Some(Command::SingleConfiguration {
-                old_configuration: hashset!(5, 42, 85, 13531, 8354),
-                configuration: hashset!(42, 85, 13531, 8354),
-            }),
+            command: Some(Command::FinishReconfiguration),
         };
         assert_eq!(
             json!({
-                "type": "SingleConfiguration",
+                "type": "FinishReconfiguration",
                 "term": 9,
-                "command": {
-                    "oldConfiguration": {
-                        "instanceIds": [5, 42, 85, 8354, 13531],
-                    },
-                    "configuration": {
-                        "instanceIds": [42, 85, 8354, 13531],
-                    },
-                }
+                "command": JsonValue::Null,
             }),
             entry.to_json()
         );
     }
 
     #[test]
-    fn single_configuration_command_from_json() {
+    fn finish_reconfiguration_command_from_json() {
         let encoded_entry = json!({
-            "type": "SingleConfiguration",
+            "type": "FinishReconfiguration",
             "term": 9,
-            "command": {
-                "oldConfiguration": {
-                    "instanceIds": [5, 42, 85, 8354, 13531],
-                },
-                "configuration": {
-                    "instanceIds": [42, 85, 8354, 13531],
-                },
-            },
+            "command": JsonValue::Null,
         });
         let log_entry = LogEntry::<DummyCommand>::from(&encoded_entry);
         assert_eq!(log_entry, LogEntry {
             term: 9,
-            command: Some(Command::SingleConfiguration {
-                old_configuration: hashset!(5, 42, 85, 13531, 8354),
-                configuration: hashset!(42, 85, 13531, 8354),
-            }),
+            command: Some(Command::FinishReconfiguration),
         });
     }
 
     #[test]
-    fn single_configuration_command_serialization() {
+    fn finish_reconfiguration_command_serialization() {
         let original_entry = LogEntry {
             term: 9,
-            command: Some(Command::SingleConfiguration {
-                old_configuration: hashset!(5, 42, 85, 13531, 8354),
-                configuration: hashset!(42, 85, 13531, 8354),
-            }),
+            command: Some(Command::FinishReconfiguration),
         };
         let encoded_entry = to_bytes(&original_entry).unwrap();
         let decoded_entry: LogEntry<DummyCommand> =
@@ -272,63 +192,46 @@ mod tests {
     }
 
     #[test]
-    fn joint_configuration_command_to_json() {
+    fn start_reconfiguration_command_to_json() {
         let entry = LogEntry::<DummyCommand> {
             term: 9,
-            command: Some(Command::JointConfiguration {
-                old_configuration: hashset!(5, 42, 85, 13531, 8354),
-                new_configuration: hashset!(42, 85, 13531, 8354),
-            }),
+            command: Some(Command::StartReconfiguration(hashset!(
+                42, 85, 13531, 8354
+            ))),
         };
         assert_eq!(
             json!({
-                "type": "JointConfiguration",
+                "type": "StartReconfiguration",
                 "term": 9,
-                "command": {
-                    "oldConfiguration": {
-                        "instanceIds": [5, 42, 85, 8354, 13531],
-                    },
-                    "newConfiguration": {
-                        "instanceIds": [42, 85, 8354, 13531],
-                    },
-                }
+                "command": [42, 85, 8354, 13531],
             }),
             entry.to_json()
         );
     }
 
     #[test]
-    fn joint_configuration_command_from_json() {
+    fn start_reconfiguration_command_from_json() {
         let encoded_entry = json!({
-            "type": "JointConfiguration",
+            "type": "StartReconfiguration",
             "term": 9,
-            "command": {
-                "oldConfiguration": {
-                    "instanceIds": [5, 42, 85, 8354, 13531],
-                },
-                "newConfiguration": {
-                    "instanceIds": [42, 85, 8354, 13531],
-                },
-            },
+            "command": [42, 85, 8354, 13531],
         });
         let log_entry = LogEntry::<DummyCommand>::from(&encoded_entry);
         assert_eq!(log_entry, LogEntry {
             term: 9,
-            command: Some(Command::JointConfiguration {
-                old_configuration: hashset!(5, 42, 85, 13531, 8354),
-                new_configuration: hashset!(42, 85, 13531, 8354),
-            }),
+            command: Some(Command::StartReconfiguration(hashset!(
+                42, 85, 13531, 8354
+            ))),
         });
     }
 
     #[test]
-    fn joint_configuration_command_serialization() {
+    fn start_reconfiguration_command_serialization() {
         let original_entry = LogEntry {
             term: 9,
-            command: Some(Command::JointConfiguration {
-                old_configuration: hashset!(5, 42, 85, 13531, 8354),
-                new_configuration: hashset!(42, 85, 13531, 8354),
-            }),
+            command: Some(Command::StartReconfiguration(hashset!(
+                42, 85, 13531, 8354
+            ))),
         };
         let encoded_entry = to_bytes(&original_entry).unwrap();
         let decoded_entry: LogEntry<DummyCommand> =

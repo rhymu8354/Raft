@@ -160,10 +160,7 @@ mod tests {
             },
             LogEntry {
                 term: 8,
-                command: Some(Command::SingleConfiguration {
-                    old_configuration: hashset!(2, 5, 6, 7, 11),
-                    configuration: hashset!(2, 5, 6, 7, 12),
-                }),
+                command: Some(Command::FinishReconfiguration),
             },
         ];
         let message_in = Message {

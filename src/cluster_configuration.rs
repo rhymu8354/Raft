@@ -36,21 +36,22 @@ impl ClusterConfiguration {
         log_entry: &LogEntry<T>,
     ) -> Self {
         match &log_entry.command {
-            Some(LogEntryCommand::SingleConfiguration {
-                configuration,
-                ..
-            }) => ClusterConfiguration::Single(configuration.clone()),
-            Some(LogEntryCommand::JointConfiguration {
-                new_configuration,
-                ..
-            }) => match self {
+            Some(LogEntryCommand::FinishReconfiguration) => match self {
                 ClusterConfiguration::Single(old_configuration)
                 | ClusterConfiguration::Joint(old_configuration, _) => {
-                    ClusterConfiguration::Joint(
-                        old_configuration,
-                        new_configuration.clone(),
-                    )
+                    ClusterConfiguration::Single(old_configuration)
                 },
+            },
+            Some(LogEntryCommand::StartReconfiguration(new_configuration)) => {
+                match self {
+                    ClusterConfiguration::Single(old_configuration)
+                    | ClusterConfiguration::Joint(old_configuration, _) => {
+                        ClusterConfiguration::Joint(
+                            old_configuration,
+                            new_configuration.clone(),
+                        )
+                    },
+                }
             },
             _ => self,
         }
