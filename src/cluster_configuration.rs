@@ -37,9 +37,9 @@ impl ClusterConfiguration {
     ) -> Self {
         match &log_entry.command {
             Some(LogEntryCommand::FinishReconfiguration) => match self {
-                ClusterConfiguration::Single(old_configuration)
-                | ClusterConfiguration::Joint(old_configuration, _) => {
-                    ClusterConfiguration::Single(old_configuration)
+                ClusterConfiguration::Single(new_configuration)
+                | ClusterConfiguration::Joint(_, new_configuration) => {
+                    ClusterConfiguration::Single(new_configuration)
                 },
             },
             Some(LogEntryCommand::StartReconfiguration(new_configuration)) => {
