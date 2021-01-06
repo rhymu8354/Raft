@@ -1095,7 +1095,9 @@ impl Fixture {
                 .next()
                 .now_or_never()
                 .flatten()
-                .expect("no message sent");
+                .unwrap_or_else(|| {
+                    panic!("no messages sent to {:?}", expected_receiver_ids)
+                });
             match event {
                 ServerEvent::SendMessage {
                     message,
