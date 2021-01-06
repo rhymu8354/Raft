@@ -674,27 +674,60 @@ impl<S, T> Inner<S, T> {
         if majority_match_index > self.commit_index {
             self.commit_log(majority_match_index);
         }
-        if self
-            .peers
-            .values()
-            .all(|peer| peer.match_index >= peer.catch_up_index)
+        if let Some(new_cluster_configuration) =
+            self.new_cluster_configuration.take()
         {
-            if let Some(new_cluster_configuration) =
-                self.new_cluster_configuration.take()
+            if self
+                .peers
+                .values()
+                .all(|peer| peer.match_index >= peer.catch_up_index)
             {
                 let _ = self.event_sender.unbounded_send(
                     Event::Reconfiguration(new_cluster_configuration.clone()),
                 );
-                self.log.append_one(LogEntry {
+                let new_entry = LogEntry {
                     term: self.persistent_storage.term(),
                     command: Some(LogEntryCommand::StartReconfiguration(
                         new_cluster_configuration,
                     )),
-                });
+                };
+                let prev_log_index = self.log.last_index();
+                let prev_log_term = self.log.last_term();
+                info!(
+                    "Adding StartReconfiguration command from index {}",
+                    prev_log_index
+                );
+                for (&peer_id, peer) in &mut self.peers {
+                    if peer_id == sender_id {
+                        continue;
+                    }
+                    if !peer.awaiting_response() {
+                        peer.send_new_request(
+                            MessageContent::AppendEntries(
+                                AppendEntriesContent {
+                                    leader_commit: self.commit_index,
+                                    prev_log_index,
+                                    prev_log_term,
+                                    log: vec![new_entry.clone()],
+                                },
+                            ),
+                            peer_id,
+                            term,
+                            &self.event_sender,
+                            self.configuration.rpc_timeout,
+                            #[cfg(test)]
+                            &self.scheduler,
+                        )
+                    }
+                }
+                self.log.append_one(new_entry);
                 info!(
                     "Configuration is now {:?}",
                     self.log.cluster_configuration()
                 );
+            } else {
+                self.new_cluster_configuration
+                    .replace(new_cluster_configuration);
             }
         }
         if let Some(peer) = self.peers.get_mut(&sender_id) {

@@ -1,5 +1,8 @@
 use super::*;
-use crate::tests::assert_logger;
+use crate::{
+    tests::assert_logger,
+    ClusterConfiguration,
+};
 use futures::executor;
 
 #[test]
@@ -8,7 +11,8 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
-        fixture.mobilize_server();
+        let (mock_log, mock_log_back_end) = MockLog::new();
+        fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
@@ -86,6 +90,21 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
             )
             .await;
         fixture.expect_no_reconfiguration().await;
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [LogEntry {
+                term: 1,
+                command: None,
+            }],
+            Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            },
+        );
         fixture
             .send_server_message(
                 Message {
@@ -101,6 +120,103 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
         fixture
             .expect_reconfiguration(&hashset! {2, 5, 6, 7, 11, 12, 13})
             .await;
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [
+                LogEntry {
+                    term: 1,
+                    command: None,
+                },
+                LogEntry {
+                    term: 1,
+                    command: Some(LogEntryCommand::StartReconfiguration(
+                        hashset![2, 5, 6, 7, 11, 12, 13],
+                    )),
+                },
+            ],
+            Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            },
+        );
+        let messages = fixture.expect_messages(hashset! {2, 6, 12, 13}).await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 1,
+                    prev_log_term: 1,
+                    prev_log_index: 1,
+                    log: vec![LogEntry {
+                        term: 1,
+                        command: Some(LogEntryCommand::StartReconfiguration(
+                            hashset![2, 5, 6, 7, 11, 12, 13],
+                        )),
+                    }],
+                }),
+                seq: 3,
+                term: 1,
+            },
+            messages[&2]
+        );
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 1,
+                    prev_log_term: 1,
+                    prev_log_index: 1,
+                    log: vec![LogEntry {
+                        term: 1,
+                        command: Some(LogEntryCommand::StartReconfiguration(
+                            hashset![2, 5, 6, 7, 11, 12, 13],
+                        )),
+                    }],
+                }),
+                seq: 3,
+                term: 1,
+            },
+            messages[&6]
+        );
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 1,
+                    prev_log_term: 1,
+                    prev_log_index: 1,
+                    log: vec![LogEntry {
+                        term: 1,
+                        command: Some(LogEntryCommand::StartReconfiguration(
+                            hashset![2, 5, 6, 7, 11, 12, 13],
+                        )),
+                    }],
+                }),
+                seq: 2,
+                term: 1,
+            },
+            messages[&12]
+        );
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 1,
+                    prev_log_term: 1,
+                    prev_log_index: 1,
+                    log: vec![LogEntry {
+                        term: 1,
+                        command: Some(LogEntryCommand::StartReconfiguration(
+                            hashset![2, 5, 6, 7, 11, 12, 13],
+                        )),
+                    }],
+                }),
+                seq: 2,
+                term: 1,
+            },
+            messages[&13]
+        );
+        fixture.expect_no_messages_now();
     });
 }
 
@@ -140,3 +256,5 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
 //   (At this point we could let it delegate leadership explicitly, or simply
 //   let one of the other servers start a new election once its election timer
 //   expires.)
+// * Servers reverting to follower should drop any pending reconfiguration and
+//   forget any non-voting peers.
