@@ -220,12 +220,52 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
     });
 }
 
+#[test]
+fn start_reconfiguration_immediately_if_no_new_members() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_log, mock_log_back_end) = MockLog::new();
+        fixture.mobilize_server_with_log(Box::new(mock_log));
+        fixture.expect_election_with_defaults().await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_messages_now(hashset! {2, 6, 7, 11});
+        fixture
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7}))
+            .await
+            .expect("unable to send command to server");
+        fixture.expect_reconfiguration(&hashset! {2, 5, 6, 7}).await;
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [
+                LogEntry {
+                    term: 1,
+                    command: None,
+                },
+                LogEntry {
+                    term: 1,
+                    command: Some(LogEntryCommand::StartReconfiguration(
+                        hashset![2, 5, 6, 7],
+                    )),
+                },
+            ],
+            Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            },
+        );
+    });
+}
+
 // TODO:
-// * If a configuration change is pending and all "non-voting" members have
-//   matched up to predetermined "catch up" point, leader should append log
-//   entry for joint configuration.
-// * If a configuration change is requested and no new peers are added, leader
-//   should append log entry for joint configuration.
 // * A second configuration change request made while a previous one is still
 //   held in the "pending" state should be treated as if the previous one was
 //   never made; the "catch up" point is recalculated, "non-voting" members are
