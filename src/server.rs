@@ -31,6 +31,7 @@ use futures::{
 use futures_timer::Delay;
 use inner::Inner;
 use std::{
+    collections::HashSet,
     fmt::Debug,
     pin::Pin,
     task::Poll,
@@ -51,11 +52,12 @@ pub enum Event<S, T> {
         term: usize,
         voted_for: Option<usize>,
     },
+    LogCommitted(usize),
+    Reconfiguration(HashSet<usize>),
     SendMessage {
         message: Message<S, T>,
         receiver_id: usize,
     },
-    LogCommitted(usize),
 }
 
 type EventReceiver<S, T> = mpsc::UnboundedReceiver<Event<S, T>>;
@@ -67,6 +69,7 @@ pub enum Command<S, T> {
         message: Message<S, T>,
         sender_id: usize,
     },
+    Reconfigure(HashSet<usize>),
     #[cfg(test)]
     Synchronize(oneshot::Sender<()>),
 }
@@ -93,6 +96,9 @@ where
                     "ReceiveMessage(from: {:?}, message: {:?})",
                     sender_id, message
                 )?;
+            },
+            Command::Reconfigure(ids) => {
+                write!(f, "Reconfigure({:?})", ids)?;
             },
             #[cfg(test)]
             Command::Synchronize(_) => {

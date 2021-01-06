@@ -16,3 +16,13 @@ pub fn spread<Item, Iterable, Visitor, Value>(
         visitor(next, value);
     }
 }
+
+pub fn sorted<'a, I, T>(ids: I) -> Vec<T>
+where
+    I: IntoIterator<Item = &'a T>,
+    T: 'a + Copy + Ord,
+{
+    let mut ids = ids.into_iter().copied().collect::<Vec<_>>();
+    ids.sort_unstable();
+    ids
+}

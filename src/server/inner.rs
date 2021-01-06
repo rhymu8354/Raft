@@ -11,7 +11,10 @@ use super::{
     WorkItemFuture,
 };
 use crate::{
-    utilities::spread,
+    utilities::{
+        sorted,
+        spread,
+    },
     AppendEntriesContent,
     Log,
     LogEntry,
@@ -49,8 +52,10 @@ use std::{
     collections::{
         BinaryHeap,
         HashMap,
+        HashSet,
     },
     fmt::Debug,
+    iter::once,
 };
 
 enum HistoryComparison {
@@ -84,6 +89,7 @@ pub struct Inner<S, T> {
     event_sender: EventSender<S, T>,
     id: usize,
     log: Box<dyn Log<S, Command = T>>,
+    new_cluster_configuration: Option<HashSet<usize>>,
     peers: HashMap<usize, Peer<S, T>>,
     persistent_storage: Box<dyn PersistentStorage>,
     ignore_vote_requests: bool,
@@ -404,12 +410,17 @@ impl<S, T> Inner<S, T> {
         let mut match_indices = self
             .peers
             .values()
-            .map(|peer| peer.match_index)
+            .filter_map(|peer| {
+                if peer.match_index >= peer.catch_up_index {
+                    Some(peer.match_index)
+                } else {
+                    None
+                }
+            })
             .collect::<BinaryHeap<_>>();
-        let mut n = (self.peers.len() - 1) / 2;
+        let mut n = (match_indices.len() - 1) / 2;
         loop {
-            let match_index =
-                match_indices.pop().expect("unexpectedly short peer list");
+            let match_index = match_indices.pop().unwrap_or(0);
             if n == 0 {
                 break match_index;
             }
@@ -488,6 +499,7 @@ impl<S, T> Inner<S, T> {
             event_sender,
             id,
             log,
+            new_cluster_configuration: None,
             peers,
             persistent_storage,
             ignore_vote_requests: true,
@@ -603,6 +615,8 @@ impl<S, T> Inner<S, T> {
         self.cancel_election_timers();
     }
 
+    // TODO: Needs refactoring
+    #[allow(clippy::too_many_lines)]
     fn process_append_entries_response(
         &mut self,
         match_index: usize,
@@ -659,6 +673,29 @@ impl<S, T> Inner<S, T> {
         let majority_match_index = self.find_majority_match_index();
         if majority_match_index > self.commit_index {
             self.commit_log(majority_match_index);
+        }
+        if self
+            .peers
+            .values()
+            .all(|peer| peer.match_index >= peer.catch_up_index)
+        {
+            if let Some(new_cluster_configuration) =
+                self.new_cluster_configuration.take()
+            {
+                let _ = self.event_sender.unbounded_send(
+                    Event::Reconfiguration(new_cluster_configuration.clone()),
+                );
+                self.log.append_one(LogEntry {
+                    term: self.persistent_storage.term(),
+                    command: Some(LogEntryCommand::StartReconfiguration(
+                        new_cluster_configuration,
+                    )),
+                });
+                info!(
+                    "Configuration is now {:?}",
+                    self.log.cluster_configuration()
+                );
+            }
         }
         if let Some(peer) = self.peers.get_mut(&sender_id) {
             if peer.match_index < self.log.last_index() {
@@ -727,6 +764,7 @@ impl<S, T> Inner<S, T> {
                 message,
                 sender_id,
             } => self.process_receive_message(message, sender_id),
+            Command::Reconfigure(ids) => self.process_reconfigure(ids),
             #[cfg(test)]
             Command::Synchronize(received) => {
                 if self.cancellations_pending == 0 {
@@ -927,6 +965,57 @@ impl<S, T> Inner<S, T> {
                 );
             },
         }
+    }
+
+    fn process_reconfigure(
+        &mut self,
+        ids: HashSet<usize>,
+    ) where
+        S: 'static + Clone + Debug + Send,
+        T: 'static + Clone + Debug + Send,
+    {
+        let old_ids = self
+            .peers
+            .keys()
+            .copied()
+            .chain(once(self.id))
+            .collect::<HashSet<_>>();
+        info!(
+            "Reconfiguring from {:?} to {:?}",
+            sorted(&old_ids),
+            sorted(&ids)
+        );
+        let self_id = self.id;
+        let leader_commit = self.commit_index;
+        let prev_log_index = self.log.last_index();
+        let prev_log_term = self.log.last_term();
+        let term = self.persistent_storage.term();
+        let event_sender = &self.event_sender;
+        let rpc_timeout = self.configuration.rpc_timeout;
+        #[cfg(test)]
+        let scheduler = &self.scheduler;
+        for new_peer_id in ids.difference(&old_ids).filter(|id| **id != self_id)
+        {
+            debug!("Sending heartbeat to {}", *new_peer_id);
+            let mut peer = Peer::default();
+            peer.catch_up_index = prev_log_index;
+            peer.send_new_request(
+                MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit,
+                    prev_log_index,
+                    prev_log_term,
+                    log: vec![],
+                }),
+                *new_peer_id,
+                term,
+                event_sender,
+                rpc_timeout,
+                #[cfg(test)]
+                scheduler,
+            );
+            self.peers.insert(*new_peer_id, peer);
+        }
+        self.new_cluster_configuration = Some(ids);
     }
 
     fn process_request_vote(

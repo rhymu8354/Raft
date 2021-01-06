@@ -1,12 +1,110 @@
+use super::*;
+use crate::tests::assert_logger;
+use futures::executor;
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn delay_start_reconfiguration_until_new_member_catches_up() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.expect_election_with_defaults().await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_messages_now(hashset! {2, 6, 7, 11});
+        fixture
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12, 13}))
+            .await
+            .expect("unable to send command to server");
+        let messages = fixture.expect_messages(hashset! {12, 13}).await;
+        fixture.expect_no_reconfiguration().await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_term: 1,
+                    prev_log_index: 1,
+                    log: vec![],
+                }),
+                seq: 1,
+                term: 1,
+            },
+            messages[&12]
+        );
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_term: 1,
+                    prev_log_index: 1,
+                    log: vec![],
+                }),
+                seq: 1,
+                term: 1,
+            },
+            messages[&13]
+        );
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                6,
+            )
+            .await;
+        fixture.expect_commit(1).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 1,
+                    term: 1,
+                },
+                12,
+            )
+            .await;
+        fixture.expect_no_reconfiguration().await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 1,
+                    term: 1,
+                },
+                13,
+            )
+            .await;
+        fixture
+            .expect_reconfiguration(&hashset! {2, 5, 6, 7, 11, 12, 13})
+            .await;
+    });
+}
+
 // TODO:
-// * Include the cluster configuration in snapshot.
-// * A request to change configuration to one in which peers are added should
-//   cause the leader to hold the configuration change in a "pending" state, add
-//   the new peers as "non-voting" members (which do not count towards majority
-//   needed to commit) to its peer list, and begin replicating the log to them.
-//   A copy of the log index of the leader at the time of the configuration
-//   change request is held onto in order to determine when the "non-voting"
-//   members have caught up.
 // * If a configuration change is pending and all "non-voting" members have
 //   matched up to predetermined "catch up" point, leader should append log
 //   entry for joint configuration.

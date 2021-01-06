@@ -494,6 +494,9 @@ impl Fixture {
                 ServerEvent::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
+                ServerEvent::Reconfiguration(_) => {
+                    panic!("Unexpected reconfiguration")
+                },
             }
         }
     }
@@ -695,6 +698,9 @@ impl Fixture {
                 ServerEvent::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
+                ServerEvent::Reconfiguration(_) => {
+                    panic!("Unexpected reconfiguration")
+                },
             }
         }
         if args.expect_state_change {
@@ -745,6 +751,9 @@ impl Fixture {
                 },
                 ServerEvent::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
+                },
+                ServerEvent::Reconfiguration(_) => {
+                    panic!("Unexpected reconfiguration")
                 },
             }
         }
@@ -864,6 +873,59 @@ impl Fixture {
     async fn expect_no_commit(&mut self) {
         self.synchronize().await;
         self.expect_no_commit_now();
+    }
+
+    fn expect_reconfiguration_now(
+        &mut self,
+        expected_ids: &HashSet<usize>,
+    ) {
+        while let Some(event) = self
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+        {
+            if let ServerEvent::Reconfiguration(ids) =
+                event.expect("unexpected end of server events")
+            {
+                assert_eq!(
+                    *expected_ids, ids,
+                    "wrong instance IDs (expected {:?}, got {:?})",
+                    *expected_ids, ids
+                );
+                return;
+            }
+        }
+        panic!("server did not reconfigure")
+    }
+
+    async fn expect_reconfiguration(
+        &mut self,
+        expected_ids: &HashSet<usize>,
+    ) {
+        self.synchronize().await;
+        self.expect_reconfiguration_now(expected_ids);
+    }
+
+    fn expect_no_reconfiguration_now(&mut self) {
+        while let Some(event) = self
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+            .flatten()
+        {
+            if let ServerEvent::Reconfiguration(ids) = event {
+                panic!("unexpected reconfiguration to {:?}", ids);
+            }
+        }
+    }
+
+    async fn expect_no_reconfiguration(&mut self) {
+        self.synchronize().await;
+        self.expect_no_reconfiguration_now();
     }
 
     async fn cast_vote(
@@ -1005,6 +1067,9 @@ impl Fixture {
                 ServerEvent::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
+                ServerEvent::Reconfiguration(_) => {
+                    panic!("Unexpected reconfiguration")
+                },
             }
         }
     }
@@ -1052,6 +1117,9 @@ impl Fixture {
                 ServerEvent::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
+                ServerEvent::Reconfiguration(_) => {
+                    panic!("Unexpected reconfiguration")
+                },
             }
         }
         messages
@@ -1095,6 +1163,9 @@ impl Fixture {
                 },
                 ServerEvent::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
+                },
+                ServerEvent::Reconfiguration(_) => {
+                    panic!("Unexpected reconfiguration")
                 },
             }
         }
@@ -1267,6 +1338,9 @@ impl Fixture {
                 ServerEvent::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
+                ServerEvent::Reconfiguration(_) => {
+                    panic!("Unexpected reconfiguration")
+                },
             }
         }
     }
@@ -1386,6 +1460,9 @@ impl Fixture {
                         commit_index, expected_commit_index
                     );
                 },
+                ServerEvent::Reconfiguration(_) => {
+                    panic!("Unexpected reconfiguration")
+                },
             }
         }
         if args.expect_state_change {
@@ -1480,6 +1557,9 @@ impl Fixture {
                 },
                 ServerEvent::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
+                },
+                ServerEvent::Reconfiguration(_) => {
+                    panic!("Unexpected reconfiguration")
                 },
             }
         }
