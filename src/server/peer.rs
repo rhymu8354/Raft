@@ -26,7 +26,6 @@ use std::{
 
 pub struct Peer<S, T> {
     cancel_retransmission: Option<oneshot::Sender<()>>,
-    pub catch_up_index: usize,
     last_message: Option<Message<S, T>>,
     pub last_seq: usize,
     pub match_index: usize,
@@ -113,7 +112,6 @@ impl<S, T> Default for Peer<S, T> {
     fn default() -> Self {
         Peer {
             cancel_retransmission: None,
-            catch_up_index: 0,
             last_message: None,
             last_seq: 0,
             match_index: 0,

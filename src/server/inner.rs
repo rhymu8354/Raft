@@ -16,6 +16,7 @@ use crate::{
         spread,
     },
     AppendEntriesContent,
+    ClusterConfiguration,
     Log,
     LogEntry,
     LogEntryCommand,
@@ -83,6 +84,7 @@ pub struct Inner<S, T> {
     cancel_min_election_timeout: Option<oneshot::Sender<()>>,
     #[cfg(test)]
     cancellations_pending: usize,
+    catch_up_index: usize,
     commit_index: usize,
     configuration: ServerConfiguration,
     election_state: ElectionState,
@@ -406,15 +408,17 @@ impl<S, T> Inner<S, T> {
         }
     }
 
-    fn find_majority_match_index(&self) -> usize {
-        let mut match_indices = self
-            .peers
-            .values()
-            .filter_map(|peer| {
-                if peer.match_index >= peer.catch_up_index {
-                    Some(peer.match_index)
+    fn find_majority_match_index_among(
+        &self,
+        ids: &HashSet<usize>,
+    ) -> usize {
+        let mut match_indices = ids
+            .iter()
+            .filter_map(|id| {
+                if *id == self.id {
+                    Some(self.log.last_index())
                 } else {
-                    None
+                    self.peers.get(id).map(|peer| peer.match_index)
                 }
             })
             .collect::<BinaryHeap<_>>();
@@ -425,6 +429,17 @@ impl<S, T> Inner<S, T> {
                 break match_index;
             }
             n -= 1;
+        }
+    }
+
+    fn find_majority_match_index(&self) -> usize {
+        match &self.log.cluster_configuration() {
+            ClusterConfiguration::Single(ids) => {
+                self.find_majority_match_index_among(ids)
+            },
+            ClusterConfiguration::Joint(old_ids, new_ids) => self
+                .find_majority_match_index_among(old_ids)
+                .min(self.find_majority_match_index_among(new_ids)),
         }
     }
 
@@ -493,6 +508,7 @@ impl<S, T> Inner<S, T> {
             cancel_min_election_timeout: None,
             #[cfg(test)]
             cancellations_pending: 0,
+            catch_up_index: 0,
             commit_index: 0,
             configuration,
             election_state: ElectionState::Follower,
@@ -677,11 +693,18 @@ impl<S, T> Inner<S, T> {
         if let Some(new_cluster_configuration) =
             self.new_cluster_configuration.take()
         {
-            if self
-                .peers
-                .values()
-                .all(|peer| peer.match_index >= peer.catch_up_index)
-            {
+            let voting_peers = self
+                .log
+                .cluster_configuration()
+                .peers(self.id)
+                .copied()
+                .collect::<HashSet<_>>();
+            let all_peers_voting_or_caught_up =
+                self.peers.iter().all(|(peer_id, peer)| {
+                    voting_peers.contains(peer_id)
+                        || peer.match_index >= self.catch_up_index
+                });
+            if all_peers_voting_or_caught_up {
                 let _ = self.event_sender.unbounded_send(
                     Event::Reconfiguration(new_cluster_configuration.clone()),
                 );
@@ -1027,6 +1050,7 @@ impl<S, T> Inner<S, T> {
         let rpc_timeout = self.configuration.rpc_timeout;
         #[cfg(test)]
         let scheduler = &self.scheduler;
+        self.catch_up_index = prev_log_index;
         let new_peer_ids = ids
             .difference(&old_ids)
             .filter(|id| **id != self_id)
@@ -1039,8 +1063,6 @@ impl<S, T> Inner<S, T> {
                 term: self.persistent_storage.term(),
                 command: Some(LogEntryCommand::StartReconfiguration(ids)),
             };
-            let prev_log_index = self.log.last_index();
-            let prev_log_term = self.log.last_term();
             info!(
                 "Adding StartReconfiguration command from index {}",
                 prev_log_index
@@ -1072,7 +1094,6 @@ impl<S, T> Inner<S, T> {
             for new_peer_id in new_peer_ids {
                 debug!("Sending heartbeat to new peer {}", *new_peer_id);
                 let mut peer = Peer::default();
-                peer.catch_up_index = prev_log_index;
                 peer.send_new_request(
                     MessageContent::AppendEntries(AppendEntriesContent {
                         leader_commit,

@@ -265,11 +265,193 @@ fn start_reconfiguration_immediately_if_no_new_members() {
     });
 }
 
+#[test]
+#[allow(clippy::too_many_lines)]
+fn reconfiguration_overrides_pending_previous_reconfiguration() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_log, mock_log_back_end) = MockLog::new();
+        fixture.mobilize_server_with_log(Box::new(mock_log));
+        fixture.expect_election_with_defaults().await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12}))
+            .await
+            .expect("unable to send command to server");
+        fixture.expect_messages(hashset! {2, 6, 7, 11, 12}).await;
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [LogEntry {
+                term: 1,
+                command: None,
+            }],
+            Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            },
+        );
+        fixture
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .send(ServerCommand::AddCommands(vec![DummyCommand {}]))
+            .await
+            .unwrap();
+        fixture
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12, 13}))
+            .await
+            .expect("unable to send command to server");
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_term: 1,
+                    prev_log_index: 2,
+                    log: vec![],
+                }),
+                seq: 1,
+                term: 1,
+            },
+            fixture.expect_message(13).await
+        );
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 2,
+                    },
+                    seq: 1,
+                    term: 1,
+                },
+                13,
+            )
+            .await;
+        fixture.expect_no_reconfiguration().await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 1,
+                    term: 1,
+                },
+                12,
+            )
+            .await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_term: 1,
+                    prev_log_index: 1,
+                    log: vec![LogEntry {
+                        term: 1,
+                        command: Some(LogEntryCommand::Custom(DummyCommand {})),
+                    }],
+                }),
+                seq: 2,
+                term: 1,
+            },
+            fixture.expect_message(12).await
+        );
+        fixture.expect_no_reconfiguration().await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 2,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                12,
+            )
+            .await;
+        fixture
+            .expect_reconfiguration(&hashset! {2, 5, 6, 7, 11, 12, 13})
+            .await;
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [
+                LogEntry {
+                    term: 1,
+                    command: None,
+                },
+                LogEntry {
+                    term: 1,
+                    command: Some(LogEntryCommand::Custom(DummyCommand {})),
+                },
+                LogEntry {
+                    term: 1,
+                    command: Some(LogEntryCommand::StartReconfiguration(
+                        hashset![2, 5, 6, 7, 11, 12, 13],
+                    )),
+                },
+            ],
+            Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            },
+        );
+        let messages = fixture.expect_messages(hashset! {12, 13}).await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_term: 1,
+                    prev_log_index: 2,
+                    log: vec![LogEntry {
+                        term: 1,
+                        command: Some(LogEntryCommand::StartReconfiguration(
+                            hashset![2, 5, 6, 7, 11, 12, 13],
+                        )),
+                    }],
+                }),
+                seq: 3,
+                term: 1,
+            },
+            messages[&12]
+        );
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_term: 1,
+                    prev_log_index: 2,
+                    log: vec![LogEntry {
+                        term: 1,
+                        command: Some(LogEntryCommand::StartReconfiguration(
+                            hashset![2, 5, 6, 7, 11, 12, 13],
+                        )),
+                    }],
+                }),
+                seq: 2,
+                term: 1,
+            },
+            messages[&13]
+        );
+        fixture.expect_no_messages_now();
+    });
+}
+
 // TODO:
-// * A second configuration change request made while a previous one is still
-//   held in the "pending" state should be treated as if the previous one was
-//   never made; the "catch up" point is recalculated, "non-voting" members are
-//   reconsidered, etc.
 // * A request to change the configuration to the current configuration should
 //   be ignored.
 // * A request to change the configuration while the cluster is in joint
