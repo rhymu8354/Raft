@@ -1173,6 +1173,11 @@ impl Fixture {
         }
     }
 
+    async fn expect_no_messages(&mut self) {
+        self.synchronize().await;
+        self.expect_no_messages_now();
+    }
+
     async fn expect_retransmission(
         &mut self,
         expected_receiver_id: usize,

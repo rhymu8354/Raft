@@ -1023,6 +1023,8 @@ impl<S, T> Inner<S, T> {
         }
     }
 
+    // TODO: Needs Refactoring
+    #[allow(clippy::too_many_lines)]
     fn process_reconfigure(
         &mut self,
         ids: HashSet<usize>,
@@ -1030,15 +1032,29 @@ impl<S, T> Inner<S, T> {
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
-        let old_ids = self
-            .peers
-            .keys()
-            .copied()
-            .chain(once(self.id))
-            .collect::<HashSet<_>>();
+        let current_configuration = self.log.cluster_configuration();
+        match &current_configuration {
+            ClusterConfiguration::Single(current_ids)
+                if *current_ids == ids =>
+            {
+                warn!(
+                    "Ignoring reconfiguration request because configuration would not change ({:?})",
+                    sorted(&ids)
+                );
+                return;
+            }
+            ClusterConfiguration::Joint(_, _) => {
+                warn!(
+                    "Ignoring reconfiguration request because currently in joint configuration ({:?})",
+                    current_configuration
+                );
+                return;
+            },
+            _ => (),
+        }
         info!(
             "Reconfiguring from {:?} to {:?}",
-            sorted(&old_ids),
+            current_configuration,
             sorted(&ids)
         );
         let self_id = self.id;
@@ -1051,6 +1067,12 @@ impl<S, T> Inner<S, T> {
         #[cfg(test)]
         let scheduler = &self.scheduler;
         self.catch_up_index = prev_log_index;
+        let old_ids = self
+            .peers
+            .keys()
+            .copied()
+            .chain(once(self.id))
+            .collect::<HashSet<_>>();
         let new_peer_ids = ids
             .difference(&old_ids)
             .filter(|id| **id != self_id)
