@@ -580,7 +580,6 @@ fn no_reconfiguration_if_in_joint_configuration() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
 fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
     assert_logger();
     executor::block_on(async {
@@ -682,6 +681,124 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
     });
 }
 
+#[test]
+#[allow(clippy::too_many_lines)]
+fn reconfiguration_cancelled_if_revert_to_follower() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_log, mock_log_back_end) = MockLog::new();
+        fixture.mobilize_server_with_log(Box::new(mock_log));
+        fixture.expect_election_with_defaults().await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_timer_registrations(1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12}))
+            .await
+            .expect("unable to send command to server");
+        fixture.expect_messages(hashset! {2, 6, 7, 11, 12}).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                6,
+            )
+            .await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                7,
+            )
+            .await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                11,
+            )
+            .await;
+        fixture.expect_commit(1).await;
+        fixture
+            .receive_vote_request(ReceiveVoteRequestArgs {
+                sender_id: 6,
+                last_log_term: 1,
+                last_log_index: 1,
+                seq: 1,
+                term: 2,
+            })
+            .await;
+        fixture
+            .expect_election_state_change(ServerElectionState::Follower)
+            .await;
+        fixture.expect_message(6).await;
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 1,
+                last_log_index: 1,
+                term: 3,
+            })
+            .await;
+        fixture.expect_no_messages().await;
+        fixture.cast_votes(3, 3).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_messages(hashset! {2, 6, 7, 11}).await;
+        fixture.expect_no_messages().await;
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [
+                LogEntry {
+                    term: 1,
+                    command: None,
+                },
+                LogEntry {
+                    term: 3,
+                    command: None,
+                },
+            ],
+            Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            },
+        );
+    });
+}
+
 // TODO:
 // * When a `FinishReconfiguration` command is appended, drop any peers that
 //   were in the old configuration but not the new configuration.
@@ -707,5 +824,3 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
 //   (At this point we could let it delegate leadership explicitly, or simply
 //   let one of the other servers start a new election once its election timer
 //   expires.)
-// * Servers reverting to follower should drop any pending reconfiguration and
-//   forget any non-voting peers.

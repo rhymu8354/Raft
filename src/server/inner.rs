@@ -167,6 +167,9 @@ impl<S, T> Inner<S, T> {
     }
 
     fn become_follower(&mut self) {
+        if self.new_cluster_configuration.is_some() {
+            self.drop_pending_reconfiguration();
+        }
         self.change_election_state(ElectionState::Follower);
         self.cancel_heartbeat_timer();
     }
@@ -393,6 +396,27 @@ impl<S, T> Inner<S, T> {
             Ordering::Less => LogEntryDisposition::Possessed,
             Ordering::Equal => LogEntryDisposition::Next,
             Ordering::Greater => LogEntryDisposition::Future,
+        }
+    }
+
+    fn drop_pending_reconfiguration(&mut self) {
+        let current_configuration = self.log.cluster_configuration();
+        if let ClusterConfiguration::Single(current_ids) =
+            &current_configuration
+        {
+            info!(
+                "Reconfiguration cancelled; back to {:?}",
+                current_configuration
+            );
+            let peers_to_drop = self
+                .peers
+                .keys()
+                .filter(|peer_id| !current_ids.contains(peer_id))
+                .copied()
+                .collect::<Vec<_>>();
+            for id in peers_to_drop {
+                self.peers.remove(&id);
+            }
         }
     }
 
@@ -1038,19 +1062,7 @@ impl<S, T> Inner<S, T> {
                 if *current_ids == ids =>
             {
                 if self.new_cluster_configuration.is_some() {
-                    info!(
-                        "Reconfiguration cancelled; back to {:?}",
-                        current_configuration
-                    );
-                    let peers_to_drop = self
-                        .peers
-                        .keys()
-                        .filter(|peer_id| !current_ids.contains(peer_id))
-                        .copied()
-                        .collect::<Vec<_>>();
-                    for id in peers_to_drop {
-                        self.peers.remove(&id);
-                    }
+                    self.drop_pending_reconfiguration();
                 } else {
                     warn!(
                         "Ignoring reconfiguration request because configuration would not change ({:?})",

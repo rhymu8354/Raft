@@ -202,13 +202,13 @@ impl Fixture {
             .now_or_never()
             .flatten()
         {
-            assert!(!matches!(
-                event_with_completer,
-                ScheduledEventWithCompleter {
+            assert!(
+                !matches!(event_with_completer, ScheduledEventWithCompleter {
                     scheduled_event: ScheduledEvent::ElectionTimeout,
                     ..
-                }
-            ));
+                }),
+                "Unexpected election timer registered"
+            );
         }
     }
 
