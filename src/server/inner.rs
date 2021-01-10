@@ -1037,10 +1037,26 @@ impl<S, T> Inner<S, T> {
             ClusterConfiguration::Single(current_ids)
                 if *current_ids == ids =>
             {
-                warn!(
-                    "Ignoring reconfiguration request because configuration would not change ({:?})",
-                    sorted(&ids)
-                );
+                if self.new_cluster_configuration.is_some() {
+                    info!(
+                        "Reconfiguration cancelled; back to {:?}",
+                        current_configuration
+                    );
+                    let peers_to_drop = self
+                        .peers
+                        .keys()
+                        .filter(|peer_id| !current_ids.contains(peer_id))
+                        .copied()
+                        .collect::<Vec<_>>();
+                    for id in peers_to_drop {
+                        self.peers.remove(&id);
+                    }
+                } else {
+                    warn!(
+                        "Ignoring reconfiguration request because configuration would not change ({:?})",
+                        sorted(&ids)
+                    );
+                }
                 return;
             }
             ClusterConfiguration::Joint(_, _) => {

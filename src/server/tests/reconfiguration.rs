@@ -579,10 +579,110 @@ fn no_reconfiguration_if_in_joint_configuration() {
     });
 }
 
+#[test]
+#[allow(clippy::too_many_lines)]
+fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_log, mock_log_back_end) = MockLog::new();
+        fixture.mobilize_server_with_log(Box::new(mock_log));
+        fixture.expect_election_with_defaults().await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12}))
+            .await
+            .expect("unable to send command to server");
+        fixture.expect_messages(hashset! {2, 6, 7, 11, 12}).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                6,
+            )
+            .await;
+        fixture.expect_commit(1).await;
+        fixture
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11}))
+            .await
+            .expect("unable to send command to server");
+        fixture.expect_no_messages().await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        match_index: 1,
+                    },
+                    seq: 1,
+                    term: 1,
+                },
+                12,
+            )
+            .await;
+        fixture.expect_no_messages().await;
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [LogEntry {
+                term: 1,
+                command: None,
+            }],
+            Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            },
+        );
+        fixture
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12}))
+            .await
+            .expect("unable to send command to server");
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 1,
+                    prev_log_term: 1,
+                    prev_log_index: 1,
+                    log: vec![],
+                }),
+                seq: 1,
+                term: 1,
+            },
+            fixture.expect_message(12).await
+        );
+    });
+}
+
 // TODO:
-// * A request to change the configuration back to the current configuration
-//   when a new configuration is pending should cancel the pending
-//   reconfiguration and drop any peers not in the original configuration.
 // * When a `FinishReconfiguration` command is appended, drop any peers that
 //   were in the old configuration but not the new configuration.
 // * Server should use latest configuration appended to log, even if it hasn't
