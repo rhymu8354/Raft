@@ -16,6 +16,19 @@ pub enum ClusterConfiguration {
 
 impl ClusterConfiguration {
     #[must_use]
+    pub fn contains(
+        &self,
+        id: usize,
+    ) -> bool {
+        match self {
+            ClusterConfiguration::Single(ids) => ids.contains(&id),
+            ClusterConfiguration::Joint(old_ids, new_ids) => {
+                old_ids.contains(&id) || new_ids.contains(&id)
+            },
+        }
+    }
+
+    #[must_use]
     pub fn peers(
         &self,
         self_id: usize,

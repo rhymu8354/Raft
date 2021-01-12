@@ -143,6 +143,19 @@ impl<S, T> Inner<S, T> {
             match_index += 1;
             match_term = new_log_term;
         }
+        let new_ids = self
+            .log
+            .cluster_configuration()
+            .peers(self.id)
+            .copied()
+            .collect::<HashSet<_>>();
+        let old_ids = self.peers.keys().copied().collect::<HashSet<_>>();
+        for old_peer_id in old_ids.difference(&new_ids) {
+            self.peers.remove(old_peer_id);
+        }
+        for new_peer_id in new_ids.difference(&old_ids) {
+            self.peers.insert(*new_peer_id, Peer::default());
+        }
         match_index
     }
 
@@ -167,8 +180,8 @@ impl<S, T> Inner<S, T> {
     }
 
     fn become_follower(&mut self) {
-        if self.new_cluster_configuration.is_some() {
-            self.drop_pending_reconfiguration();
+        if self.new_cluster_configuration.take().is_some() {
+            self.drop_old_peers();
         }
         self.change_election_state(ElectionState::Follower);
         self.cancel_heartbeat_timer();
@@ -399,7 +412,7 @@ impl<S, T> Inner<S, T> {
         }
     }
 
-    fn drop_pending_reconfiguration(&mut self) {
+    fn drop_old_peers(&mut self) {
         let current_configuration = self.log.cluster_configuration();
         if let ClusterConfiguration::Single(current_ids) =
             &current_configuration
@@ -1061,8 +1074,8 @@ impl<S, T> Inner<S, T> {
             ClusterConfiguration::Single(current_ids)
                 if *current_ids == ids =>
             {
-                if self.new_cluster_configuration.is_some() {
-                    self.drop_pending_reconfiguration();
+                if self.new_cluster_configuration.take().is_some() {
+                    self.drop_old_peers();
                 } else {
                     warn!(
                         "Ignoring reconfiguration request because configuration would not change ({:?})",
@@ -1208,6 +1221,7 @@ impl<S, T> Inner<S, T> {
             message,
             receiver_id: sender_id,
         });
+        // TODO: Should we cancel election timers here, or not?
         if vote_granted {
             self.cancel_election_timers();
         }
@@ -1427,6 +1441,7 @@ impl<S, T> Inner<S, T> {
     {
         if self.election_state == ElectionState::Leader
             || self.cancel_election_timeout.is_some()
+            || !self.log.cluster_configuration().contains(self.id)
         {
             return None;
         }
@@ -1457,6 +1472,7 @@ impl<S, T> Inner<S, T> {
     {
         if self.election_state != ElectionState::Leader
             || self.cancel_heartbeat.is_some()
+            || !self.log.cluster_configuration().contains(self.id)
             || self.peers.values().all(Peer::awaiting_response)
         {
             return None;

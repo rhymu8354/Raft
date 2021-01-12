@@ -799,11 +799,123 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
     });
 }
 
+#[test]
+fn follower_add_peers_in_joint_configuration() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.expect_election_timer_registrations(1).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 0,
+                            prev_log_term: 0,
+                            log: vec![LogEntry {
+                                term: 1,
+                                command: Some(
+                                    LogEntryCommand::StartReconfiguration(
+                                        hashset! {2, 5, 6, 7, 11, 12},
+                                    ),
+                                ),
+                            }],
+                        },
+                    ),
+                    seq: 1,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.peer_ids.insert(12);
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 1,
+                last_log_index: 1,
+                term: 2,
+            })
+            .await;
+        fixture.cast_votes(1, 2).await;
+        fixture.expect_election_timer_registrations(1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_messages(hashset! {2, 6, 7, 11, 12}).await;
+        fixture.expect_no_messages_now();
+    });
+}
+
+#[test]
+fn truncate_log_should_remove_old_peers() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.expect_election_timer_registrations(1).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 0,
+                            prev_log_term: 0,
+                            log: vec![LogEntry {
+                                term: 1,
+                                command: Some(
+                                    LogEntryCommand::StartReconfiguration(
+                                        hashset! {2, 5, 6, 7, 11, 12},
+                                    ),
+                                ),
+                            }],
+                        },
+                    ),
+                    seq: 1,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.expect_election_timer_registrations(1).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 0,
+                            prev_log_term: 0,
+                            log: vec![LogEntry {
+                                term: 2,
+                                command: None,
+                            }],
+                        },
+                    ),
+                    seq: 1,
+                    term: 2,
+                },
+                6,
+            )
+            .await;
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 2,
+                last_log_index: 1,
+                term: 3,
+            })
+            .await;
+        fixture.cast_votes(1, 3).await;
+        fixture.expect_election_timer_registrations(1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_messages(hashset! {2, 6, 7, 11}).await;
+        fixture.expect_no_messages_now();
+    });
+}
+
 // TODO:
 // * When a `FinishReconfiguration` command is appended, drop any peers that
 //   were in the old configuration but not the new configuration.
-// * Server should use latest configuration appended to log, even if it hasn't
-//   yet been committed.
 // * When the last joint configuration log entry is committed, the leader should
 //   append log entry for the new configuration.
 // * A newly elected leader should inspect its log, from newest backwards to its
@@ -824,3 +936,9 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
 //   (At this point we could let it delegate leadership explicitly, or simply
 //   let one of the other servers start a new election once its election timer
 //   expires.)
+// * Vote requests should only go to voting members.
+// * Vote responses should only be handled if they come from voting members.
+// * Election win should require separate majorites of old and new
+//   configuration, when in joint configuration.
+// * Committing log entries should require separate majorites of old and new
+//   configuration, when in joint configuration.

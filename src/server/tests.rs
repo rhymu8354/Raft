@@ -212,6 +212,11 @@ impl Fixture {
         }
     }
 
+    async fn expect_no_election_timer_registrations(&mut self) {
+        self.synchronize().await;
+        self.expect_no_election_timer_registrations_now();
+    }
+
     fn expect_election_timer_registrations_now(
         &mut self,
         num_timers_to_await: usize,
