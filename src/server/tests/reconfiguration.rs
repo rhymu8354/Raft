@@ -914,23 +914,11 @@ fn truncate_log_should_remove_old_peers() {
 }
 
 // TODO:
-// * When a `FinishReconfiguration` command is appended, drop any peers that
-//   were in the old configuration but not the new configuration.
-// * When the last joint configuration log entry is committed, the leader should
-//   append log entry for the new configuration.
-// * A newly elected leader should inspect its log, from newest backwards to its
-//   snapshot, to see what configuration is in effect.  If it differs from the
-//   configuration provided by the user, a "configuration change" event should
-//   be generated.
-// * A server whose own ID is not in the cluster configuration should consider
-//   itself a "non-voting" member; it should not respond to vote requests and
-//   should not start elections.
-// * A "non-voting" member should transition to "voting" member when its own ID
-//   becomes present in the latest cluster configuration; it should start its
-//   election timer and begin responding to vote requests.
-// * A "voting" member should transition to "non-voting" member when its own ID
-//   is no longer in the latest cluster configuration; it should cancel its
-//   election timer and stop responding to vote requests.
+// * When in joint configuration and the last `StartReconfiguration` command is
+//   committed, the leader should append `FinishReconfiguration` command and
+//   drop any peers that are not in the new configuration.
+// * A "configuration change" event should be generated whenever the
+//   configuration changes.
 // * Once the current configuration is committed, if the leader was a
 //   "non-voting" member, it should step down by no longer appending entries.
 //   (At this point we could let it delegate leadership explicitly, or simply

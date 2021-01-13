@@ -1196,6 +1196,10 @@ impl<S, T> Inner<S, T> {
             self.election_state,
             self.persistent_storage.term()
         );
+        if !self.log.cluster_configuration().contains(self.id) {
+            info!("Ignoring RequestVote because not a voting member");
+            return;
+        }
         if self.ignore_vote_requests {
             info!("Ignoring RequestVote because minimum election time has not yet elapsed");
             return;
@@ -1472,7 +1476,6 @@ impl<S, T> Inner<S, T> {
     {
         if self.election_state != ElectionState::Leader
             || self.cancel_heartbeat.is_some()
-            || !self.log.cluster_configuration().contains(self.id)
             || self.peers.values().all(Peer::awaiting_response)
         {
             return None;
@@ -1499,6 +1502,7 @@ impl<S, T> Inner<S, T> {
         if self.election_state == ElectionState::Leader
             || self.cancel_min_election_timeout.is_some()
             || self.cancel_election_timeout.is_some()
+            || !self.log.cluster_configuration().contains(self.id)
         {
             return None;
         }

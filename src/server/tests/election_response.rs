@@ -284,3 +284,30 @@ fn follower_ignores_vote_request_within_minimum_election_time() {
         fixture.expect_no_vote().await;
     });
 }
+
+#[test]
+fn no_vote_response_if_not_voting_member() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_log, _mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 0, Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 6, 7, 11
+                ]),
+                state: (),
+            });
+        fixture.mobilize_server_with_log(Box::new(mock_log));
+        fixture.expect_no_min_election_timer_registrations().await;
+        fixture
+            .receive_vote_request(ReceiveVoteRequestArgs {
+                sender_id: 6,
+                last_log_term: 0,
+                last_log_index: 0,
+                seq: 1,
+                term: 1,
+            })
+            .await;
+        fixture.expect_no_vote().await;
+    });
+}

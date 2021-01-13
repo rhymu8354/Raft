@@ -363,3 +363,102 @@ fn no_election_if_not_voting_member() {
         fixture.expect_no_election_timer_registrations().await;
     });
 }
+
+#[test]
+fn cancel_election_timer_if_become_non_voting_member() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        let (_election_timeout_duration, election_timeout_completer) =
+            fixture.expect_election_timer_registrations(1).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 0,
+                            prev_log_term: 0,
+                            log: vec![
+                                LogEntry {
+                                    term: 1,
+                                    command: Some(
+                                        LogEntryCommand::StartReconfiguration(
+                                            hashset! {2, 6, 7, 11},
+                                        ),
+                                    ),
+                                },
+                                LogEntry {
+                                    term: 1,
+                                    command: Some(
+                                        LogEntryCommand::FinishReconfiguration,
+                                    ),
+                                },
+                            ],
+                        },
+                    ),
+                    seq: 1,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.synchronize().await;
+        let (sender, _receiver) = oneshot::channel();
+        election_timeout_completer
+            .send(sender)
+            .expect_err("server did not cancel last election timeout");
+        fixture.expect_no_election_timer_registrations().await;
+    });
+}
+
+#[test]
+fn start_election_timer_if_become_voting_member() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_log, _mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 0, Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 6, 7, 11
+                ]),
+                state: (),
+            });
+        fixture.mobilize_server_with_log(Box::new(mock_log));
+        fixture.expect_no_election_timer_registrations().await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 0,
+                            prev_log_term: 0,
+                            log: vec![
+                                LogEntry {
+                                    term: 1,
+                                    command: Some(
+                                        LogEntryCommand::StartReconfiguration(
+                                            hashset! {2, 5, 6, 7, 11},
+                                        ),
+                                    ),
+                                },
+                                LogEntry {
+                                    term: 1,
+                                    command: Some(
+                                        LogEntryCommand::FinishReconfiguration,
+                                    ),
+                                },
+                            ],
+                        },
+                    ),
+                    seq: 1,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.expect_election_timer_registrations(1).await;
+    });
+}
