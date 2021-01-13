@@ -385,7 +385,7 @@ fn cancel_election_timer_if_become_non_voting_member() {
                                     term: 1,
                                     command: Some(
                                         LogEntryCommand::StartReconfiguration(
-                                            hashset! {2, 6, 7, 11},
+                                            hashset![2, 6, 7, 11],
                                         ),
                                     ),
                                 },
@@ -440,7 +440,7 @@ fn start_election_timer_if_become_voting_member() {
                                     term: 1,
                                     command: Some(
                                         LogEntryCommand::StartReconfiguration(
-                                            hashset! {2, 5, 6, 7, 11},
+                                            hashset![2, 5, 6, 7, 11],
                                         ),
                                     ),
                                 },

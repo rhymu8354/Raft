@@ -195,9 +195,9 @@ mod tests {
     fn start_reconfiguration_command_to_json() {
         let entry = LogEntry::<DummyCommand> {
             term: 9,
-            command: Some(Command::StartReconfiguration(hashset!(
+            command: Some(Command::StartReconfiguration(hashset![
                 42, 85, 13531, 8354
-            ))),
+            ])),
         };
         assert_eq!(
             json!({
@@ -219,9 +219,9 @@ mod tests {
         let log_entry = LogEntry::<DummyCommand>::from(&encoded_entry);
         assert_eq!(log_entry, LogEntry {
             term: 9,
-            command: Some(Command::StartReconfiguration(hashset!(
+            command: Some(Command::StartReconfiguration(hashset![
                 42, 85, 13531, 8354
-            ))),
+            ])),
         });
     }
 
@@ -229,9 +229,9 @@ mod tests {
     fn start_reconfiguration_command_serialization() {
         let original_entry = LogEntry {
             term: 9,
-            command: Some(Command::StartReconfiguration(hashset!(
+            command: Some(Command::StartReconfiguration(hashset![
                 42, 85, 13531, 8354
-            ))),
+            ])),
         };
         let encoded_entry = to_bytes(&original_entry).unwrap();
         let decoded_entry: LogEntry<DummyCommand> =

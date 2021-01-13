@@ -16,15 +16,15 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
-        fixture.expect_messages_now(hashset! {2, 6, 7, 11});
+        fixture.expect_messages_now(hashset![2, 6, 7, 11]);
         fixture
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12, 13}))
+            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12, 13]))
             .await
             .expect("unable to send command to server");
-        let messages = fixture.expect_messages(hashset! {12, 13}).await;
+        let messages = fixture.expect_messages(hashset![12, 13]).await;
         fixture.expect_no_reconfiguration().await;
         assert_eq!(
             Message {
@@ -117,9 +117,7 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
                 13,
             )
             .await;
-        fixture
-            .expect_reconfiguration(&hashset! {2, 5, 6, 7, 11, 12, 13})
-            .await;
+        fixture.expect_reconfiguration(&hashset![2, 5, 6, 7, 11, 12, 13]).await;
         verify_log(
             &mock_log_back_end,
             0,
@@ -143,7 +141,7 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
                 state: (),
             },
         );
-        let messages = fixture.expect_messages(hashset! {2, 6, 12, 13}).await;
+        let messages = fixture.expect_messages(hashset![2, 6, 12, 13]).await;
         assert_eq!(
             Message {
                 content: MessageContent::AppendEntries(AppendEntriesContent {
@@ -230,15 +228,15 @@ fn start_reconfiguration_immediately_if_no_new_members() {
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
-        fixture.expect_messages_now(hashset! {2, 6, 7, 11});
+        fixture.expect_messages_now(hashset![2, 6, 7, 11]);
         fixture
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7}))
+            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7]))
             .await
             .expect("unable to send command to server");
-        fixture.expect_reconfiguration(&hashset! {2, 5, 6, 7}).await;
+        fixture.expect_reconfiguration(&hashset![2, 5, 6, 7]).await;
         verify_log(
             &mock_log_back_end,
             0,
@@ -280,10 +278,10 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12}))
+            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12]))
             .await
             .expect("unable to send command to server");
-        fixture.expect_messages(hashset! {2, 6, 7, 11, 12}).await;
+        fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
         verify_log(
             &mock_log_back_end,
             0,
@@ -310,7 +308,7 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12, 13}))
+            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12, 13]))
             .await
             .expect("unable to send command to server");
         assert_eq!(
@@ -380,9 +378,7 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
                 12,
             )
             .await;
-        fixture
-            .expect_reconfiguration(&hashset! {2, 5, 6, 7, 11, 12, 13})
-            .await;
+        fixture.expect_reconfiguration(&hashset![2, 5, 6, 7, 11, 12, 13]).await;
         verify_log(
             &mock_log_back_end,
             0,
@@ -461,12 +457,12 @@ fn no_reconfiguration_if_reconfiguration_requested_is_current_configuration() {
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
-        fixture.expect_messages(hashset! {2, 6, 7, 11}).await;
+        fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11}))
+            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11]))
             .await
             .expect("unable to send command to server");
         fixture.expect_no_messages().await;
@@ -502,10 +498,10 @@ fn no_reconfiguration_if_in_joint_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12}))
+            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12]))
             .await
             .expect("unable to send command to server");
-        fixture.expect_messages(hashset! {2, 6, 7, 11, 12}).await;
+        fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
         fixture
             .send_server_message(
                 Message {
@@ -543,13 +539,13 @@ fn no_reconfiguration_if_in_joint_configuration() {
                 12,
             )
             .await;
-        fixture.expect_reconfiguration(&hashset! {2, 5, 6, 7, 11, 12}).await;
-        fixture.expect_messages(hashset! {2, 6, 12}).await;
+        fixture.expect_reconfiguration(&hashset![2, 5, 6, 7, 11, 12]).await;
+        fixture.expect_messages(hashset![2, 6, 12]).await;
         fixture
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12, 13}))
+            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12, 13]))
             .await
             .expect("unable to send command to server");
         fixture.expect_no_messages().await;
@@ -593,10 +589,10 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12}))
+            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12]))
             .await
             .expect("unable to send command to server");
-        fixture.expect_messages(hashset! {2, 6, 7, 11, 12}).await;
+        fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
         fixture
             .send_server_message(
                 Message {
@@ -626,7 +622,7 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11}))
+            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11]))
             .await
             .expect("unable to send command to server");
         fixture.expect_no_messages().await;
@@ -662,7 +658,7 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12}))
+            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12]))
             .await
             .expect("unable to send command to server");
         assert_eq!(
@@ -697,10 +693,10 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset! {2, 5, 6, 7, 11, 12}))
+            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12]))
             .await
             .expect("unable to send command to server");
-        fixture.expect_messages(hashset! {2, 6, 7, 11, 12}).await;
+        fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
         fixture
             .send_server_message(
                 Message {
@@ -773,7 +769,7 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
         fixture.expect_no_messages().await;
         fixture.cast_votes(3, 3).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
-        fixture.expect_messages(hashset! {2, 6, 7, 11}).await;
+        fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture.expect_no_messages().await;
         verify_log(
             &mock_log_back_end,
@@ -818,7 +814,7 @@ fn follower_add_peers_in_joint_configuration() {
                                 term: 1,
                                 command: Some(
                                     LogEntryCommand::StartReconfiguration(
-                                        hashset! {2, 5, 6, 7, 11, 12},
+                                        hashset![2, 5, 6, 7, 11, 12],
                                     ),
                                 ),
                             }],
@@ -841,7 +837,7 @@ fn follower_add_peers_in_joint_configuration() {
         fixture.cast_votes(1, 2).await;
         fixture.expect_election_timer_registrations(1).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
-        fixture.expect_messages(hashset! {2, 6, 7, 11, 12}).await;
+        fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
         fixture.expect_no_messages_now();
     });
 }
@@ -865,7 +861,7 @@ fn truncate_log_should_remove_old_peers() {
                                 term: 1,
                                 command: Some(
                                     LogEntryCommand::StartReconfiguration(
-                                        hashset! {2, 5, 6, 7, 11, 12},
+                                        hashset![2, 5, 6, 7, 11, 12],
                                     ),
                                 ),
                             }],
@@ -908,7 +904,7 @@ fn truncate_log_should_remove_old_peers() {
         fixture.cast_votes(1, 3).await;
         fixture.expect_election_timer_registrations(1).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
-        fixture.expect_messages(hashset! {2, 6, 7, 11}).await;
+        fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture.expect_no_messages_now();
     });
 }

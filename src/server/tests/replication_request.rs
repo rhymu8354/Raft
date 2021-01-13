@@ -290,7 +290,7 @@ fn leader_send_missing_entries_mid_log_on_append_entries_response() {
             .await;
         fixture.cast_votes(1, 7).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
-        fixture.expect_messages(hashset! {2, 6}).await;
+        fixture.expect_messages(hashset![2, 6]).await;
         fixture
             .send_server_message(
                 Message {
@@ -797,7 +797,7 @@ fn leader_send_new_log_entries() {
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
-        fixture.expect_messages_now(hashset! {2, 6, 7, 11});
+        fixture.expect_messages_now(hashset![2, 6, 7, 11]);
         fixture
             .send_server_message(
                 Message {
