@@ -56,7 +56,8 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -68,7 +69,8 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -81,7 +83,8 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 1,
                     term: 1,
@@ -109,7 +112,8 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 1,
                     term: 1,
@@ -328,7 +332,8 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 2,
+                        success: true,
+                        next_log_index: 3,
                     },
                     seq: 1,
                     term: 1,
@@ -341,7 +346,8 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 1,
                     term: 1,
@@ -370,7 +376,8 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 2,
+                        success: true,
+                        next_log_index: 3,
                     },
                     seq: 2,
                     term: 1,
@@ -506,7 +513,8 @@ fn no_reconfiguration_if_in_joint_configuration() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -518,7 +526,8 @@ fn no_reconfiguration_if_in_joint_configuration() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -531,7 +540,8 @@ fn no_reconfiguration_if_in_joint_configuration() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 1,
                     term: 1,
@@ -576,6 +586,7 @@ fn no_reconfiguration_if_in_joint_configuration() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
     assert_logger();
     executor::block_on(async {
@@ -597,7 +608,8 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -609,7 +621,8 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -630,7 +643,8 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 1,
                     term: 1,
@@ -701,7 +715,8 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -713,7 +728,8 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -725,7 +741,8 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -737,7 +754,8 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -920,8 +938,6 @@ fn truncate_log_should_remove_old_peers() {
 //   (At this point we could let it delegate leadership explicitly, or simply
 //   let one of the other servers start a new election once its election timer
 //   expires.)
-// * Vote requests should only go to voting members.
-// * Vote responses should only be handled if they come from voting members.
 // * Election win should require separate majorites of old and new
 //   configuration, when in joint configuration.
 // * Committing log entries should require separate majorites of old and new

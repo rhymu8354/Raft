@@ -26,7 +26,8 @@ pub enum Content<S, T> {
     },
     AppendEntries(AppendEntriesContent<T>),
     AppendEntriesResponse {
-        match_index: usize,
+        success: bool,
+        next_log_index: usize,
     },
     InstallSnapshot {
         last_included_index: usize,
@@ -191,7 +192,8 @@ mod tests {
     fn append_entries_response() {
         let message_in = Message {
             content: Content::AppendEntriesResponse {
-                match_index: 10,
+                success: true,
+                next_log_index: 10,
             },
             seq: 4,
             term: 5,

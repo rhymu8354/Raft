@@ -49,7 +49,8 @@ fn follower_receive_append_entries() {
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: Some(1),
                 expect_state_change: false,
-                match_index: 1,
+                success: true,
+                next_log_index: 2,
                 receiver_id: 2,
                 seq: 1,
                 term: 1,
@@ -131,7 +132,8 @@ fn leader_revert_to_follower_on_append_entries_new_term() {
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: true,
-                match_index: 2,
+                success: true,
+                next_log_index: 3,
                 receiver_id: 6,
                 seq: 42,
                 term: 2,
@@ -174,7 +176,7 @@ fn leader_revert_to_follower_on_append_entries_new_term() {
 }
 
 #[test]
-fn leader_reject_append_entries_same_term() {
+fn leader_ignores_append_entries_same_term() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
@@ -194,6 +196,7 @@ fn leader_reject_append_entries_same_term() {
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture
             .send_server_message(
                 Message {
@@ -214,16 +217,7 @@ fn leader_reject_append_entries_same_term() {
                 6,
             )
             .await;
-        fixture
-            .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
-                commit_index: None,
-                expect_state_change: false,
-                match_index: 0,
-                receiver_id: 6,
-                seq: 42,
-                term: 1,
-            })
-            .await;
+        fixture.expect_no_messages().await;
         fixture.expect_no_election_state_changes_now();
         verify_log(
             &mock_log_back_end,
@@ -249,7 +243,7 @@ fn leader_reject_append_entries_same_term() {
 }
 
 #[test]
-fn candidate_append_entries_same_term() {
+fn candidate_reverts_to_follower_on_append_entries_same_term() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
@@ -291,7 +285,8 @@ fn candidate_append_entries_same_term() {
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: true,
-                match_index: 1,
+                success: true,
+                next_log_index: 2,
                 receiver_id: 6,
                 seq: 42,
                 term: 1,
@@ -373,7 +368,8 @@ fn follower_match_appended_entries() {
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: false,
-                match_index: 2,
+                success: true,
+                next_log_index: 3,
                 receiver_id: 6,
                 seq: 42,
                 term: 2,
@@ -456,7 +452,8 @@ fn follower_replaces_mismatched_appended_entries() {
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: Some(1),
                 expect_state_change: false,
-                match_index: 2,
+                success: true,
+                next_log_index: 3,
                 receiver_id: 6,
                 seq: 42,
                 term: 2,
@@ -548,7 +545,8 @@ fn follower_rejects_appended_entries_with_mismatched_previous_term() {
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: false,
-                match_index: 0,
+                success: false,
+                next_log_index: 2,
                 receiver_id: 6,
                 seq: 42,
                 term: 4,
@@ -627,7 +625,8 @@ fn follower_rejects_appended_entries_with_mismatched_base() {
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: false,
-                match_index: 0,
+                success: false,
+                next_log_index: 1,
                 receiver_id: 6,
                 seq: 42,
                 term: 4,
@@ -691,7 +690,8 @@ fn follower_rejects_appended_entries_with_no_common_base() {
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
                 expect_state_change: false,
-                match_index: 0,
+                success: false,
+                next_log_index: 1,
                 receiver_id: 6,
                 seq: 42,
                 term: 4,

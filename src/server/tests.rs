@@ -142,7 +142,8 @@ struct VerifyAppendEntriesArgs<'a, 'b> {
 struct AwaitAppendEntriesResponseArgs {
     commit_index: Option<usize>,
     expect_state_change: bool,
-    match_index: usize,
+    success: bool,
+    next_log_index: usize,
     receiver_id: usize,
     seq: usize,
     term: usize,
@@ -151,7 +152,8 @@ struct AwaitAppendEntriesResponseArgs {
 struct VerifyAppendEntriesResponseArgs<'a> {
     seq: usize,
     term: usize,
-    match_index: usize,
+    success: bool,
+    next_log_index: usize,
     receiver_id: usize,
     expected: &'a AwaitAppendEntriesResponseArgs,
 }
@@ -1380,9 +1382,14 @@ impl Fixture {
 
     fn verify_append_entries_response(args: &VerifyAppendEntriesResponseArgs) {
         assert_eq!(
-            args.match_index, args.expected.match_index,
-            "unexpected match index (was {}, should be {})",
-            args.match_index, args.expected.match_index
+            args.success, args.expected.success,
+            "unexpected success flag (was {}, should be {})",
+            args.success, args.expected.success
+        );
+        assert_eq!(
+            args.next_log_index, args.expected.next_log_index,
+            "unexpected next log index (was {}, should be {})",
+            args.next_log_index, args.expected.next_log_index
         );
         assert_eq!(
             args.term, args.expected.term,
@@ -1407,14 +1414,16 @@ impl Fixture {
         args: &AwaitAppendEntriesResponseArgs,
     ) -> bool {
         if let MessageContent::AppendEntriesResponse {
-            match_index,
+            success,
+            next_log_index,
         } = message.content
         {
             Self::verify_append_entries_response(
                 &VerifyAppendEntriesResponseArgs {
                     seq: message.seq,
                     term: message.term,
-                    match_index,
+                    success,
+                    next_log_index,
                     receiver_id,
                     expected: args,
                 },

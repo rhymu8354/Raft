@@ -96,7 +96,8 @@ fn leader_no_retransmit_append_entries_after_response() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -129,7 +130,8 @@ fn leader_ignore_append_entries_old_term() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 0,
@@ -174,7 +176,8 @@ fn leader_revert_to_follower_when_receive_new_term_append_entries_response() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 0,
+                        success: false,
+                        next_log_index: 1,
                     },
                     seq: 2,
                     term: 2,
@@ -210,7 +213,8 @@ fn leader_commit_entry_when_majority_match() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -223,7 +227,8 @@ fn leader_commit_entry_when_majority_match() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -295,7 +300,8 @@ fn leader_send_missing_entries_mid_log_on_append_entries_response() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 11,
+                        success: true,
+                        next_log_index: 12,
                     },
                     seq: 2,
                     term: 7,
@@ -329,7 +335,8 @@ fn leader_send_missing_entries_mid_log_on_append_entries_response() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 11,
+                        success: true,
+                        next_log_index: 12,
                     },
                     seq: 2,
                     term: 7,
@@ -408,7 +415,8 @@ fn leader_send_missing_entries_all_log_on_append_entries_response() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 10,
+                        success: false,
+                        next_log_index: 11,
                     },
                     seq: 2,
                     term: 7,
@@ -458,7 +466,8 @@ fn follower_ignore_append_entries_response() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -490,7 +499,8 @@ fn follower_ignore_append_entries_response() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -516,7 +526,8 @@ fn leader_send_heartbeat_when_follower_up_to_date() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -573,7 +584,8 @@ fn leader_no_op_non_zero_commit_index() {
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: Some(1),
                 expect_state_change: false,
-                match_index: 1,
+                success: true,
+                next_log_index: 2,
                 receiver_id: 2,
                 seq: 1,
                 term: 1,
@@ -641,7 +653,8 @@ fn install_snapshot_if_match_index_before_base() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 0,
+                        success: false,
+                        next_log_index: 1,
                     },
                     seq: 2,
                     term: 11,
@@ -738,7 +751,8 @@ fn install_snapshot_ignore_response_if_term_old() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 0,
+                        success: false,
+                        next_log_index: 1,
                     },
                     seq: 2,
                     term: 11,
@@ -802,7 +816,8 @@ fn leader_send_new_log_entries() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -865,7 +880,8 @@ fn leader_send_new_log_entries() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 1,
+                        success: true,
+                        next_log_index: 2,
                     },
                     seq: 2,
                     term: 1,
@@ -895,7 +911,8 @@ fn leader_send_new_log_entries() {
             .send_server_message(
                 Message {
                     content: MessageContent::AppendEntriesResponse {
-                        match_index: 2,
+                        success: true,
+                        next_log_index: 3,
                     },
                     seq: 3,
                     term: 1,

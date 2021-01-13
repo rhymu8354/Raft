@@ -106,13 +106,13 @@ impl<S, T> Inner<S, T> {
     fn attempt_accept_append_entries(
         &mut self,
         append_entries: AppendEntriesContent<T>,
-    ) -> usize {
+    ) -> (bool, usize) {
         if self.election_state != ElectionState::Follower {
             self.become_follower();
         }
         let mut match_index = append_entries.prev_log_index;
         let mut match_term = append_entries.prev_log_term;
-        for new_log_entry in append_entries.log {
+        let success = append_entries.log.into_iter().all(|new_log_entry| {
             let new_log_term = new_log_entry.term;
             match self.determine_log_entry_disposition(match_index) {
                 LogEntryDisposition::Possessed => match self
@@ -120,7 +120,7 @@ impl<S, T> Inner<S, T> {
                 {
                     HistoryComparison::NothingInCommon => {
                         match_index = 0;
-                        break;
+                        return false;
                     },
                     HistoryComparison::SameUpToPrevious => {
                         self.log.truncate(match_index);
@@ -130,19 +130,24 @@ impl<S, T> Inner<S, T> {
                 },
                 LogEntryDisposition::Next => {
                     if match_term != self.log.last_term() {
-                        match_index = 0;
-                        break;
+                        match_index = if match_index > self.log.base_index() {
+                            self.log.last_index() - 1
+                        } else {
+                            0
+                        };
+                        return false;
                     }
                     self.log.append_one(new_log_entry);
                 },
                 LogEntryDisposition::Future => {
-                    match_index = 0;
-                    break;
+                    match_index = self.log.last_index();
+                    return false;
                 },
             }
             match_index += 1;
             match_term = new_log_term;
-        }
+            true
+        });
         let new_ids = self
             .log
             .cluster_configuration()
@@ -156,7 +161,7 @@ impl<S, T> Inner<S, T> {
         for new_peer_id in new_ids.difference(&old_ids) {
             self.peers.insert(*new_peer_id, Peer::default());
         }
-        match_index
+        (success, match_index + 1)
     }
 
     fn become_candidate(&mut self)
@@ -487,16 +492,13 @@ impl<S, T> Inner<S, T> {
     {
         self.cancel_heartbeat.take();
         if self.election_state == ElectionState::Leader {
-            let prev_log_index = self.log.last_index();
             for (&peer_id, peer) in &mut self.peers {
-                if peer.match_index == prev_log_index
-                    && !peer.awaiting_response()
-                {
+                if !peer.awaiting_response() {
                     debug!("Sending heartbeat to {}", peer_id);
                     peer.send_new_request(
                         MessageContent::AppendEntries(AppendEntriesContent {
                             leader_commit: self.commit_index,
-                            prev_log_index,
+                            prev_log_index: self.log.last_index(),
                             prev_log_term: self.log.last_term(),
                             log: vec![],
                         }),
@@ -640,10 +642,12 @@ impl<S, T> Inner<S, T> {
         let decision = self.decide_request_verdict(term);
         if decision == RequestDecision::AcceptAndUpdateTerm {
             self.persistent_storage.update(term, None);
+        } else if self.election_state == ElectionState::Leader {
+            return;
         }
         let leader_commit = append_entries.leader_commit;
-        let match_index = if decision == RequestDecision::Reject {
-            0
+        let (success, next_log_index) = if decision == RequestDecision::Reject {
+            (false, 1)
         } else {
             self.attempt_accept_append_entries(append_entries)
         };
@@ -652,14 +656,15 @@ impl<S, T> Inner<S, T> {
         }
         let message = Message {
             content: MessageContent::AppendEntriesResponse {
-                match_index,
+                success,
+                next_log_index,
             },
             seq,
             term: self.persistent_storage.term(),
         };
         debug!(
             "Sending AppendEntriesResponse ({}) to {}",
-            match_index, sender_id
+            next_log_index, sender_id
         );
         let _ = self.event_sender.unbounded_send(Event::SendMessage {
             message,
@@ -672,7 +677,8 @@ impl<S, T> Inner<S, T> {
     #[allow(clippy::too_many_lines)]
     fn process_append_entries_response(
         &mut self,
-        match_index: usize,
+        success: bool,
+        next_log_index: usize,
         sender_id: usize,
         term: usize,
         seq: usize,
@@ -681,8 +687,9 @@ impl<S, T> Inner<S, T> {
         T: 'static + Clone + Debug + Send,
     {
         debug!(
-            "Received AppendEntriesResponse ({}) from {} for term {} (we are {:?} in term {})",
-            match_index,
+            "Received AppendEntriesResponse ({}/{}) from {} for term {} (we are {:?} in term {})",
+            success,
+            next_log_index,
             sender_id,
             term,
             self.election_state,
@@ -707,20 +714,24 @@ impl<S, T> Inner<S, T> {
         if self.election_state != ElectionState::Leader {
             warn!(
                 "Not processing AppendEntriesResponse ({}) from {} because we are {:?}, not Leader",
-                match_index,
+                next_log_index,
                 sender_id,
                 self.election_state
             );
             return;
         }
-        if let Some(peer) = self.peers.get_mut(&sender_id) {
-            let match_index = std::cmp::min(match_index, self.log.last_index());
-            if match_index > peer.match_index {
-                info!(
-                    "{} advanced match index {} -> {}",
-                    sender_id, peer.match_index, match_index
-                );
-                peer.match_index = match_index;
+        let next_log_index =
+            std::cmp::min(next_log_index, self.log.last_index() + 1);
+        if success {
+            if let Some(peer) = self.peers.get_mut(&sender_id) {
+                let match_index = next_log_index - 1;
+                if match_index > peer.match_index {
+                    info!(
+                        "{} advanced match index {} -> {}",
+                        sender_id, peer.match_index, match_index
+                    );
+                    peer.match_index = match_index;
+                }
             }
         }
         let majority_match_index = self.find_majority_match_index();
@@ -791,27 +802,27 @@ impl<S, T> Inner<S, T> {
             }
         }
         if let Some(peer) = self.peers.get_mut(&sender_id) {
-            if peer.match_index < self.log.last_index() {
-                let prev_log_term = match peer
-                    .match_index
+            if next_log_index <= self.log.last_index() {
+                let prev_log_index = next_log_index - 1;
+                let prev_log_term = match prev_log_index
                     .cmp(&self.log.base_index())
                 {
                     Ordering::Less => None,
                     Ordering::Equal => Some(self.log.base_term()),
-                    Ordering::Greater => self.log.entry_term(peer.match_index),
+                    Ordering::Greater => self.log.entry_term(prev_log_index),
                 };
                 if let Some(prev_log_term) = prev_log_term {
-                    let log = self.log.entries(peer.match_index);
+                    let log = self.log.entries(prev_log_index);
                     info!(
                         "Sending {} entries from {} to {}",
                         log.len(),
-                        peer.match_index,
+                        prev_log_index,
                         sender_id
                     );
                     peer.send_new_request(
                         MessageContent::AppendEntries(AppendEntriesContent {
                             leader_commit: self.commit_index,
-                            prev_log_index: peer.match_index,
+                            prev_log_index,
                             prev_log_term,
                             log,
                         }),
@@ -1027,10 +1038,12 @@ impl<S, T> Inner<S, T> {
                 );
             },
             MessageContent::AppendEntriesResponse {
-                match_index,
+                success,
+                next_log_index,
             } => {
                 self.process_append_entries_response(
-                    match_index,
+                    success,
+                    next_log_index,
                     sender_id,
                     message.term,
                     message.seq,
