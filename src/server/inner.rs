@@ -91,7 +91,7 @@ pub struct Inner<S, T> {
     event_sender: EventSender<S, T>,
     id: usize,
     log: Box<dyn Log<S, Command = T>>,
-    new_cluster_configuration: Option<HashSet<usize>>,
+    pending_reconfiguration_ids: Option<HashSet<usize>>,
     peers: HashMap<usize, Peer<S, T>>,
     persistent_storage: Box<dyn PersistentStorage>,
     ignore_vote_requests: bool,
@@ -185,7 +185,7 @@ impl<S, T> Inner<S, T> {
     }
 
     fn become_follower(&mut self) {
-        if self.new_cluster_configuration.take().is_some() {
+        if self.pending_reconfiguration_ids.take().is_some() {
             self.drop_old_peers();
         }
         self.change_election_state(ElectionState::Follower);
@@ -554,7 +554,7 @@ impl<S, T> Inner<S, T> {
             event_sender,
             id,
             log,
-            new_cluster_configuration: None,
+            pending_reconfiguration_ids: None,
             peers,
             persistent_storage,
             ignore_vote_requests: true,
@@ -738,8 +738,8 @@ impl<S, T> Inner<S, T> {
         if majority_match_index > self.commit_index {
             self.commit_log(majority_match_index);
         }
-        if let Some(new_cluster_configuration) =
-            self.new_cluster_configuration.take()
+        if let Some(pending_reconfiguration_ids) =
+            self.pending_reconfiguration_ids.take()
         {
             let voting_peers = self
                 .log
@@ -753,13 +753,10 @@ impl<S, T> Inner<S, T> {
                         || peer.match_index >= self.catch_up_index
                 });
             if all_peers_voting_or_caught_up {
-                let _ = self.event_sender.unbounded_send(
-                    Event::Reconfiguration(new_cluster_configuration.clone()),
-                );
                 let new_entry = LogEntry {
                     term: self.persistent_storage.term(),
                     command: Some(LogEntryCommand::StartReconfiguration(
-                        new_cluster_configuration,
+                        pending_reconfiguration_ids,
                     )),
                 };
                 let prev_log_index = self.log.last_index();
@@ -792,13 +789,14 @@ impl<S, T> Inner<S, T> {
                     }
                 }
                 self.log.append_one(new_entry);
-                info!(
-                    "Configuration is now {:?}",
-                    self.log.cluster_configuration()
+                let cluster_configuration = self.log.cluster_configuration();
+                let _ = self.event_sender.unbounded_send(
+                    Event::Reconfiguration(cluster_configuration.clone()),
                 );
+                info!("Configuration is now {:?}", cluster_configuration);
             } else {
-                self.new_cluster_configuration
-                    .replace(new_cluster_configuration);
+                self.pending_reconfiguration_ids
+                    .replace(pending_reconfiguration_ids);
             }
         }
         if let Some(peer) = self.peers.get_mut(&sender_id) {
@@ -1087,7 +1085,7 @@ impl<S, T> Inner<S, T> {
             ClusterConfiguration::Single(current_ids)
                 if *current_ids == ids =>
             {
-                if self.new_cluster_configuration.take().is_some() {
+                if self.pending_reconfiguration_ids.take().is_some() {
                     self.drop_old_peers();
                 } else {
                     warn!(
@@ -1132,9 +1130,6 @@ impl<S, T> Inner<S, T> {
             .filter(|id| **id != self_id)
             .collect::<Vec<_>>();
         if new_peer_ids.is_empty() {
-            let _ = self
-                .event_sender
-                .unbounded_send(Event::Reconfiguration(ids.clone()));
             let new_entry = LogEntry {
                 term: self.persistent_storage.term(),
                 command: Some(LogEntryCommand::StartReconfiguration(ids)),
@@ -1162,10 +1157,11 @@ impl<S, T> Inner<S, T> {
                 }
             }
             self.log.append_one(new_entry);
-            info!(
-                "Configuration is now {:?}",
-                self.log.cluster_configuration()
-            );
+            let cluster_configuration = self.log.cluster_configuration();
+            let _ = self.event_sender.unbounded_send(Event::Reconfiguration(
+                cluster_configuration.clone(),
+            ));
+            info!("Configuration is now {:?}", cluster_configuration);
         } else {
             for new_peer_id in new_peer_ids {
                 debug!("Sending heartbeat to new peer {}", *new_peer_id);
@@ -1186,7 +1182,7 @@ impl<S, T> Inner<S, T> {
                 );
                 self.peers.insert(*new_peer_id, peer);
             }
-            self.new_cluster_configuration = Some(ids);
+            self.pending_reconfiguration_ids = Some(ids);
         }
     }
 

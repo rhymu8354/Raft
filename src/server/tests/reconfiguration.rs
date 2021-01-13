@@ -121,31 +121,7 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
                 13,
             )
             .await;
-        fixture.expect_reconfiguration(&hashset![2, 5, 6, 7, 11, 12, 13]).await;
-        verify_log(
-            &mock_log_back_end,
-            0,
-            0,
-            [
-                LogEntry {
-                    term: 1,
-                    command: None,
-                },
-                LogEntry {
-                    term: 1,
-                    command: Some(LogEntryCommand::StartReconfiguration(
-                        hashset![2, 5, 6, 7, 11, 12, 13],
-                    )),
-                },
-            ],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
-        );
-        let messages = fixture.expect_messages(hashset![2, 6, 12, 13]).await;
+        let messages = fixture.expect_messages(hashset![2, 6, 12]).await;
         assert_eq!(
             Message {
                 content: MessageContent::AppendEntries(AppendEntriesContent {
@@ -200,6 +176,12 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
             },
             messages[&12]
         );
+        fixture
+            .expect_reconfiguration(&ClusterConfiguration::Joint(
+                hashset![2, 5, 6, 7, 11],
+                hashset![2, 5, 6, 7, 11, 12, 13],
+            ))
+            .await;
         assert_eq!(
             Message {
                 content: MessageContent::AppendEntries(AppendEntriesContent {
@@ -216,7 +198,30 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
                 seq: 2,
                 term: 1,
             },
-            messages[&13]
+            fixture.expect_message(13).await
+        );
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [
+                LogEntry {
+                    term: 1,
+                    command: None,
+                },
+                LogEntry {
+                    term: 1,
+                    command: Some(LogEntryCommand::StartReconfiguration(
+                        hashset![2, 5, 6, 7, 11, 12, 13],
+                    )),
+                },
+            ],
+            Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            },
         );
         fixture.expect_no_messages_now();
     });
@@ -240,7 +245,12 @@ fn start_reconfiguration_immediately_if_no_new_members() {
             .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7]))
             .await
             .expect("unable to send command to server");
-        fixture.expect_reconfiguration(&hashset![2, 5, 6, 7]).await;
+        fixture
+            .expect_reconfiguration(&ClusterConfiguration::Joint(
+                hashset![2, 5, 6, 7, 11],
+                hashset![2, 5, 6, 7],
+            ))
+            .await;
         verify_log(
             &mock_log_back_end,
             0,
@@ -385,7 +395,30 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
                 12,
             )
             .await;
-        fixture.expect_reconfiguration(&hashset![2, 5, 6, 7, 11, 12, 13]).await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 0,
+                    prev_log_term: 1,
+                    prev_log_index: 2,
+                    log: vec![LogEntry {
+                        term: 1,
+                        command: Some(LogEntryCommand::StartReconfiguration(
+                            hashset![2, 5, 6, 7, 11, 12, 13],
+                        )),
+                    }],
+                }),
+                seq: 2,
+                term: 1,
+            },
+            fixture.expect_message(13).await
+        );
+        fixture
+            .expect_reconfiguration(&ClusterConfiguration::Joint(
+                hashset![2, 5, 6, 7, 11],
+                hashset![2, 5, 6, 7, 11, 12, 13],
+            ))
+            .await;
         verify_log(
             &mock_log_back_end,
             0,
@@ -413,7 +446,6 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
                 state: (),
             },
         );
-        let messages = fixture.expect_messages(hashset! {12, 13}).await;
         assert_eq!(
             Message {
                 content: MessageContent::AppendEntries(AppendEntriesContent {
@@ -430,25 +462,7 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
                 seq: 3,
                 term: 1,
             },
-            messages[&12]
-        );
-        assert_eq!(
-            Message {
-                content: MessageContent::AppendEntries(AppendEntriesContent {
-                    leader_commit: 0,
-                    prev_log_term: 1,
-                    prev_log_index: 2,
-                    log: vec![LogEntry {
-                        term: 1,
-                        command: Some(LogEntryCommand::StartReconfiguration(
-                            hashset![2, 5, 6, 7, 11, 12, 13],
-                        )),
-                    }],
-                }),
-                seq: 2,
-                term: 1,
-            },
-            messages[&13]
+            fixture.expect_message(12).await
         );
         fixture.expect_no_messages_now();
     });
@@ -549,8 +563,7 @@ fn no_reconfiguration_if_in_joint_configuration() {
                 12,
             )
             .await;
-        fixture.expect_reconfiguration(&hashset![2, 5, 6, 7, 11, 12]).await;
-        fixture.expect_messages(hashset![2, 6, 12]).await;
+        fixture.expect_messages(hashset![2, 6]).await;
         fixture
             .server
             .as_mut()
@@ -558,7 +571,14 @@ fn no_reconfiguration_if_in_joint_configuration() {
             .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12, 13]))
             .await
             .expect("unable to send command to server");
-        fixture.expect_no_messages().await;
+        fixture
+            .expect_reconfiguration(&ClusterConfiguration::Joint(
+                hashset![2, 5, 6, 7, 11],
+                hashset![2, 5, 6, 7, 11, 12],
+            ))
+            .await;
+        fixture.expect_message(12).await;
+        fixture.expect_no_messages_now();
         verify_log(
             &mock_log_back_end,
             0,

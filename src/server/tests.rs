@@ -10,6 +10,7 @@ mod replication_response;
 use super::Server;
 use crate::{
     AppendEntriesContent,
+    ClusterConfiguration,
     Log,
     LogEntry,
     LogEntryCommand,
@@ -889,7 +890,7 @@ impl Fixture {
 
     fn expect_reconfiguration_now(
         &mut self,
-        expected_ids: &HashSet<usize>,
+        expected_configuration: &ClusterConfiguration,
     ) {
         while let Some(event) = self
             .server
@@ -898,13 +899,13 @@ impl Fixture {
             .next()
             .now_or_never()
         {
-            if let ServerEvent::Reconfiguration(ids) =
+            if let ServerEvent::Reconfiguration(configuration) =
                 event.expect("unexpected end of server events")
             {
                 assert_eq!(
-                    *expected_ids, ids,
-                    "wrong instance IDs (expected {:?}, got {:?})",
-                    *expected_ids, ids
+                    *expected_configuration, configuration,
+                    "wrong configuration (expected {:?}, got {:?})",
+                    *expected_configuration, configuration
                 );
                 return;
             }
@@ -914,10 +915,10 @@ impl Fixture {
 
     async fn expect_reconfiguration(
         &mut self,
-        expected_ids: &HashSet<usize>,
+        expected_configuration: &ClusterConfiguration,
     ) {
         self.synchronize().await;
-        self.expect_reconfiguration_now(expected_ids);
+        self.expect_reconfiguration_now(expected_configuration);
     }
 
     fn expect_no_reconfiguration_now(&mut self) {

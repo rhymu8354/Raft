@@ -4,6 +4,7 @@ mod peer;
 mod tests;
 
 use crate::{
+    ClusterConfiguration,
     Log,
     Message,
     PersistentStorage,
@@ -53,7 +54,7 @@ pub enum Event<S, T> {
         voted_for: Option<usize>,
     },
     LogCommitted(usize),
-    Reconfiguration(HashSet<usize>),
+    Reconfiguration(ClusterConfiguration),
     SendMessage {
         message: Message<S, T>,
         receiver_id: usize,
