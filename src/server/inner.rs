@@ -106,7 +106,8 @@ impl<S, T> Inner<S, T> {
     fn attempt_accept_append_entries(
         &mut self,
         append_entries: AppendEntriesContent<T>,
-    ) -> (bool, usize) {
+    ) -> (bool, Option<ClusterConfiguration>, usize) {
+        let cluster_configuration_before = self.log.cluster_configuration();
         if self.election_state != ElectionState::Follower {
             self.become_follower();
         }
@@ -148,9 +149,8 @@ impl<S, T> Inner<S, T> {
             match_term = new_log_term;
             true
         });
-        let new_ids = self
-            .log
-            .cluster_configuration()
+        let cluster_configuration_after = self.log.cluster_configuration();
+        let new_ids = cluster_configuration_after
             .peers(self.id)
             .copied()
             .collect::<HashSet<_>>();
@@ -161,7 +161,13 @@ impl<S, T> Inner<S, T> {
         for new_peer_id in new_ids.difference(&old_ids) {
             self.peers.insert(*new_peer_id, Peer::default());
         }
-        (success, match_index + 1)
+        let cluster_configuration_change =
+            if cluster_configuration_before == cluster_configuration_after {
+                None
+            } else {
+                Some(cluster_configuration_after)
+            };
+        (success, cluster_configuration_change, match_index + 1)
     }
 
     fn become_candidate(&mut self)
@@ -646,11 +652,17 @@ impl<S, T> Inner<S, T> {
             return;
         }
         let leader_commit = append_entries.leader_commit;
-        let (success, next_log_index) = if decision == RequestDecision::Reject {
-            (false, 1)
-        } else {
-            self.attempt_accept_append_entries(append_entries)
-        };
+        let (success, cluster_configuration_change, next_log_index) =
+            if decision == RequestDecision::Reject {
+                (false, None, 1)
+            } else {
+                self.attempt_accept_append_entries(append_entries)
+            };
+        if let Some(new_cluster_configuration) = cluster_configuration_change {
+            let _ = self.event_sender.unbounded_send(Event::Reconfiguration(
+                new_cluster_configuration,
+            ));
+        }
         if leader_commit > self.commit_index {
             self.commit_log(leader_commit);
         }

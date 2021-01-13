@@ -864,6 +864,12 @@ fn follower_add_peers_in_joint_configuration() {
                 2,
             )
             .await;
+        fixture
+            .expect_reconfiguration(&ClusterConfiguration::Joint(
+                hashset![2, 5, 6, 7, 11],
+                hashset![2, 5, 6, 7, 11, 12],
+            ))
+            .await;
         fixture.peer_ids.insert(12);
         fixture
             .expect_election(AwaitElectionTimeoutArgs {
@@ -911,6 +917,12 @@ fn truncate_log_should_remove_old_peers() {
                 2,
             )
             .await;
+        fixture
+            .expect_reconfiguration(&ClusterConfiguration::Joint(
+                hashset![2, 5, 6, 7, 11],
+                hashset![2, 5, 6, 7, 11, 12],
+            ))
+            .await;
         fixture.expect_election_timer_registrations(1).await;
         fixture
             .send_server_message(
@@ -933,6 +945,11 @@ fn truncate_log_should_remove_old_peers() {
             )
             .await;
         fixture
+            .expect_reconfiguration(&ClusterConfiguration::Single(hashset![
+                2, 5, 6, 7, 11
+            ]))
+            .await;
+        fixture
             .expect_election(AwaitElectionTimeoutArgs {
                 last_log_term: 2,
                 last_log_index: 1,
@@ -951,8 +968,6 @@ fn truncate_log_should_remove_old_peers() {
 // * When in joint configuration and the last `StartReconfiguration` command is
 //   committed, the leader should append `FinishReconfiguration` command and
 //   drop any peers that are not in the new configuration.
-// * A "configuration change" event should be generated whenever the
-//   configuration changes.
 // * Once the current configuration is committed, if the leader was a
 //   "non-voting" member, it should step down by no longer appending entries.
 //   (At this point we could let it delegate leadership explicitly, or simply
