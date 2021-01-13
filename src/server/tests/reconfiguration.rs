@@ -973,7 +973,5 @@ fn truncate_log_should_remove_old_peers() {
 //   (At this point we could let it delegate leadership explicitly, or simply
 //   let one of the other servers start a new election once its election timer
 //   expires.)
-// * Election win should require separate majorites of old and new
-//   configuration, when in joint configuration.
 // * Committing log entries should require separate majorites of old and new
 //   configuration, when in joint configuration.

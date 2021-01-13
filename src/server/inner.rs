@@ -529,6 +529,25 @@ impl<S, T> Inner<S, T> {
         })
     }
 
+    fn majority_vote(
+        &self,
+        ids: &HashSet<usize>,
+    ) -> bool {
+        let votes = ids
+            .iter()
+            .filter(|id| {
+                if **id == self.id {
+                    true
+                } else if let Some(peer) = self.peers.get(*id) {
+                    matches!(peer.vote, Some(vote) if vote)
+                } else {
+                    false
+                }
+            })
+            .count();
+        votes >= ids.len() - votes
+    }
+
     pub fn minimum_election_timeout(&mut self) {
         self.cancel_min_election_timeout.take();
         self.ignore_vote_requests = false;
@@ -1298,13 +1317,12 @@ impl<S, T> Inner<S, T> {
         } else {
             return;
         }
-        let votes = self
-            .peers
-            .values()
-            .filter(|peer| matches!(peer.vote, Some(vote) if vote))
-            .count()
-            + 1; // we always vote for ourselves (it's implicit)
-        if votes > self.peers.len() + 1 - votes {
+        if match &self.log.cluster_configuration() {
+            ClusterConfiguration::Joint(old_ids, new_ids) => {
+                self.majority_vote(old_ids) && self.majority_vote(new_ids)
+            },
+            ClusterConfiguration::Single(ids) => self.majority_vote(ids),
+        } {
             self.become_leader();
             self.cancel_election_timers();
         }

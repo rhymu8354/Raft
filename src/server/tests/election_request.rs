@@ -462,3 +462,39 @@ fn start_election_timer_if_become_voting_member() {
         fixture.expect_election_timer_registrations(1).await;
     });
 }
+
+#[test]
+fn election_during_joint_configuration_requires_separate_majorities() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_log, _mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 0, Snapshot {
+                cluster_configuration: ClusterConfiguration::Joint(
+                    hashset![5, 6, 7, 11],
+                    hashset![2, 5, 8, 10],
+                ),
+                state: (),
+            });
+        fixture.mobilize_server_with_log(Box::new(mock_log));
+        fixture.expect_election_with_defaults().await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 2,
+                seq: 1,
+                term: 1,
+                vote: true,
+            })
+            .await;
+        fixture.expect_no_election_state_changes().await;
+        fixture
+            .cast_vote(CastVoteArgs {
+                sender_id: 6,
+                seq: 1,
+                term: 1,
+                vote: true,
+            })
+            .await;
+        fixture.expect_assume_leadership(1).await;
+    });
+}
