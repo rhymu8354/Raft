@@ -21,7 +21,9 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12, 13]))
+            .send(ServerCommand::ReconfigureCluster(hashset![
+                2, 5, 6, 7, 11, 12, 13
+            ]))
             .await
             .expect("unable to send command to server");
         let messages = fixture.expect_messages(hashset![12, 13]).await;
@@ -243,7 +245,7 @@ fn start_reconfiguration_immediately_if_no_new_members() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7]))
+            .send(ServerCommand::ReconfigureCluster(hashset![2, 5, 6, 7]))
             .await
             .expect("unable to send command to server");
         fixture
@@ -294,7 +296,9 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12]))
+            .send(ServerCommand::ReconfigureCluster(hashset![
+                2, 5, 6, 7, 11, 12
+            ]))
             .await
             .expect("unable to send command to server");
         fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
@@ -324,7 +328,9 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12, 13]))
+            .send(ServerCommand::ReconfigureCluster(hashset![
+                2, 5, 6, 7, 11, 12, 13
+            ]))
             .await
             .expect("unable to send command to server");
         assert_eq!(
@@ -486,7 +492,7 @@ fn no_reconfiguration_if_reconfiguration_requested_is_current_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11]))
+            .send(ServerCommand::ReconfigureCluster(hashset![2, 5, 6, 7, 11]))
             .await
             .expect("unable to send command to server");
         fixture.expect_no_messages().await;
@@ -509,6 +515,7 @@ fn no_reconfiguration_if_reconfiguration_requested_is_current_configuration() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn no_reconfiguration_if_in_joint_configuration() {
     assert_logger();
     executor::block_on(async {
@@ -522,7 +529,9 @@ fn no_reconfiguration_if_in_joint_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12]))
+            .send(ServerCommand::ReconfigureCluster(hashset![
+                2, 5, 6, 7, 11, 12
+            ]))
             .await
             .expect("unable to send command to server");
         fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
@@ -571,7 +580,9 @@ fn no_reconfiguration_if_in_joint_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12, 13]))
+            .send(ServerCommand::ReconfigureCluster(hashset![
+                2, 5, 6, 7, 11, 12, 13
+            ]))
             .await
             .expect("unable to send command to server");
         fixture
@@ -624,7 +635,9 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12]))
+            .send(ServerCommand::ReconfigureCluster(hashset![
+                2, 5, 6, 7, 11, 12
+            ]))
             .await
             .expect("unable to send command to server");
         fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
@@ -659,7 +672,7 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11]))
+            .send(ServerCommand::ReconfigureCluster(hashset![2, 5, 6, 7, 11]))
             .await
             .expect("unable to send command to server");
         fixture.expect_no_messages().await;
@@ -696,7 +709,9 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12]))
+            .send(ServerCommand::ReconfigureCluster(hashset![
+                2, 5, 6, 7, 11, 12
+            ]))
             .await
             .expect("unable to send command to server");
         assert_eq!(
@@ -731,7 +746,9 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::Reconfigure(hashset![2, 5, 6, 7, 11, 12]))
+            .send(ServerCommand::ReconfigureCluster(hashset![
+                2, 5, 6, 7, 11, 12
+            ]))
             .await
             .expect("unable to send command to server");
         fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;

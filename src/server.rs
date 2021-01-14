@@ -70,7 +70,7 @@ pub enum Command<S, T> {
         message: Message<S, T>,
         sender_id: usize,
     },
-    Reconfigure(HashSet<usize>),
+    ReconfigureCluster(HashSet<usize>),
     ReconfigureServer(ServerConfiguration),
     #[cfg(test)]
     Synchronize(oneshot::Sender<()>),
@@ -99,8 +99,8 @@ where
                     sender_id, message
                 )?;
             },
-            Command::Reconfigure(ids) => {
-                write!(f, "Reconfigure({:?})", ids)?;
+            Command::ReconfigureCluster(ids) => {
+                write!(f, "ReconfigureCluster({:?})", ids)?;
             },
             Command::ReconfigureServer(configuration) => {
                 write!(f, "ReconfigureServer({:?})", configuration)?;

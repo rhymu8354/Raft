@@ -956,7 +956,9 @@ impl<S, T> Inner<S, T> {
                 message,
                 sender_id,
             } => self.process_receive_message(message, sender_id),
-            Command::Reconfigure(ids) => self.process_reconfigure(ids),
+            Command::ReconfigureCluster(ids) => {
+                self.process_reconfigure_cluster(ids)
+            },
             Command::ReconfigureServer(configuration) => {
                 self.process_reconfigure_server(configuration)
             },
@@ -1166,7 +1168,7 @@ impl<S, T> Inner<S, T> {
 
     // TODO: Needs Refactoring
     #[allow(clippy::too_many_lines)]
-    fn process_reconfigure(
+    fn process_reconfigure_cluster(
         &mut self,
         ids: HashSet<usize>,
     ) where
