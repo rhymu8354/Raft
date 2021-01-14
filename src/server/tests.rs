@@ -1118,6 +1118,8 @@ impl Fixture {
                 } => {
                     if expected_receiver_ids.remove(&receiver_id) {
                         messages.insert(receiver_id, message);
+                    } else {
+                        panic!("Unexpected message sent to {}", receiver_id);
                     }
                 },
                 ServerEvent::ElectionStateChange {

@@ -357,7 +357,7 @@ fn leader_send_missing_entries_mid_log_on_append_entries_response() {
             .await;
         fixture.cast_votes(1, 7).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
-        fixture.expect_messages(hashset![2, 6]).await;
+        fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture
             .send_server_message(
                 Message {
