@@ -1362,10 +1362,6 @@ impl<S, T> Inner<S, T> {
             message,
             receiver_id: sender_id,
         });
-        // TODO: Should we cancel election timers here, or not?
-        if vote_granted {
-            self.cancel_election_timers();
-        }
     }
 
     fn process_request_vote_response(

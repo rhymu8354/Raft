@@ -220,7 +220,7 @@ fn non_follower_revert_to_follower_and_vote_for_new_term_candidate() {
             2,
             Some(6),
         );
-        fixture.expect_election_timer_registrations(2).await;
+        fixture.expect_election_timer_registrations(1).await;
     });
 }
 
