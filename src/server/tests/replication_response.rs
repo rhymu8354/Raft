@@ -708,7 +708,7 @@ fn follower_rejects_appended_entries_with_no_common_base() {
 }
 
 #[test]
-fn follower_installs_snapshot() {
+fn follower_installs_snapshot_same_configuration() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
@@ -735,7 +735,7 @@ fn follower_installs_snapshot() {
                         last_included_term: 10,
                         snapshot: Snapshot {
                             cluster_configuration: ClusterConfiguration::Single(
-                                hashset![2, 5, 6, 7, 11, 12],
+                                hashset![2, 5, 6, 7, 11],
                             ),
                             state: (),
                         },
@@ -751,14 +751,83 @@ fn follower_installs_snapshot() {
         timeout
             .send(timeout_ack_sender)
             .expect_err("server did not cancel election timer");
-        fixture.expect_install_snapshot_response(6, 42, 11, false).await;
+        fixture.expect_install_snapshot_response(6, 42, 11).await;
         verify_log(&mock_log_back_end, 10, 1, [], Snapshot {
             cluster_configuration: ClusterConfiguration::Single(hashset![
-                2, 5, 6, 7, 11, 12
+                2, 5, 6, 7, 11
             ]),
             state: (),
         });
         verify_persistent_storage(&mock_persistent_storage_back_end, 11, None);
         fixture.expect_election_timer_registrations(1).await;
+    });
+}
+
+#[test]
+fn follower_installs_snapshot_different_configuration() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(0, None);
+        let (mock_log, mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 0, Snapshot {
+                cluster_configuration: ClusterConfiguration::Single(hashset![
+                    2, 5, 6, 7, 11
+                ]),
+                state: (),
+            });
+        fixture.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            Box::new(mock_persistent_storage),
+        );
+        let (_duration, timeout) =
+            fixture.expect_election_timer_registrations(1).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::InstallSnapshot {
+                        last_included_index: 1,
+                        last_included_term: 10,
+                        snapshot: Snapshot {
+                            cluster_configuration: ClusterConfiguration::Single(
+                                hashset![2, 5, 6, 7, 12],
+                            ),
+                            state: (),
+                        },
+                    },
+                    seq: 42,
+                    term: 11,
+                },
+                6,
+            )
+            .await;
+        fixture.peer_ids = hashset![2, 6, 7, 12];
+        fixture.synchronize().await;
+        let (timeout_ack_sender, _timeout_ack_receiver) = oneshot::channel();
+        timeout
+            .send(timeout_ack_sender)
+            .expect_err("server did not cancel election timer");
+        fixture
+            .expect_reconfiguration(&ClusterConfiguration::Single(hashset![
+                2, 5, 6, 7, 12
+            ]))
+            .await;
+        fixture.expect_install_snapshot_response(6, 42, 11).await;
+        verify_log(&mock_log_back_end, 10, 1, [], Snapshot {
+            cluster_configuration: ClusterConfiguration::Single(hashset![
+                2, 5, 6, 7, 12
+            ]),
+            state: (),
+        });
+        verify_persistent_storage(&mock_persistent_storage_back_end, 11, None);
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 10,
+                last_log_index: 1,
+                term: 12,
+            })
+            .await;
+        fixture.expect_no_messages_now();
     });
 }

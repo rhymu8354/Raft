@@ -1544,9 +1544,7 @@ impl Fixture {
         expected_receiver_id: usize,
         expected_seq: usize,
         expected_term: usize,
-        expect_state_change: bool,
     ) {
-        let mut state_changed = false;
         loop {
             let event = self
                 .server
@@ -1572,17 +1570,9 @@ impl Fixture {
                     }
                 },
                 ServerEvent::ElectionStateChange {
-                    election_state,
-                    term,
                     ..
                 } => {
-                    state_changed = true;
-                    assert_eq!(election_state, ServerElectionState::Follower);
-                    assert_eq!(
-                        term, expected_term,
-                        "wrong term in election state change (was {}, should be {})",
-                        term, expected_term
-                    );
+                    panic!("Unexpected election state change");
                 },
                 ServerEvent::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
@@ -1592,9 +1582,6 @@ impl Fixture {
                 },
             }
         }
-        if expect_state_change {
-            assert!(state_changed, "server did not change election state");
-        }
     }
 
     async fn expect_install_snapshot_response(
@@ -1602,15 +1589,9 @@ impl Fixture {
         receiver_id: usize,
         seq: usize,
         term: usize,
-        expect_state_change: bool,
     ) {
         self.synchronize().await;
-        self.expect_install_snapshot_response_now(
-            receiver_id,
-            seq,
-            term,
-            expect_state_change,
-        );
+        self.expect_install_snapshot_response_now(receiver_id, seq, term);
     }
 
     async fn send_server_message(

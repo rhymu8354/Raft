@@ -1010,11 +1010,30 @@ impl<S, T> Inner<S, T> {
                 self.become_follower();
             }
             self.cancel_election_timers();
+            let cluster_configuration_before = self.log.cluster_configuration();
             self.log.install_snapshot(
                 last_included_index,
                 last_included_term,
                 snapshot,
             );
+            let cluster_configuration_after = self.log.cluster_configuration();
+            let new_ids = cluster_configuration_after
+                .peers(self.id)
+                .copied()
+                .collect::<HashSet<_>>();
+            let old_ids = self.peers.keys().copied().collect::<HashSet<_>>();
+            for old_peer_id in old_ids.difference(&new_ids) {
+                self.peers.remove(old_peer_id);
+            }
+            for new_peer_id in new_ids.difference(&old_ids) {
+                self.peers.insert(*new_peer_id, Peer::default());
+            }
+            if cluster_configuration_before != cluster_configuration_after {
+                let _ = self.event_sender.unbounded_send(
+                    Event::Reconfiguration(cluster_configuration_after.clone()),
+                );
+                info!("Configuration is now {:?}", cluster_configuration_after);
+            }
         }
         let message = Message {
             content: MessageContent::InstallSnapshotResponse,

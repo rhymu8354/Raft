@@ -92,6 +92,9 @@ impl Shared {
         self.base_index = base_index;
         self.base_term = base_term;
         self.snapshot = snapshot;
+        self.entries.clear();
+        self.last_index = base_index;
+        self.last_term = base_term;
     }
 
     fn truncate(
