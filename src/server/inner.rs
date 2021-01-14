@@ -683,8 +683,9 @@ impl<S, T> Inner<S, T> {
             };
         if let Some(new_cluster_configuration) = cluster_configuration_change {
             let _ = self.event_sender.unbounded_send(Event::Reconfiguration(
-                new_cluster_configuration,
+                new_cluster_configuration.clone(),
             ));
+            info!("Configuration is now {:?}", new_cluster_configuration);
         }
         if leader_commit > self.commit_index {
             self.commit_log(leader_commit);

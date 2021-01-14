@@ -1077,8 +1077,67 @@ fn leader_finish_reconfiguration() {
     });
 }
 
+#[test]
+fn follower_finish_reconfiguration() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_log, _mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 1, Snapshot {
+                cluster_configuration: ClusterConfiguration::Joint {
+                    old_ids: hashset![2, 5, 6],
+                    new_ids: hashset![2, 5, 7],
+                    index: 1,
+                },
+                state: (),
+            });
+        fixture.mobilize_server_with_log(Box::new(mock_log));
+        fixture.expect_election_timer_registrations(1).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 1,
+                            prev_log_index: 1,
+                            prev_log_term: 0,
+                            log: vec![LogEntry {
+                                term: 1,
+                                command: Some(
+                                    LogEntryCommand::FinishReconfiguration,
+                                ),
+                            }],
+                        },
+                    ),
+                    seq: 1,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture
+            .expect_reconfiguration(&ClusterConfiguration::Single(hashset![
+                2, 5, 7
+            ]))
+            .await;
+        fixture.expect_commit(1).await;
+        fixture.expect_message(2).await;
+        fixture.peer_ids.remove(&6);
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 1,
+                last_log_index: 2,
+                term: 2,
+            })
+            .await;
+        fixture.cast_votes(1, 2).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_messages(hashset![2, 7]).await;
+        fixture.expect_no_messages_now();
+    });
+}
+
 // TODO:
-// * Followers receiving `FinishReconfiguration` should drop old peers.
 // * Once the current configuration is committed, if the leader was a
 //   "non-voting" member, it should step down by no longer appending entries.
 //   (At this point we could let it delegate leadership explicitly, or simply
