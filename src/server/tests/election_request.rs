@@ -58,7 +58,7 @@ fn new_election_after_new_server_config() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::ReconfigureServer(new_server_configuration))
+            .send(Command::ReconfigureServer(new_server_configuration))
             .await
             .unwrap();
         fixture

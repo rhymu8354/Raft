@@ -7,7 +7,7 @@ mod reconfiguration;
 mod replication_request;
 mod replication_response;
 
-use super::Server;
+use super::*;
 use crate::{
     AppendEntriesContent,
     ClusterConfiguration,
@@ -21,10 +21,7 @@ use crate::{
     ScheduledEvent,
     ScheduledEventReceiver,
     ScheduledEventWithCompleter,
-    ServerCommand,
     ServerConfiguration,
-    ServerElectionState,
-    ServerEvent,
     Snapshot,
 };
 use futures::{
@@ -470,7 +467,7 @@ impl Fixture {
                 .flatten()
                 .expect("no vote request received");
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -484,12 +481,12 @@ impl Fixture {
                         break receiver_id;
                     }
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     election_state,
                     term,
                     voted_for,
                 } => {
-                    assert_eq!(ServerElectionState::Candidate, election_state);
+                    assert_eq!(ElectionState::Candidate, election_state);
                     assert_eq!(
                         term,
                         expected_term,
@@ -504,10 +501,10 @@ impl Fixture {
                         self.id
                     );
                 },
-                ServerEvent::LogCommitted(_) => {
+                Event::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
-                ServerEvent::Reconfiguration(_) => {
+                Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
             }
@@ -587,13 +584,13 @@ impl Fixture {
                 .now_or_never()
                 .flatten()
                 .expect("no election state change");
-            if let ServerEvent::ElectionStateChange {
+            if let Event::ElectionStateChange {
                 election_state: new_election_state,
                 term,
                 voted_for,
             } = event
             {
-                assert_eq!(ServerElectionState::Leader, new_election_state);
+                assert_eq!(ElectionState::Leader, new_election_state);
                 assert_eq!(
                     term,
                     expected_term,
@@ -680,7 +677,7 @@ impl Fixture {
                 .flatten()
                 .expect("no vote sent");
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -688,13 +685,13 @@ impl Fixture {
                         break;
                     }
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     election_state,
                     term,
                     voted_for,
                 } => {
                     state_changed = true;
-                    assert_eq!(election_state, ServerElectionState::Follower);
+                    assert_eq!(election_state, ElectionState::Follower);
                     assert_eq!(
                         term, args.term,
                         "wrong term in election state change (was {}, should be {})",
@@ -708,10 +705,10 @@ impl Fixture {
                         Some(args.receiver_id)
                     );
                 },
-                ServerEvent::LogCommitted(_) => {
+                Event::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
-                ServerEvent::Reconfiguration(_) => {
+                Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
             }
@@ -739,7 +736,7 @@ impl Fixture {
             .flatten()
         {
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -753,7 +750,7 @@ impl Fixture {
                         );
                     }
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     election_state,
                     ..
                 } => {
@@ -762,10 +759,10 @@ impl Fixture {
                         election_state
                     );
                 },
-                ServerEvent::LogCommitted(_) => {
+                Event::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
-                ServerEvent::Reconfiguration(_) => {
+                Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
             }
@@ -779,7 +776,7 @@ impl Fixture {
 
     fn expect_election_state_change_now(
         &mut self,
-        election_state: ServerElectionState,
+        election_state: ElectionState,
     ) {
         while let Some(event) = self
             .server
@@ -788,7 +785,7 @@ impl Fixture {
             .next()
             .now_or_never()
         {
-            if let ServerEvent::ElectionStateChange {
+            if let Event::ElectionStateChange {
                 election_state: new_election_state,
                 ..
             } = event.expect("unexpected end of server events")
@@ -802,7 +799,7 @@ impl Fixture {
 
     async fn expect_election_state_change(
         &mut self,
-        election_state: ServerElectionState,
+        election_state: ElectionState,
     ) {
         self.synchronize().await;
         self.expect_election_state_change_now(election_state);
@@ -817,7 +814,7 @@ impl Fixture {
             .now_or_never()
             .flatten()
         {
-            if let ServerEvent::ElectionStateChange {
+            if let Event::ElectionStateChange {
                 election_state,
                 ..
             } = event
@@ -846,7 +843,7 @@ impl Fixture {
             .next()
             .now_or_never()
         {
-            if let ServerEvent::LogCommitted(index) =
+            if let Event::LogCommitted(index) =
                 event.expect("unexpected end of server events")
             {
                 assert_eq!(
@@ -877,7 +874,7 @@ impl Fixture {
             .now_or_never()
             .flatten()
         {
-            if let ServerEvent::LogCommitted(index) = event {
+            if let Event::LogCommitted(index) = event {
                 panic!("unexpected commit to {:?}", index);
             }
         }
@@ -899,7 +896,7 @@ impl Fixture {
             .next()
             .now_or_never()
         {
-            if let ServerEvent::Reconfiguration(configuration) =
+            if let Event::Reconfiguration(configuration) =
                 event.expect("unexpected end of server events")
             {
                 assert_eq!(
@@ -930,7 +927,7 @@ impl Fixture {
             .now_or_never()
             .flatten()
         {
-            if let ServerEvent::Reconfiguration(ids) = event {
+            if let Event::Reconfiguration(ids) = event {
                 panic!("unexpected reconfiguration to {:?}", ids);
             }
         }
@@ -1060,7 +1057,7 @@ impl Fixture {
                 .flatten()
                 .expect("no message sent");
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -1068,7 +1065,7 @@ impl Fixture {
                         return message;
                     }
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     election_state,
                     ..
                 } => {
@@ -1077,10 +1074,10 @@ impl Fixture {
                         election_state
                     );
                 },
-                ServerEvent::LogCommitted(_) => {
+                Event::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
-                ServerEvent::Reconfiguration(_) => {
+                Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
             }
@@ -1112,7 +1109,7 @@ impl Fixture {
                     panic!("no messages sent to {:?}", expected_receiver_ids)
                 });
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -1122,7 +1119,7 @@ impl Fixture {
                         panic!("Unexpected message sent to {}", receiver_id);
                     }
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     election_state,
                     ..
                 } => {
@@ -1131,10 +1128,10 @@ impl Fixture {
                         election_state
                     );
                 },
-                ServerEvent::LogCommitted(_) => {
+                Event::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
-                ServerEvent::Reconfiguration(_) => {
+                Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
             }
@@ -1160,7 +1157,7 @@ impl Fixture {
             .flatten()
         {
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -1169,7 +1166,7 @@ impl Fixture {
                         message, receiver_id
                     );
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     election_state,
                     ..
                 } => {
@@ -1178,10 +1175,10 @@ impl Fixture {
                         election_state
                     );
                 },
-                ServerEvent::LogCommitted(_) => {
+                Event::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
-                ServerEvent::Reconfiguration(_) => {
+                Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
             }
@@ -1330,7 +1327,7 @@ impl Fixture {
                 .flatten()
                 .expect("no append entries sent");
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -1348,7 +1345,7 @@ impl Fixture {
                         break receiver_id;
                     }
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     election_state,
                     ..
                 } => {
@@ -1357,10 +1354,10 @@ impl Fixture {
                         election_state
                     );
                 },
-                ServerEvent::LogCommitted(_) => {
+                Event::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
-                ServerEvent::Reconfiguration(_) => {
+                Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
             }
@@ -1453,7 +1450,7 @@ impl Fixture {
                 .flatten()
                 .expect("no append entries response sent");
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -1465,20 +1462,20 @@ impl Fixture {
                         break;
                     }
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     election_state,
                     term,
                     ..
                 } => {
                     state_changed = true;
-                    assert_eq!(election_state, ServerElectionState::Follower);
+                    assert_eq!(election_state, ElectionState::Follower);
                     assert_eq!(
                         term, args.term,
                         "wrong term in election state change (was {}, should be {})",
                         term, args.term
                     );
                 },
-                ServerEvent::LogCommitted(commit_index) => {
+                Event::LogCommitted(commit_index) => {
                     log_committed = true;
                     let expected_commit_index = args
                         .commit_index
@@ -1489,7 +1486,7 @@ impl Fixture {
                         commit_index, expected_commit_index
                     );
                 },
-                ServerEvent::Reconfiguration(_) => {
+                Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
             }
@@ -1555,7 +1552,7 @@ impl Fixture {
                 .flatten()
                 .expect("no install snapshot response sent");
             match event {
-                ServerEvent::SendMessage {
+                Event::SendMessage {
                     message,
                     receiver_id,
                 } => {
@@ -1569,15 +1566,15 @@ impl Fixture {
                         break;
                     }
                 },
-                ServerEvent::ElectionStateChange {
+                Event::ElectionStateChange {
                     ..
                 } => {
                     panic!("Unexpected election state change");
                 },
-                ServerEvent::LogCommitted(_) => {
+                Event::LogCommitted(_) => {
                     panic!("Unexpectedly committed log entries")
                 },
-                ServerEvent::Reconfiguration(_) => {
+                Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
             }
@@ -1707,7 +1704,7 @@ async fn send_server_message(
     sender_id: usize,
 ) {
     server
-        .send(ServerCommand::ReceiveMessage {
+        .send(Command::ReceiveMessage {
             message,
             sender_id,
         })
@@ -1717,7 +1714,7 @@ async fn send_server_message(
 
 async fn synchronize(server: &mut Server<(), DummyCommand>) {
     let (completed_sender, completed_receiver) = oneshot::channel();
-    server.send(ServerCommand::Synchronize(completed_sender)).await.unwrap();
+    server.send(Command::Synchronize(completed_sender)).await.unwrap();
     let _ = completed_receiver.await;
 }
 

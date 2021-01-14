@@ -107,7 +107,7 @@ fn leader_revert_to_follower_on_append_entries_new_term() {
         fixture.expect_election_with_defaults().await;
         fixture.expect_election_timer_registrations(1).await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture
             .send_server_message(
                 Message {
@@ -195,7 +195,7 @@ fn leader_ignores_append_entries_same_term() {
         );
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture
             .send_server_message(

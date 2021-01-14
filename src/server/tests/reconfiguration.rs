@@ -15,15 +15,13 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages_now(hashset![2, 6, 7, 11]);
         fixture
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::ReconfigureCluster(hashset![
-                2, 5, 6, 7, 11, 12, 13
-            ]))
+            .send(Command::ReconfigureCluster(hashset![2, 5, 6, 7, 11, 12, 13]))
             .await
             .expect("unable to send command to server");
         let messages = fixture.expect_messages(hashset![12, 13]).await;
@@ -239,13 +237,13 @@ fn start_reconfiguration_immediately_if_no_new_members() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages_now(hashset![2, 6, 7, 11]);
         fixture
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::ReconfigureCluster(hashset![2, 5, 6, 7]))
+            .send(Command::ReconfigureCluster(hashset![2, 5, 6, 7]))
             .await
             .expect("unable to send command to server");
         fixture
@@ -291,14 +289,12 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::ReconfigureCluster(hashset![
-                2, 5, 6, 7, 11, 12
-            ]))
+            .send(Command::ReconfigureCluster(hashset![2, 5, 6, 7, 11, 12]))
             .await
             .expect("unable to send command to server");
         fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
@@ -321,16 +317,14 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::AddCommands(vec![DummyCommand {}]))
+            .send(Command::AddCommands(vec![DummyCommand {}]))
             .await
             .unwrap();
         fixture
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::ReconfigureCluster(hashset![
-                2, 5, 6, 7, 11, 12, 13
-            ]))
+            .send(Command::ReconfigureCluster(hashset![2, 5, 6, 7, 11, 12, 13]))
             .await
             .expect("unable to send command to server");
         assert_eq!(
@@ -486,13 +480,13 @@ fn no_reconfiguration_if_reconfiguration_requested_is_current_configuration() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::ReconfigureCluster(hashset![2, 5, 6, 7, 11]))
+            .send(Command::ReconfigureCluster(hashset![2, 5, 6, 7, 11]))
             .await
             .expect("unable to send command to server");
         fixture.expect_no_messages().await;
@@ -524,14 +518,12 @@ fn no_reconfiguration_if_in_joint_configuration() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::ReconfigureCluster(hashset![
-                2, 5, 6, 7, 11, 12
-            ]))
+            .send(Command::ReconfigureCluster(hashset![2, 5, 6, 7, 11, 12]))
             .await
             .expect("unable to send command to server");
         fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
@@ -580,9 +572,7 @@ fn no_reconfiguration_if_in_joint_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::ReconfigureCluster(hashset![
-                2, 5, 6, 7, 11, 12, 13
-            ]))
+            .send(Command::ReconfigureCluster(hashset![2, 5, 6, 7, 11, 12, 13]))
             .await
             .expect("unable to send command to server");
         fixture
@@ -630,14 +620,12 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::ReconfigureCluster(hashset![
-                2, 5, 6, 7, 11, 12
-            ]))
+            .send(Command::ReconfigureCluster(hashset![2, 5, 6, 7, 11, 12]))
             .await
             .expect("unable to send command to server");
         fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
@@ -672,7 +660,7 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::ReconfigureCluster(hashset![2, 5, 6, 7, 11]))
+            .send(Command::ReconfigureCluster(hashset![2, 5, 6, 7, 11]))
             .await
             .expect("unable to send command to server");
         fixture.expect_no_messages().await;
@@ -709,9 +697,7 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::ReconfigureCluster(hashset![
-                2, 5, 6, 7, 11, 12
-            ]))
+            .send(Command::ReconfigureCluster(hashset![2, 5, 6, 7, 11, 12]))
             .await
             .expect("unable to send command to server");
         assert_eq!(
@@ -741,14 +727,12 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
         fixture.expect_election_timer_registrations(1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::ReconfigureCluster(hashset![
-                2, 5, 6, 7, 11, 12
-            ]))
+            .send(Command::ReconfigureCluster(hashset![2, 5, 6, 7, 11, 12]))
             .await
             .expect("unable to send command to server");
         fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
@@ -814,9 +798,7 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
                 term: 2,
             })
             .await;
-        fixture
-            .expect_election_state_change(ServerElectionState::Follower)
-            .await;
+        fixture.expect_election_state_change(ElectionState::Follower).await;
         fixture.expect_message(6).await;
         fixture
             .expect_election(AwaitElectionTimeoutArgs {
@@ -827,7 +809,7 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
             .await;
         fixture.expect_no_messages().await;
         fixture.cast_votes(3, 3).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture.expect_no_messages().await;
         verify_log(
@@ -902,7 +884,7 @@ fn follower_add_peers_in_joint_configuration() {
             .await;
         fixture.cast_votes(1, 2).await;
         fixture.expect_election_timer_registrations(1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
         fixture.expect_no_messages_now();
     });
@@ -981,7 +963,7 @@ fn truncate_log_should_remove_old_peers() {
             .await;
         fixture.cast_votes(1, 3).await;
         fixture.expect_election_timer_registrations(1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture.expect_no_messages_now();
     });
@@ -1012,7 +994,7 @@ fn leader_finish_reconfiguration() {
             .await;
         fixture.expect_retransmission_timer_registration(6).await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages(hashset![2, 6, 7]).await;
         let (_duration, retransmit) =
             fixture.expect_retransmission_timer_registration(6).await;
@@ -1148,7 +1130,7 @@ fn follower_finish_reconfiguration() {
             })
             .await;
         fixture.cast_votes(1, 2).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages(hashset![2, 7]).await;
         fixture.expect_no_messages_now();
     });
@@ -1178,7 +1160,7 @@ fn leader_step_down_after_reconfiguration() {
             })
             .await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages(hashset![2, 6]).await;
         fixture
             .send_server_message(

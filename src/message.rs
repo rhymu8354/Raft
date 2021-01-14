@@ -1,7 +1,7 @@
-// TODO: Revisit the way we import/export various parts of the crate.
-use crate::Snapshot;
-
-use super::log_entry::LogEntry;
+use crate::{
+    LogEntry,
+    Snapshot,
+};
 use serde::{
     Deserialize,
     Serialize,

@@ -20,7 +20,7 @@ fn leader_sends_no_op_log_entry_upon_election() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture
             .expect_log_entries_broadcast(AwaitAppendEntriesArgs {
                 term: 1,
@@ -60,7 +60,7 @@ fn leader_retransmit_append_entries() {
         fixture.expect_election_with_defaults().await;
         fixture.expect_retransmission_timer_registration(2).await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_message(2).await;
         assert_eq!(
             Message {
@@ -90,7 +90,7 @@ fn leader_no_retransmit_append_entries_after_response() {
         fixture.expect_election_with_defaults().await;
         fixture.expect_retransmission_timer_registration(2).await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_message(2).await;
         fixture
             .send_server_message(
@@ -124,7 +124,7 @@ fn leader_ignore_append_entries_old_term() {
         fixture.expect_election_with_defaults().await;
         fixture.expect_retransmission_timer_registration(2).await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_message(2).await;
         fixture
             .send_server_message(
@@ -171,7 +171,7 @@ fn leader_revert_to_follower_when_receive_new_term_append_entries_response() {
         fixture.expect_election_with_defaults().await;
         fixture.expect_retransmission_timer_registration(6).await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture
             .send_server_message(
                 Message {
@@ -185,9 +185,7 @@ fn leader_revert_to_follower_when_receive_new_term_append_entries_response() {
                 2,
             )
             .await;
-        fixture
-            .expect_election_state_change(ServerElectionState::Follower)
-            .await;
+        fixture.expect_election_state_change(ElectionState::Follower).await;
         let (_duration, completer) =
             fixture.expect_retransmission_timer_registration(6).await;
         let (sender, _receiver) = oneshot::channel();
@@ -208,7 +206,7 @@ fn leader_commit_entry_when_majority_match_single_configuration() {
         fixture.mobilize_server();
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture
             .send_server_message(
                 Message {
@@ -277,7 +275,7 @@ fn leader_commit_entry_when_majority_match_joint_configuration() {
             })
             .await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture
             .send_server_message(
                 Message {
@@ -349,7 +347,7 @@ fn leader_send_missing_entries_mid_log_on_append_entries_response() {
             })
             .await;
         fixture.cast_votes(1, 7).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture
             .send_server_message(
@@ -464,7 +462,7 @@ fn leader_send_missing_entries_all_log_on_append_entries_response() {
             })
             .await;
         fixture.cast_votes(1, 7).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_message(2).await;
         fixture
             .send_server_message(
@@ -516,7 +514,7 @@ fn follower_ignore_append_entries_response() {
         fixture.mobilize_server();
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture
             .send_server_message(
                 Message {
@@ -575,7 +573,7 @@ fn leader_send_heartbeat_when_follower_up_to_date() {
         fixture.mobilize_server();
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_message_now(2);
         fixture
             .send_server_message(
@@ -654,7 +652,7 @@ fn leader_no_op_non_zero_commit_index() {
             })
             .await;
         fixture.cast_votes(1, 2).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         assert_eq!(
             Message {
                 content: MessageContent::AppendEntries(AppendEntriesContent {
@@ -701,7 +699,7 @@ fn install_snapshot_if_match_index_before_base() {
             .await;
         fixture.cast_votes(1, 11).await;
         fixture.expect_retransmission_timer_registration(2).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_retransmission_timer_registration(2).await;
         fixture.expect_message_now(2);
         fixture
@@ -799,7 +797,7 @@ fn install_snapshot_ignore_response_if_term_old() {
             .await;
         fixture.expect_retransmission_timer_registration(2).await;
         fixture.cast_votes(1, 11).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_retransmission_timer_registration(2).await;
         fixture.expect_message(2).await;
         fixture
@@ -865,7 +863,7 @@ fn leader_send_new_log_entries() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages_now(hashset![2, 6, 7, 11]);
         fixture
             .send_server_message(
@@ -887,7 +885,7 @@ fn leader_send_new_log_entries() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::AddCommands(vec![DummyCommand {}]))
+            .send(Command::AddCommands(vec![DummyCommand {}]))
             .await
             .unwrap();
         fixture.synchronize().await;
@@ -1003,7 +1001,7 @@ fn non_leader_should_not_accept_commands() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(ServerCommand::AddCommands(vec![DummyCommand {}]))
+            .send(Command::AddCommands(vec![DummyCommand {}]))
             .await
             .unwrap();
         fixture.synchronize().await;

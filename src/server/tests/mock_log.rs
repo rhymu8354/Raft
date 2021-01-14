@@ -1,5 +1,3 @@
-use maplit::hashset;
-
 use super::DummyCommand;
 use crate::{
     ClusterConfiguration,
@@ -7,12 +5,10 @@ use crate::{
     LogEntry,
     Snapshot,
 };
-use std::{
-    self,
-    sync::{
-        Arc,
-        Mutex,
-    },
+use maplit::hashset;
+use std::sync::{
+    Arc,
+    Mutex,
 };
 
 pub struct Shared {

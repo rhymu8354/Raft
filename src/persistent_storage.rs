@@ -1,4 +1,4 @@
-pub trait PersistentStorage: Send + Sync {
+pub trait PersistentStorage: Send {
     fn term(&self) -> usize;
     fn voted_for(&self) -> Option<usize>;
     fn update(
