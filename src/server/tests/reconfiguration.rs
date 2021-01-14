@@ -240,6 +240,21 @@ fn start_reconfiguration_immediately_if_no_new_members() {
         fixture.expect_election_state_change(ElectionState::Leader).await;
         fixture.expect_messages_now(hashset![2, 6, 7, 11]);
         fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        success: true,
+                        next_log_index: 2,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        let (_duration, timeout) =
+            fixture.expect_heartbeat_timer_registrations(1).await;
+        fixture
             .server
             .as_mut()
             .expect("no server mobilized")
@@ -253,6 +268,11 @@ fn start_reconfiguration_immediately_if_no_new_members() {
                 index: 2,
             })
             .await;
+        let (sender, _receiver) = oneshot::channel();
+        timeout
+            .send(sender)
+            .expect_err("server did not cancel heartbeat timer");
+        fixture.expect_no_heartbeat_timer_registrations_now();
         verify_log(
             &mock_log_back_end,
             0,

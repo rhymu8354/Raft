@@ -911,7 +911,9 @@ fn leader_send_new_log_entries() {
             },
         );
         let (sender, _receiver) = oneshot::channel();
-        timeout.send(sender).expect_err("server did not drop heartbeat future");
+        timeout
+            .send(sender)
+            .expect_err("server did not cancel heartbeat timer");
         fixture.expect_no_heartbeat_timer_registrations_now();
         assert_eq!(
             Message {
