@@ -1137,9 +1137,67 @@ fn follower_finish_reconfiguration() {
     });
 }
 
-// TODO:
-// * Once the current configuration is committed, if the leader was a
-//   "non-voting" member, it should step down by no longer appending entries.
-//   (At this point we could let it delegate leadership explicitly, or simply
-//   let one of the other servers start a new election once its election timer
-//   expires.)
+#[test]
+#[allow(clippy::too_many_lines)]
+fn leader_step_down_after_reconfiguration() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_log, _mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 1, Snapshot {
+                cluster_configuration: ClusterConfiguration::Joint {
+                    old_ids: hashset![2, 5, 6],
+                    new_ids: hashset![2, 6],
+                    index: 1,
+                },
+                state: (),
+            });
+        fixture.mobilize_server_with_log(Box::new(mock_log));
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 0,
+                last_log_index: 1,
+                term: 1,
+            })
+            .await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_messages(hashset![2, 6]).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        success: true,
+                        next_log_index: 3,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.expect_commit(2).await;
+        fixture
+            .expect_reconfiguration(&ClusterConfiguration::Single(hashset![
+                2, 6
+            ]))
+            .await;
+        fixture.expect_message(2).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        success: true,
+                        next_log_index: 4,
+                    },
+                    seq: 3,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.expect_commit(3).await;
+        fixture.expect_no_messages().await;
+        fixture.expect_no_heartbeat_timer_registrations_now();
+    });
+}

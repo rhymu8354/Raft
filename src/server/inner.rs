@@ -822,6 +822,9 @@ impl<S, T> Inner<S, T> {
                     );
                     info!("Configuration is now {:?}", cluster_configuration);
                     self.drop_old_peers();
+                    if !cluster_configuration.contains(self.id) {
+                        self.cancel_heartbeat_timer();
+                    }
                 }
             }
         }
@@ -1580,6 +1583,7 @@ impl<S, T> Inner<S, T> {
         if self.election_state != ElectionState::Leader
             || self.cancel_heartbeat.is_some()
             || self.peers.values().all(Peer::awaiting_response)
+            || !self.log.cluster_configuration().contains(self.id)
         {
             return None;
         }
