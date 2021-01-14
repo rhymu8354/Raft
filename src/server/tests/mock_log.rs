@@ -47,10 +47,15 @@ impl Shared {
     }
 
     fn cluster_configuration(&self) -> ClusterConfiguration {
-        self.entries.iter().fold(
-            self.snapshot.cluster_configuration.clone(),
-            ClusterConfiguration::update,
-        )
+        let offset = self.base_index + 1;
+        self.entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| (index + offset, entry))
+            .fold(
+                self.snapshot.cluster_configuration.clone(),
+                ClusterConfiguration::update,
+            )
     }
 
     fn entries(

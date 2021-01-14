@@ -192,6 +192,10 @@ impl<S, T> Inner<S, T> {
 
     fn become_follower(&mut self) {
         if self.pending_reconfiguration_ids.take().is_some() {
+            info!(
+                "Reconfiguration cancelled; back to {:?}",
+                self.log.cluster_configuration()
+            );
             self.drop_old_peers();
         }
         self.change_election_state(ElectionState::Follower);
@@ -428,10 +432,6 @@ impl<S, T> Inner<S, T> {
         if let ClusterConfiguration::Single(current_ids) =
             &current_configuration
         {
-            info!(
-                "Reconfiguration cancelled; back to {:?}",
-                current_configuration
-            );
             let peers_to_drop = self
                 .peers
                 .keys()
@@ -485,7 +485,11 @@ impl<S, T> Inner<S, T> {
             ClusterConfiguration::Single(ids) => {
                 self.find_majority_match_index_among(ids)
             },
-            ClusterConfiguration::Joint(old_ids, new_ids) => self
+            ClusterConfiguration::Joint {
+                old_ids,
+                new_ids,
+                ..
+            } => self
                 .find_majority_match_index_among(old_ids)
                 .min(self.find_majority_match_index_among(new_ids)),
         }
@@ -711,22 +715,23 @@ impl<S, T> Inner<S, T> {
         success: bool,
         next_log_index: usize,
         sender_id: usize,
-        term: usize,
+        sender_term: usize,
         seq: usize,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
+        let term = self.persistent_storage.term();
         debug!(
             "Received AppendEntriesResponse ({}/{}) from {} for term {} (we are {:?} in term {})",
             success,
             next_log_index,
             sender_id,
-            term,
+            sender_term,
             self.election_state,
-            self.persistent_storage.term()
+            term
         );
-        if term < self.persistent_storage.term() {
+        if sender_term < term {
             return;
         }
         if self
@@ -738,10 +743,11 @@ impl<S, T> Inner<S, T> {
             return;
         }
         self.cancel_retransmission(sender_id);
-        if term > self.persistent_storage.term() {
-            self.persistent_storage.update(term, None);
+        if sender_term > term {
+            self.persistent_storage.update(sender_term, None);
             self.become_follower();
         }
+        let term = self.persistent_storage.term();
         if self.election_state != ElectionState::Leader {
             warn!(
                 "Not processing AppendEntriesResponse ({}) from {} because we are {:?}, not Leader",
@@ -768,6 +774,55 @@ impl<S, T> Inner<S, T> {
         let majority_match_index = self.find_majority_match_index();
         if majority_match_index > self.commit_index {
             self.commit_log(majority_match_index);
+            if let ClusterConfiguration::Joint {
+                index: config_index,
+                ..
+            } = self.log.cluster_configuration()
+            {
+                if majority_match_index >= config_index {
+                    let new_entry = LogEntry {
+                        term,
+                        command: Some(LogEntryCommand::FinishReconfiguration),
+                    };
+                    let prev_log_index = self.log.last_index();
+                    let prev_log_term = self.log.last_term();
+                    info!(
+                        "Adding FinishReconfiguration command from index {}",
+                        prev_log_index
+                    );
+                    for (&peer_id, peer) in &mut self.peers {
+                        if peer_id == sender_id {
+                            continue;
+                        }
+                        if !peer.awaiting_response() {
+                            peer.send_new_request(
+                                MessageContent::AppendEntries(
+                                    AppendEntriesContent {
+                                        leader_commit: self.commit_index,
+                                        prev_log_index,
+                                        prev_log_term,
+                                        log: vec![new_entry.clone()],
+                                    },
+                                ),
+                                peer_id,
+                                term,
+                                &self.event_sender,
+                                self.configuration.rpc_timeout,
+                                #[cfg(test)]
+                                &self.scheduler,
+                            )
+                        }
+                    }
+                    self.log.append_one(new_entry);
+                    let cluster_configuration =
+                        self.log.cluster_configuration();
+                    let _ = self.event_sender.unbounded_send(
+                        Event::Reconfiguration(cluster_configuration.clone()),
+                    );
+                    info!("Configuration is now {:?}", cluster_configuration);
+                    self.drop_old_peers();
+                }
+            }
         }
         if let Some(pending_reconfiguration_ids) =
             self.pending_reconfiguration_ids.take()
@@ -785,7 +840,7 @@ impl<S, T> Inner<S, T> {
                 });
             if all_peers_voting_or_caught_up {
                 let new_entry = LogEntry {
-                    term: self.persistent_storage.term(),
+                    term,
                     command: Some(LogEntryCommand::StartReconfiguration(
                         pending_reconfiguration_ids,
                     )),
@@ -856,7 +911,7 @@ impl<S, T> Inner<S, T> {
                             log,
                         }),
                         sender_id,
-                        self.persistent_storage.term(),
+                        term,
                         &self.event_sender,
                         self.configuration.rpc_timeout,
                         #[cfg(test)]
@@ -871,7 +926,7 @@ impl<S, T> Inner<S, T> {
                             snapshot: self.log.snapshot(),
                         },
                         sender_id,
-                        self.persistent_storage.term(),
+                        term,
                         &self.event_sender,
                         self.configuration.install_snapshot_timeout,
                         #[cfg(test)]
@@ -1117,6 +1172,10 @@ impl<S, T> Inner<S, T> {
                 if *current_ids == ids =>
             {
                 if self.pending_reconfiguration_ids.take().is_some() {
+                    info!(
+                        "Reconfiguration cancelled; back to {:?}",
+                        current_configuration
+                    );
                     self.drop_old_peers();
                 } else {
                     warn!(
@@ -1126,7 +1185,9 @@ impl<S, T> Inner<S, T> {
                 }
                 return;
             }
-            ClusterConfiguration::Joint(_, _) => {
+            ClusterConfiguration::Joint {
+                ..
+            } => {
                 warn!(
                     "Ignoring reconfiguration request because currently in joint configuration ({:?})",
                     current_configuration
@@ -1318,9 +1379,11 @@ impl<S, T> Inner<S, T> {
             return;
         }
         if match &self.log.cluster_configuration() {
-            ClusterConfiguration::Joint(old_ids, new_ids) => {
-                self.majority_vote(old_ids) && self.majority_vote(new_ids)
-            },
+            ClusterConfiguration::Joint {
+                old_ids,
+                new_ids,
+                ..
+            } => self.majority_vote(old_ids) && self.majority_vote(new_ids),
             ClusterConfiguration::Single(ids) => self.majority_vote(ids),
         } {
             self.become_leader();

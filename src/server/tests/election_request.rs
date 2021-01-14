@@ -469,15 +469,22 @@ fn election_during_joint_configuration_requires_separate_majorities() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0, Snapshot {
-                cluster_configuration: ClusterConfiguration::Joint(
-                    hashset![5, 6, 7, 11],
-                    hashset![2, 5, 8, 10],
-                ),
+            new_mock_log_with_non_defaults(0, 1, Snapshot {
+                cluster_configuration: ClusterConfiguration::Joint {
+                    old_ids: hashset![5, 6, 7, 11],
+                    new_ids: hashset![2, 5, 8, 10],
+                    index: 1,
+                },
                 state: (),
             });
         fixture.mobilize_server_with_log(Box::new(mock_log));
-        fixture.expect_election_with_defaults().await;
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 0,
+                last_log_index: 1,
+                term: 1,
+            })
+            .await;
         fixture
             .cast_vote(CastVoteArgs {
                 sender_id: 2,

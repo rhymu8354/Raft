@@ -11,7 +11,11 @@ use std::collections::HashSet;
 #[derive(Debug, Deserialize, Clone, Eq, PartialEq, Serialize)]
 pub enum ClusterConfiguration {
     Single(HashSet<usize>),
-    Joint(HashSet<usize>, HashSet<usize>),
+    Joint {
+        old_ids: HashSet<usize>,
+        new_ids: HashSet<usize>,
+        index: usize,
+    },
 }
 
 impl ClusterConfiguration {
@@ -22,9 +26,11 @@ impl ClusterConfiguration {
     ) -> bool {
         match self {
             ClusterConfiguration::Single(ids) => ids.contains(&id),
-            ClusterConfiguration::Joint(old_ids, new_ids) => {
-                old_ids.contains(&id) || new_ids.contains(&id)
-            },
+            ClusterConfiguration::Joint {
+                old_ids,
+                new_ids,
+                ..
+            } => old_ids.contains(&id) || new_ids.contains(&id),
         }
     }
 
@@ -38,31 +44,36 @@ impl ClusterConfiguration {
             ClusterConfiguration::Single(configuration) => {
                 Box::new(configuration.iter().filter(filter))
             },
-            ClusterConfiguration::Joint(old, new) => {
-                Box::new(old.union(&new).filter(filter))
-            },
+            ClusterConfiguration::Joint {
+                old_ids,
+                new_ids,
+                ..
+            } => Box::new(old_ids.union(&new_ids).filter(filter)),
         }
     }
 
     pub fn update<T>(
         self,
-        log_entry: &LogEntry<T>,
+        (index, log_entry): (usize, &LogEntry<T>),
     ) -> Self {
         match &log_entry.command {
             Some(LogEntryCommand::FinishReconfiguration) => match self {
-                ClusterConfiguration::Single(new_configuration)
-                | ClusterConfiguration::Joint(_, new_configuration) => {
-                    ClusterConfiguration::Single(new_configuration)
-                },
+                ClusterConfiguration::Single(new_ids)
+                | ClusterConfiguration::Joint {
+                    new_ids,
+                    ..
+                } => ClusterConfiguration::Single(new_ids),
             },
-            Some(LogEntryCommand::StartReconfiguration(new_configuration)) => {
+            Some(LogEntryCommand::StartReconfiguration(new_ids)) => {
                 match self {
-                    ClusterConfiguration::Single(old_configuration)
-                    | ClusterConfiguration::Joint(old_configuration, _) => {
-                        ClusterConfiguration::Joint(
-                            old_configuration,
-                            new_configuration.clone(),
-                        )
+                    ClusterConfiguration::Single(old_ids)
+                    | ClusterConfiguration::Joint {
+                        old_ids,
+                        ..
+                    } => ClusterConfiguration::Joint {
+                        old_ids,
+                        new_ids: new_ids.clone(),
+                        index,
                     },
                 }
             },

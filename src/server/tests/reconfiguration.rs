@@ -177,10 +177,11 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
             messages[&12]
         );
         fixture
-            .expect_reconfiguration(&ClusterConfiguration::Joint(
-                hashset![2, 5, 6, 7, 11],
-                hashset![2, 5, 6, 7, 11, 12, 13],
-            ))
+            .expect_reconfiguration(&ClusterConfiguration::Joint {
+                old_ids: hashset![2, 5, 6, 7, 11],
+                new_ids: hashset![2, 5, 6, 7, 11, 12, 13],
+                index: 2,
+            })
             .await;
         assert_eq!(
             Message {
@@ -246,10 +247,11 @@ fn start_reconfiguration_immediately_if_no_new_members() {
             .await
             .expect("unable to send command to server");
         fixture
-            .expect_reconfiguration(&ClusterConfiguration::Joint(
-                hashset![2, 5, 6, 7, 11],
-                hashset![2, 5, 6, 7],
-            ))
+            .expect_reconfiguration(&ClusterConfiguration::Joint {
+                old_ids: hashset![2, 5, 6, 7, 11],
+                new_ids: hashset![2, 5, 6, 7],
+                index: 2,
+            })
             .await;
         verify_log(
             &mock_log_back_end,
@@ -414,10 +416,11 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
             fixture.expect_message(13).await
         );
         fixture
-            .expect_reconfiguration(&ClusterConfiguration::Joint(
-                hashset![2, 5, 6, 7, 11],
-                hashset![2, 5, 6, 7, 11, 12, 13],
-            ))
+            .expect_reconfiguration(&ClusterConfiguration::Joint {
+                old_ids: hashset![2, 5, 6, 7, 11],
+                new_ids: hashset![2, 5, 6, 7, 11, 12, 13],
+                index: 3,
+            })
             .await;
         verify_log(
             &mock_log_back_end,
@@ -572,10 +575,11 @@ fn no_reconfiguration_if_in_joint_configuration() {
             .await
             .expect("unable to send command to server");
         fixture
-            .expect_reconfiguration(&ClusterConfiguration::Joint(
-                hashset![2, 5, 6, 7, 11],
-                hashset![2, 5, 6, 7, 11, 12],
-            ))
+            .expect_reconfiguration(&ClusterConfiguration::Joint {
+                old_ids: hashset![2, 5, 6, 7, 11],
+                new_ids: hashset![2, 5, 6, 7, 11, 12],
+                index: 2,
+            })
             .await;
         fixture.expect_message(12).await;
         fixture.expect_no_messages_now();
@@ -865,10 +869,11 @@ fn follower_add_peers_in_joint_configuration() {
             )
             .await;
         fixture
-            .expect_reconfiguration(&ClusterConfiguration::Joint(
-                hashset![2, 5, 6, 7, 11],
-                hashset![2, 5, 6, 7, 11, 12],
-            ))
+            .expect_reconfiguration(&ClusterConfiguration::Joint {
+                old_ids: hashset![2, 5, 6, 7, 11],
+                new_ids: hashset![2, 5, 6, 7, 11, 12],
+                index: 1,
+            })
             .await;
         fixture.peer_ids.insert(12);
         fixture
@@ -918,10 +923,11 @@ fn truncate_log_should_remove_old_peers() {
             )
             .await;
         fixture
-            .expect_reconfiguration(&ClusterConfiguration::Joint(
-                hashset![2, 5, 6, 7, 11],
-                hashset![2, 5, 6, 7, 11, 12],
-            ))
+            .expect_reconfiguration(&ClusterConfiguration::Joint {
+                old_ids: hashset![2, 5, 6, 7, 11],
+                new_ids: hashset![2, 5, 6, 7, 11, 12],
+                index: 1,
+            })
             .await;
         fixture.expect_election_timer_registrations(1).await;
         fixture
@@ -964,14 +970,117 @@ fn truncate_log_should_remove_old_peers() {
     });
 }
 
+#[test]
+#[allow(clippy::too_many_lines)]
+fn leader_finish_reconfiguration() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_log, mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 1, Snapshot {
+                cluster_configuration: ClusterConfiguration::Joint {
+                    old_ids: hashset![2, 5, 6],
+                    new_ids: hashset![2, 5, 7],
+                    index: 1,
+                },
+                state: (),
+            });
+        fixture.mobilize_server_with_log(Box::new(mock_log));
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 0,
+                last_log_index: 1,
+                term: 1,
+            })
+            .await;
+        fixture.expect_retransmission_timer_registration(6).await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_messages(hashset![2, 6, 7]).await;
+        let (_duration, retransmit) =
+            fixture.expect_retransmission_timer_registration(6).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        success: true,
+                        next_log_index: 3,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.expect_commit(2).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        success: true,
+                        next_log_index: 3,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                7,
+            )
+            .await;
+        fixture
+            .expect_reconfiguration(&ClusterConfiguration::Single(hashset![
+                2, 5, 7
+            ]))
+            .await;
+        fixture.expect_messages(hashset![2, 7]).await;
+        fixture.expect_no_messages_now();
+        let (sender, _receiver) = oneshot::channel();
+        retransmit
+            .send(sender)
+            .expect_err("server didn't cancel retransmission timer");
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        success: true,
+                        next_log_index: 3,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                6,
+            )
+            .await;
+        fixture.expect_no_messages().await;
+        verify_log(
+            &mock_log_back_end,
+            0,
+            1,
+            [
+                LogEntry {
+                    term: 1,
+                    command: None,
+                },
+                LogEntry {
+                    term: 1,
+                    command: Some(LogEntryCommand::FinishReconfiguration),
+                },
+            ],
+            Snapshot {
+                cluster_configuration: ClusterConfiguration::Joint {
+                    old_ids: hashset![2, 5, 6],
+                    new_ids: hashset![2, 5, 7],
+                    index: 1,
+                },
+                state: (),
+            },
+        );
+    });
+}
+
 // TODO:
-// * When in joint configuration and the last `StartReconfiguration` command is
-//   committed, the leader should append `FinishReconfiguration` command and
-//   drop any peers that are not in the new configuration.
+// * Followers receiving `FinishReconfiguration` should drop old peers.
 // * Once the current configuration is committed, if the leader was a
 //   "non-voting" member, it should step down by no longer appending entries.
 //   (At this point we could let it delegate leadership explicitly, or simply
 //   let one of the other servers start a new election once its election timer
 //   expires.)
-// * Committing log entries should require separate majorites of old and new
-//   configuration, when in joint configuration.
