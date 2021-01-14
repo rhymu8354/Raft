@@ -957,6 +957,9 @@ impl<S, T> Inner<S, T> {
                 sender_id,
             } => self.process_receive_message(message, sender_id),
             Command::Reconfigure(ids) => self.process_reconfigure(ids),
+            Command::ReconfigureServer(configuration) => {
+                self.process_reconfigure_server(configuration)
+            },
             #[cfg(test)]
             Command::Synchronize(received) => {
                 if self.cancellations_pending == 0 {
@@ -1280,6 +1283,14 @@ impl<S, T> Inner<S, T> {
             }
             self.pending_reconfiguration_ids = Some(ids);
         }
+    }
+
+    fn process_reconfigure_server(
+        &mut self,
+        configuration: ServerConfiguration,
+    ) {
+        info!("Changed server configuration");
+        self.configuration = configuration;
     }
 
     fn process_request_vote(

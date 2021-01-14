@@ -40,6 +40,58 @@ fn new_election() {
 }
 
 #[test]
+fn new_election_after_new_server_config() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture.expect_election_timer_registrations(1).await;
+        let new_server_configuration = ServerConfiguration {
+            election_timeout: Duration::from_millis(300)
+                ..Duration::from_millis(400),
+            heartbeat_interval: Duration::from_millis(50),
+            rpc_timeout: Duration::from_millis(10),
+            install_snapshot_timeout: Duration::from_secs(10),
+        };
+        fixture.configuration = new_server_configuration.clone();
+        fixture
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .send(ServerCommand::ReconfigureServer(new_server_configuration))
+            .await
+            .unwrap();
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 0,
+                            prev_log_term: 0,
+                            log: vec![LogEntry {
+                                term: 1,
+                                command: None,
+                            }],
+                        },
+                    ),
+                    seq: 1,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture
+            .expect_election(AwaitElectionTimeoutArgs {
+                last_log_term: 1,
+                last_log_index: 1,
+                term: 2,
+            })
+            .await;
+    });
+}
+
+#[test]
 fn elected_leader_unanimously() {
     assert_logger();
     executor::block_on(async {

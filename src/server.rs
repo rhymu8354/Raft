@@ -71,6 +71,7 @@ pub enum Command<S, T> {
         sender_id: usize,
     },
     Reconfigure(HashSet<usize>),
+    ReconfigureServer(ServerConfiguration),
     #[cfg(test)]
     Synchronize(oneshot::Sender<()>),
 }
@@ -100,6 +101,9 @@ where
             },
             Command::Reconfigure(ids) => {
                 write!(f, "Reconfigure({:?})", ids)?;
+            },
+            Command::ReconfigureServer(configuration) => {
+                write!(f, "ReconfigureServer({:?})", configuration)?;
             },
             #[cfg(test)]
             Command::Synchronize(_) => {
