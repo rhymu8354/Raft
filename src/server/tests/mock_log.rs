@@ -1,4 +1,3 @@
-use super::DummyCommand;
 use crate::{
     ClusterConfiguration,
     Log,
@@ -15,7 +14,7 @@ pub struct Shared {
     pub base_term: usize,
     pub base_index: usize,
     pub dropped: bool,
-    pub entries: Vec<LogEntry<DummyCommand>>,
+    pub entries: Vec<LogEntry<()>>,
     pub last_term: usize,
     pub last_index: usize,
     pub snapshot: Snapshot<()>,
@@ -24,7 +23,7 @@ pub struct Shared {
 impl Shared {
     fn append_one(
         &mut self,
-        entry: LogEntry<DummyCommand>,
+        entry: LogEntry<()>,
     ) {
         self.last_index += 1;
         self.last_term = entry.term;
@@ -35,7 +34,7 @@ impl Shared {
         &mut self,
         entries: T,
     ) where
-        T: IntoIterator<Item = LogEntry<DummyCommand>>,
+        T: IntoIterator<Item = LogEntry<()>>,
     {
         for entry in entries {
             self.append_one(entry);
@@ -57,7 +56,7 @@ impl Shared {
     fn entries(
         &self,
         prev_log_index: usize,
-    ) -> Vec<LogEntry<DummyCommand>> {
+    ) -> Vec<LogEntry<()>> {
         self.entries
             .iter()
             .skip(prev_log_index - self.base_index)
@@ -142,7 +141,7 @@ impl MockLog {
 }
 
 impl Log<()> for MockLog {
-    type Command = DummyCommand;
+    type Command = ();
 
     fn append_one(
         &mut self,

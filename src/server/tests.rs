@@ -14,7 +14,6 @@ use crate::{
     Log,
     LogEntry,
     LogEntryCommand,
-    LogEntryCustomCommand,
     Message,
     MessageContent,
     PersistentStorage,
@@ -39,11 +38,6 @@ use mock_persistent_storage::{
     BackEnd as MockPersistentStorageBackEnd,
     MockPersistentStorage,
 };
-use serde::{
-    Deserialize,
-    Serialize,
-};
-use serde_json::Value as JsonValue;
 use std::{
     collections::{
         HashMap,
@@ -53,26 +47,6 @@ use std::{
     time::Duration,
 };
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct DummyCommand {}
-
-impl LogEntryCustomCommand for DummyCommand {
-    fn command_type(&self) -> &'static str {
-        "POGGERS"
-    }
-
-    fn to_json(&self) -> JsonValue {
-        JsonValue::Null
-    }
-
-    fn from_json(_json: &JsonValue) -> Option<Self>
-    where
-        Self: Sized,
-    {
-        None
-    }
-}
-
 struct AwaitElectionTimeoutArgs {
     last_log_term: usize,
     last_log_index: usize,
@@ -80,7 +54,7 @@ struct AwaitElectionTimeoutArgs {
 }
 
 struct VerifyVoteRequestArgs<'a> {
-    message: &'a Message<(), DummyCommand>,
+    message: &'a Message<(), ()>,
     expected_last_log_term: usize,
     expected_last_log_index: usize,
     expected_seq: Option<usize>,
@@ -124,15 +98,15 @@ struct AwaitAppendEntriesArgs {
     leader_commit: usize,
     prev_log_term: usize,
     prev_log_index: usize,
-    log: Vec<LogEntry<DummyCommand>>,
+    log: Vec<LogEntry<()>>,
 }
 
 struct VerifyAppendEntriesArgs<'a, 'b> {
-    message: &'a Message<(), DummyCommand>,
+    message: &'a Message<(), ()>,
     expected_leader_commit: usize,
     expected_prev_log_index: usize,
     expected_prev_log_term: usize,
-    expected_log: &'b Vec<LogEntry<DummyCommand>>,
+    expected_log: &'b Vec<LogEntry<()>>,
     expected_seq: Option<usize>,
     expected_term: usize,
 }
@@ -165,7 +139,7 @@ struct Fixture {
     // because the mock scheduler produces futures which will
     // complete immediately if `scheduled_event_receiver` is dropped,
     // causing `server` to get stuck in a constant loop of timeout processing.
-    server: Option<Server<(), DummyCommand>>,
+    server: Option<Server<(), ()>>,
     scheduled_event_receiver: Option<ScheduledEventReceiver>,
 }
 
@@ -641,7 +615,7 @@ impl Fixture {
     }
 
     fn is_verified_vote(
-        message: &Message<(), DummyCommand>,
+        message: &Message<(), ()>,
         receiver_id: usize,
         args: &AwaitVoteArgs,
     ) -> bool {
@@ -1046,7 +1020,7 @@ impl Fixture {
     fn expect_message_now(
         &mut self,
         expected_receiver_id: usize,
-    ) -> Message<(), DummyCommand> {
+    ) -> Message<(), ()> {
         loop {
             let event = self
                 .server
@@ -1087,7 +1061,7 @@ impl Fixture {
     async fn expect_message(
         &mut self,
         receiver_id: usize,
-    ) -> Message<(), DummyCommand> {
+    ) -> Message<(), ()> {
         self.synchronize().await;
         self.expect_message_now(receiver_id)
     }
@@ -1095,7 +1069,7 @@ impl Fixture {
     fn expect_messages_now(
         &mut self,
         mut expected_receiver_ids: HashSet<usize>,
-    ) -> HashMap<usize, Message<(), DummyCommand>> {
+    ) -> HashMap<usize, Message<(), ()>> {
         let mut messages = HashMap::new();
         while !expected_receiver_ids.is_empty() {
             let event = self
@@ -1142,7 +1116,7 @@ impl Fixture {
     async fn expect_messages(
         &mut self,
         receiver_ids: HashSet<usize>,
-    ) -> HashMap<usize, Message<(), DummyCommand>> {
+    ) -> HashMap<usize, Message<(), ()>> {
         self.synchronize().await;
         self.expect_messages_now(receiver_ids)
     }
@@ -1193,7 +1167,7 @@ impl Fixture {
     async fn expect_retransmission(
         &mut self,
         expected_receiver_id: usize,
-    ) -> Message<(), DummyCommand> {
+    ) -> Message<(), ()> {
         let (retransmit_duration, completer) = self
             .expect_retransmission_timer_registration(expected_receiver_id)
             .await;
@@ -1229,7 +1203,7 @@ impl Fixture {
 
     fn mobilize_server_with_log(
         &mut self,
-        log: Box<dyn Log<(), Command = DummyCommand>>,
+        log: Box<dyn Log<(), Command = ()>>,
     ) {
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             MockPersistentStorage::new();
@@ -1241,7 +1215,7 @@ impl Fixture {
 
     fn mobilize_server_with_log_and_persistent_storage(
         &mut self,
-        log: Box<dyn Log<(), Command = DummyCommand>>,
+        log: Box<dyn Log<(), Command = ()>>,
         persistent_storage: Box<dyn PersistentStorage>,
     ) {
         self.peer_ids =
@@ -1409,7 +1383,7 @@ impl Fixture {
     }
 
     fn is_verified_append_entries_response(
-        message: &Message<(), DummyCommand>,
+        message: &Message<(), ()>,
         receiver_id: usize,
         args: &AwaitAppendEntriesResponseArgs,
     ) -> bool {
@@ -1508,7 +1482,7 @@ impl Fixture {
     }
 
     fn is_verified_install_snapshot_response(
-        message: &Message<(), DummyCommand>,
+        message: &Message<(), ()>,
         receiver_id: usize,
         expected_receiver_id: usize,
         expected_seq: usize,
@@ -1593,7 +1567,7 @@ impl Fixture {
 
     async fn send_server_message(
         &mut self,
-        message: Message<(), DummyCommand>,
+        message: Message<(), ()>,
         sender_id: usize,
     ) {
         send_server_message(
@@ -1651,7 +1625,7 @@ fn verify_log<L, S>(
     entries: L,
     snapshot: S,
 ) where
-    L: AsRef<[LogEntry<DummyCommand>]>,
+    L: AsRef<[LogEntry<()>]>,
     S: AsRef<Snapshot<()>>,
 {
     let log_shared = mock_log_back_end.shared.lock().unwrap();
@@ -1699,8 +1673,8 @@ fn verify_persistent_storage(
 }
 
 async fn send_server_message(
-    server: &mut Server<(), DummyCommand>,
-    message: Message<(), DummyCommand>,
+    server: &mut Server<(), ()>,
+    message: Message<(), ()>,
     sender_id: usize,
 ) {
     server
@@ -1712,14 +1686,14 @@ async fn send_server_message(
         .unwrap();
 }
 
-async fn synchronize(server: &mut Server<(), DummyCommand>) {
+async fn synchronize(server: &mut Server<(), ()>) {
     let (completed_sender, completed_receiver) = oneshot::channel();
     server.send(Command::Synchronize(completed_sender)).await.unwrap();
     let _ = completed_receiver.await;
 }
 
 async fn cast_vote(
-    server: &mut Server<(), DummyCommand>,
+    server: &mut Server<(), ()>,
     CastVoteArgs {
         sender_id,
         seq,
@@ -1742,7 +1716,7 @@ async fn cast_vote(
 }
 
 async fn receive_vote_request(
-    server: &mut Server<(), DummyCommand>,
+    server: &mut Server<(), ()>,
     ReceiveVoteRequestArgs {
         sender_id,
         last_log_term,

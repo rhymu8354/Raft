@@ -885,7 +885,7 @@ fn leader_send_new_log_entries() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(Command::AddCommands(vec![DummyCommand {}]))
+            .send(Command::AddCommands(vec![()]))
             .await
             .unwrap();
         fixture.synchronize().await;
@@ -900,7 +900,7 @@ fn leader_send_new_log_entries() {
                 },
                 LogEntry {
                     term: 1,
-                    command: Some(LogEntryCommand::Custom(DummyCommand {})),
+                    command: Some(LogEntryCommand::Custom(())),
                 },
             ],
             Snapshot {
@@ -921,7 +921,7 @@ fn leader_send_new_log_entries() {
                     prev_log_term: 1,
                     log: vec![LogEntry {
                         term: 1,
-                        command: Some(LogEntryCommand::Custom(DummyCommand {}))
+                        command: Some(LogEntryCommand::Custom(()))
                     }]
                 }),
                 seq: 3,
@@ -951,7 +951,7 @@ fn leader_send_new_log_entries() {
                     prev_log_term: 1,
                     log: vec![LogEntry {
                         term: 1,
-                        command: Some(LogEntryCommand::Custom(DummyCommand {}))
+                        command: Some(LogEntryCommand::Custom(()))
                     }]
                 }),
                 seq: 3,
@@ -1001,7 +1001,7 @@ fn non_leader_should_not_accept_commands() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(Command::AddCommands(vec![DummyCommand {}]))
+            .send(Command::AddCommands(vec![()]))
             .await
             .unwrap();
         fixture.synchronize().await;

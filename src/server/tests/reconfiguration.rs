@@ -317,7 +317,7 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
             .server
             .as_mut()
             .expect("no server mobilized")
-            .send(Command::AddCommands(vec![DummyCommand {}]))
+            .send(Command::AddCommands(vec![()]))
             .await
             .unwrap();
         fixture
@@ -375,7 +375,7 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
                     prev_log_index: 1,
                     log: vec![LogEntry {
                         term: 1,
-                        command: Some(LogEntryCommand::Custom(DummyCommand {})),
+                        command: Some(LogEntryCommand::Custom(())),
                     }],
                 }),
                 seq: 2,
@@ -433,7 +433,7 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
                 },
                 LogEntry {
                     term: 1,
-                    command: Some(LogEntryCommand::Custom(DummyCommand {})),
+                    command: Some(LogEntryCommand::Custom(())),
                 },
                 LogEntry {
                     term: 1,

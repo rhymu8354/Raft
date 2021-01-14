@@ -22,7 +22,6 @@ pub use self::log::Log;
 pub use cluster_configuration::ClusterConfiguration;
 pub use log_entry::{
     Command as LogEntryCommand,
-    CustomCommand as LogEntryCustomCommand,
     LogEntry,
 };
 pub use message::{
