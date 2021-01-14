@@ -201,11 +201,73 @@ fn leader_revert_to_follower_when_receive_new_term_append_entries_response() {
 }
 
 #[test]
-fn leader_commit_entry_when_majority_match() {
+fn leader_commit_entry_when_majority_match_single_configuration() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
         fixture.mobilize_server();
+        fixture.expect_election_with_defaults().await;
+        fixture.cast_votes(1, 1).await;
+        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        success: true,
+                        next_log_index: 2,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.expect_no_commit().await;
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntriesResponse {
+                        success: true,
+                        next_log_index: 2,
+                    },
+                    seq: 2,
+                    term: 1,
+                },
+                6,
+            )
+            .await;
+        fixture.expect_commit(1).await;
+        fixture.trigger_heartbeat_timeout().await;
+        assert_eq!(
+            Message {
+                content: MessageContent::AppendEntries(AppendEntriesContent {
+                    leader_commit: 1,
+                    prev_log_term: 1,
+                    prev_log_index: 1,
+                    log: vec![],
+                }),
+                seq: 3,
+                term: 1,
+            },
+            fixture.expect_message_now(2)
+        );
+    });
+}
+
+#[test]
+fn leader_commit_entry_when_majority_match_joint_configuration() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_log, _mock_log_back_end) =
+            new_mock_log_with_non_defaults(0, 0, Snapshot {
+                cluster_configuration: ClusterConfiguration::Joint(
+                    hashset![5, 6, 7, 11],
+                    hashset![2, 5, 8, 10],
+                ),
+                state: (),
+            });
+        fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
         fixture.expect_election_state_change(ServerElectionState::Leader).await;
