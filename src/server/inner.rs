@@ -1402,32 +1402,20 @@ impl<S, T> Inner<S, T> {
         let mut command_receiver = Some(command_receiver);
         let mut futures = Vec::new();
         loop {
-            // Make server command receiver future if we don't have one.
             if let Some(command_receiver) = command_receiver.take() {
                 futures
                     .push(process_command_receiver(command_receiver).boxed());
             }
-
-            // Make election timeout futures if we don't have them and we
-            // are not the leader of the cluster.
             if let Some(future) = self.upkeep_min_election_timeout_future() {
                 futures.push(future);
             }
             if let Some(future) = self.upkeep_election_timeout_future() {
                 futures.push(future);
             }
-
-            // Make heartbeat future if we don't have one and we are
-            // the leader of the cluster.
             if let Some(future) = self.upkeep_heartbeat_future() {
                 futures.push(future);
             }
-
-            // Add any RPC timeout futures that have been set up.
             futures.extend(self.take_retransmission_futures());
-
-            // Wait for the next future to complete.
-            // let futures_in = futures;
             let (work_item, _, futures_remaining) =
                 future::select_all(futures).await;
             futures = futures_remaining;
