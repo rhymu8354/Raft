@@ -8,17 +8,38 @@ use serde::{
 };
 use std::collections::HashSet;
 
+/// This holds the identifiers of the servers in the Raft cluster,
+/// and indicates whether or not the cluster is in a "joint" configuration
+/// (transitioning from one set of servers to another).
 #[derive(Debug, Deserialize, Clone, Eq, PartialEq, Serialize)]
 pub enum ClusterConfiguration {
+    /// This holds the set of identifiers of servers in the cluster, and
+    /// indicates that the cluster is not transitioning from one set of
+    /// servers to another.
     Single(HashSet<usize>),
+
+    /// This holds the sets of identifiers of servers in the cluster, both
+    /// before and after the current configuration change, and indicates
+    /// that the cluster is transitioning from one set of servers to
+    /// another.
     Joint {
+        /// This is the set of identifiers of servers in the cluster
+        /// before the configuration change.
         old_ids: HashSet<usize>,
+
+        /// This is the set of identifiers of servers in the cluster
+        /// after the configuration change.
         new_ids: HashSet<usize>,
+
+        /// This is the index of the log entry which started the change
+        /// in cluster configuration.
         index: usize,
     },
 }
 
 impl ClusterConfiguration {
+    /// Determine if the server with the given identifier is a member
+    /// of the cluster.
     #[must_use]
     pub fn contains(
         &self,
@@ -34,6 +55,9 @@ impl ClusterConfiguration {
         }
     }
 
+    /// Return an iterator of the identifiers of the servers in the cluster
+    /// which are a peer of the given server (all identifiers *except*
+    /// the given one).
     #[must_use]
     pub fn peers(
         &self,
@@ -52,6 +76,21 @@ impl ClusterConfiguration {
         }
     }
 
+    /// Apply the given log entry (if applicable) to a cluster configuration,
+    /// returning it after application.
+    ///
+    /// [`LogEntryCommand::StartReconfiguration`] applied to the configuration
+    /// will transition to [`Joint`] configuration.
+    ///
+    /// [`LogEntryCommand::FinishReconfiguration`] applied to the configuration
+    /// will transition to [`Single`] configuration.
+    ///
+    /// [`LogEntryCommand::StartReconfiguration`]:
+    /// enum.LogEntryCommand.html#variant.StartReconfiguration
+    /// [`LogEntryCommand::FinishReconfiguration`]:
+    /// enum.LogEntryCommand.html#variant.FinishReconfiguration
+    /// [`Joint`]: #variant.Joint
+    /// [`Single`]: #variant.Single
     pub fn update<T>(
         self,
         (index, log_entry): (usize, &LogEntry<T>),

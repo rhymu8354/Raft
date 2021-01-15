@@ -1,10 +1,34 @@
+//! This crate implements the [Raft Consensus
+//! Algorithm], designed to get multiple servers to
+//! agree on a common state for the purposes of replication and
+//! fault-tolerance.
+//!
+//! A group of servers working together using this algorithm is called a
+//! "cluster".  Each cluster has a single "leader", or server selected through
+//! an election process which is in charge of taking changes to the common
+//! state and replicating them to the other servers in the cluster.  State
+//! changes are represented by a "log" or sequence of commands to change the
+//! state.  Raft handles the replication of this log, while the host is in
+//! charge of defining the state structure and the semantics of the commands.
+//!
+//! To participate in a Raft cluster, the host creates a [`Server`]
+//! and interacts with it by sending it commands ([`ServerCommand`]) and
+//! receiving back events ([`ServerEvent`]) from it.  The [`Server`] is
+//! asynchronous and implements the [`Stream`] and [`Sink`] traits from the
+//! [`futures`] crate.
+//!
+//! [Raft Consensus Algorithm]: https://raft.github.io/
+//! [`Server`]: struct.Server.html
+//! [`ServerCommand`]: enum.ServerCommand.html
+//! [`ServerEvent`]: enum.ServerEvent.html
+//! [`Stream`]: https://docs.rs/futures/latest/futures/stream/trait.Stream.html
+//! [`Sink`]: https://docs.rs/futures/latest/futures/sink/trait.Sink.html
+//! [`futures`]: https://docs.rs/futures
+
 #![warn(clippy::pedantic)]
-// TODO: Remove this once ready to publish.
-#![allow(clippy::missing_errors_doc)]
 // This warning falsely triggers when `future::select_all` is used.
 #![allow(clippy::mut_mut)]
-// TODO: Uncomment this once ready to publish.
-//#![warn(missing_docs)]
+#![warn(missing_docs)]
 
 mod cluster_configuration;
 mod log;
