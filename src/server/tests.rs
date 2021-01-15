@@ -38,6 +38,7 @@ use mock_persistent_storage::{
     MockPersistentStorage,
 };
 use std::{
+    borrow::Borrow,
     collections::{
         HashMap,
         HashSet,
@@ -1625,7 +1626,7 @@ fn verify_log<L, S>(
     snapshot: S,
 ) where
     L: AsRef<[LogEntry<()>]>,
-    S: AsRef<ClusterConfiguration>,
+    S: Borrow<ClusterConfiguration>,
 {
     let log_shared = mock_log_back_end.shared.lock().unwrap();
     assert_eq!(
@@ -1644,7 +1645,7 @@ fn verify_log<L, S>(
         "log should be {:?} but is {:?}",
         entries, log_shared.entries
     );
-    let snapshot = snapshot.as_ref();
+    let snapshot = snapshot.borrow();
     assert_eq!(
         *snapshot, log_shared.snapshot,
         "snapshot should be {:?} but is {:?}",
