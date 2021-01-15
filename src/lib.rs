@@ -39,7 +39,6 @@ mod mock_scheduler;
 mod persistent_storage;
 mod server;
 mod server_configuration;
-mod snapshot;
 mod utilities;
 
 pub use self::log::Log;
@@ -68,7 +67,6 @@ pub use server::{
     Server,
 };
 pub use server_configuration::ServerConfiguration;
-pub use snapshot::Snapshot;
 
 #[cfg(test)]
 mod tests {

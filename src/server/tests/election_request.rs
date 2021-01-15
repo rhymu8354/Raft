@@ -11,13 +11,11 @@ fn new_election() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
-        let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(7, 42, Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            });
+        let (mock_log, _mock_log_back_end) = new_mock_log_with_non_defaults(
+            7,
+            42,
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
+        );
         let (mock_persistent_storage, mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(9, None);
         fixture.mobilize_server_with_log_and_persistent_storage(
@@ -404,13 +402,11 @@ fn no_election_if_not_voting_member() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
-        let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0, Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 6, 7, 11
-                ]),
-                state: (),
-            });
+        let (mock_log, _mock_log_back_end) = new_mock_log_with_non_defaults(
+            0,
+            0,
+            ClusterConfiguration::Single(hashset![2, 6, 7, 11]),
+        );
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_no_election_timer_registrations().await;
     });
@@ -470,13 +466,11 @@ fn start_election_timer_if_become_voting_member() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
-        let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0, Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 6, 7, 11
-                ]),
-                state: (),
-            });
+        let (mock_log, _mock_log_back_end) = new_mock_log_with_non_defaults(
+            0,
+            0,
+            ClusterConfiguration::Single(hashset![2, 6, 7, 11]),
+        );
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_no_election_timer_registrations().await;
         fixture
@@ -521,13 +515,10 @@ fn election_during_joint_configuration_requires_separate_majorities() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 1, Snapshot {
-                cluster_configuration: ClusterConfiguration::Joint {
-                    old_ids: hashset![5, 6, 7, 11],
-                    new_ids: hashset![2, 5, 8, 10],
-                    index: 1,
-                },
-                state: (),
+            new_mock_log_with_non_defaults(0, 1, ClusterConfiguration::Joint {
+                old_ids: hashset![5, 6, 7, 11],
+                new_ids: hashset![2, 5, 8, 10],
+                index: 1,
             });
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture

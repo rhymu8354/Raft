@@ -24,7 +24,6 @@ use crate::{
     MessageContent,
     PersistentStorage,
     ServerConfiguration,
-    Snapshot,
 };
 #[cfg(test)]
 use crate::{
@@ -576,11 +575,7 @@ impl<S, T> Inner<S, T> {
 
     fn install_snapshot(
         &mut self,
-        (last_included_index, last_included_term, snapshot): (
-            usize,
-            usize,
-            Snapshot<S>,
-        ),
+        (last_included_index, last_included_term, snapshot): (usize, usize, S),
     ) {
         self.log.install_snapshot(
             last_included_index,
@@ -931,7 +926,7 @@ impl<S, T> Inner<S, T> {
         term: usize,
         last_included_index: usize,
         last_included_term: usize,
-        snapshot: Snapshot<S>,
+        snapshot: S,
     ) where
         S: Debug,
     {

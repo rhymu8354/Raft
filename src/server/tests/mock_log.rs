@@ -2,7 +2,6 @@ use crate::{
     ClusterConfiguration,
     Log,
     LogEntry,
-    Snapshot,
 };
 use maplit::hashset;
 use std::sync::{
@@ -17,7 +16,7 @@ pub struct Shared {
     pub entries: Vec<LogEntry<()>>,
     pub last_term: usize,
     pub last_index: usize,
-    pub snapshot: Snapshot<()>,
+    pub snapshot: ClusterConfiguration,
 }
 
 impl Shared {
@@ -47,10 +46,7 @@ impl Shared {
             .iter()
             .enumerate()
             .map(|(index, entry)| (index + offset, entry))
-            .fold(
-                self.snapshot.cluster_configuration.clone(),
-                ClusterConfiguration::update,
-            )
+            .fold(self.snapshot.clone(), ClusterConfiguration::update)
     }
 
     fn entries(
@@ -82,7 +78,7 @@ impl Shared {
         &mut self,
         base_index: usize,
         base_term: usize,
-        snapshot: Snapshot<()>,
+        snapshot: ClusterConfiguration,
     ) {
         self.base_index = base_index;
         self.base_term = base_term;
@@ -122,12 +118,7 @@ impl MockLog {
             entries: vec![],
             last_term: 0,
             last_index: 0,
-            snapshot: Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
+            snapshot: ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         }));
         (
             Self {
@@ -140,7 +131,7 @@ impl MockLog {
     }
 }
 
-impl Log<()> for MockLog {
+impl Log<ClusterConfiguration> for MockLog {
     type Command = ();
 
     fn append_one(
@@ -194,7 +185,7 @@ impl Log<()> for MockLog {
         &mut self,
         base_index: usize,
         base_term: usize,
-        snapshot: Snapshot<()>,
+        snapshot: ClusterConfiguration,
     ) {
         let mut shared = self.shared.lock().unwrap();
         shared.install_snapshot(base_index, base_term, snapshot);
@@ -210,7 +201,7 @@ impl Log<()> for MockLog {
         shared.last_index
     }
 
-    fn snapshot(&self) -> Snapshot<()> {
+    fn snapshot(&self) -> ClusterConfiguration {
         let shared = self.shared.lock().unwrap();
         shared.snapshot.clone()
     }

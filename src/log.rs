@@ -1,7 +1,6 @@
 use crate::{
     ClusterConfiguration,
     LogEntry,
-    Snapshot,
 };
 
 /// This represents the set of requirements that a Raft [`Server`]
@@ -88,7 +87,7 @@ pub trait Log<S>: Send {
         &mut self,
         base_index: usize,
         base_term: usize,
-        snapshot: Snapshot<S>,
+        snapshot: S,
     );
 
     /// Return the cluster leadership term that was in effect when the
@@ -109,7 +108,7 @@ pub trait Log<S>: Send {
     /// include any host-specific state at its discretion, as long as such
     /// state is the correct result of compacting any log entries compacted
     /// into the snapshot.
-    fn snapshot(&self) -> Snapshot<S>;
+    fn snapshot(&self) -> S;
 
     /// Remove any log entries not yet compacted into the snapshot whose
     /// index is greater than the given index.

@@ -101,12 +101,7 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
                 term: 1,
                 command: None,
             }],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         );
         fixture
             .send_server_message(
@@ -217,12 +212,7 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
                     )),
                 },
             ],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         );
         fixture.expect_no_messages_now();
     });
@@ -289,12 +279,7 @@ fn start_reconfiguration_immediately_if_no_new_members() {
                     )),
                 },
             ],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         );
     });
 }
@@ -326,12 +311,7 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
                 term: 1,
                 command: None,
             }],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         );
         fixture
             .server
@@ -462,12 +442,7 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
                     )),
                 },
             ],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         );
         assert_eq!(
             Message {
@@ -518,12 +493,7 @@ fn no_reconfiguration_if_reconfiguration_requested_is_current_configuration() {
                 term: 1,
                 command: None,
             }],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         );
     });
 }
@@ -620,12 +590,7 @@ fn no_reconfiguration_if_in_joint_configuration() {
                     )),
                 },
             ],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         );
     });
 }
@@ -706,12 +671,7 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
                 term: 1,
                 command: None,
             }],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         );
         fixture
             .server
@@ -846,12 +806,7 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
                     command: None,
                 },
             ],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         );
     });
 }
@@ -996,13 +951,10 @@ fn leader_finish_reconfiguration() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 1, Snapshot {
-                cluster_configuration: ClusterConfiguration::Joint {
-                    old_ids: hashset![2, 5, 6],
-                    new_ids: hashset![2, 5, 7],
-                    index: 1,
-                },
-                state: (),
+            new_mock_log_with_non_defaults(0, 1, ClusterConfiguration::Joint {
+                old_ids: hashset![2, 5, 6],
+                new_ids: hashset![2, 5, 7],
+                index: 1,
             });
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture
@@ -1084,13 +1036,10 @@ fn leader_finish_reconfiguration() {
                     command: Some(LogEntryCommand::FinishReconfiguration),
                 },
             ],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Joint {
-                    old_ids: hashset![2, 5, 6],
-                    new_ids: hashset![2, 5, 7],
-                    index: 1,
-                },
-                state: (),
+            ClusterConfiguration::Joint {
+                old_ids: hashset![2, 5, 6],
+                new_ids: hashset![2, 5, 7],
+                index: 1,
             },
         );
     });
@@ -1102,13 +1051,10 @@ fn follower_finish_reconfiguration() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 1, Snapshot {
-                cluster_configuration: ClusterConfiguration::Joint {
-                    old_ids: hashset![2, 5, 6],
-                    new_ids: hashset![2, 5, 7],
-                    index: 1,
-                },
-                state: (),
+            new_mock_log_with_non_defaults(0, 1, ClusterConfiguration::Joint {
+                old_ids: hashset![2, 5, 6],
+                new_ids: hashset![2, 5, 7],
+                index: 1,
             });
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_timer_registrations(1).await;
@@ -1163,13 +1109,10 @@ fn leader_step_down_after_reconfiguration() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 1, Snapshot {
-                cluster_configuration: ClusterConfiguration::Joint {
-                    old_ids: hashset![2, 5, 6],
-                    new_ids: hashset![2, 6],
-                    index: 1,
-                },
-                state: (),
+            new_mock_log_with_non_defaults(0, 1, ClusterConfiguration::Joint {
+                old_ids: hashset![2, 5, 6],
+                new_ids: hashset![2, 6],
+                index: 1,
             });
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture

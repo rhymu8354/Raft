@@ -1,7 +1,4 @@
-use crate::{
-    LogEntry,
-    Snapshot,
-};
+use crate::LogEntry;
 use serde::{
     Deserialize,
     Serialize,
@@ -86,7 +83,7 @@ pub enum Content<S, T> {
 
         /// This is the complete server state and compacted log that
         /// should be accepted by the receiver.
-        snapshot: Snapshot<S>,
+        snapshot: S,
     },
 
     // TODO: This should include `next_log_index` as well, since it's possible

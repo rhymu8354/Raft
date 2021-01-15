@@ -10,13 +10,11 @@ fn leader_sends_no_op_log_entry_upon_election() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
-        let (mock_log, mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 0, Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            });
+        let (mock_log, mock_log_back_end) = new_mock_log_with_non_defaults(
+            0,
+            0,
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
+        );
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
@@ -41,12 +39,7 @@ fn leader_sends_no_op_log_entry_upon_election() {
                 term: 1,
                 command: None,
             }],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         );
     });
 }
@@ -258,13 +251,10 @@ fn leader_commit_entry_when_majority_match_joint_configuration() {
     executor::block_on(async {
         let mut fixture = Fixture::new();
         let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(0, 1, Snapshot {
-                cluster_configuration: ClusterConfiguration::Joint {
-                    old_ids: hashset![5, 6, 7, 11],
-                    new_ids: hashset![2, 5, 8, 10],
-                    index: 1,
-                },
-                state: (),
+            new_mock_log_with_non_defaults(0, 1, ClusterConfiguration::Joint {
+                old_ids: hashset![5, 6, 7, 11],
+                new_ids: hashset![2, 5, 8, 10],
+                index: 1,
             });
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture
@@ -315,13 +305,11 @@ fn leader_send_missing_entries_mid_log_on_append_entries_response() {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(6, None);
-        let (mut mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(4, 10, Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            });
+        let (mut mock_log, _mock_log_back_end) = new_mock_log_with_non_defaults(
+            4,
+            10,
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
+        );
         mock_log.append(Box::new(
             vec![
                 LogEntry {
@@ -430,13 +418,11 @@ fn leader_send_missing_entries_all_log_on_append_entries_response() {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(6, None);
-        let (mut mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(4, 10, Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            });
+        let (mut mock_log, _mock_log_back_end) = new_mock_log_with_non_defaults(
+            4,
+            10,
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
+        );
         mock_log.append(Box::new(
             vec![
                 LogEntry {
@@ -679,13 +665,11 @@ fn install_snapshot_if_match_index_before_base() {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(10, None);
-        let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(10, 1, Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            });
+        let (mock_log, _mock_log_back_end) = new_mock_log_with_non_defaults(
+            10,
+            1,
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
+        );
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
@@ -720,12 +704,9 @@ fn install_snapshot_if_match_index_before_base() {
                 content: MessageContent::InstallSnapshot {
                     last_included_index: 1,
                     last_included_term: 10,
-                    snapshot: Snapshot {
-                        cluster_configuration: ClusterConfiguration::Single(
-                            hashset![2, 5, 6, 7, 11]
-                        ),
-                        state: (),
-                    },
+                    snapshot: ClusterConfiguration::Single(hashset![
+                        2, 5, 6, 7, 11
+                    ]),
                 },
                 seq: 3,
                 term: 11,
@@ -777,13 +758,11 @@ fn install_snapshot_ignore_response_if_term_old() {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(10, None);
-        let (mock_log, _mock_log_back_end) =
-            new_mock_log_with_non_defaults(10, 1, Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            });
+        let (mock_log, _mock_log_back_end) = new_mock_log_with_non_defaults(
+            10,
+            1,
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
+        );
         fixture.mobilize_server_with_log_and_persistent_storage(
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
@@ -838,12 +817,9 @@ fn install_snapshot_ignore_response_if_term_old() {
                 content: MessageContent::InstallSnapshot {
                     last_included_index: 1,
                     last_included_term: 10,
-                    snapshot: Snapshot {
-                        cluster_configuration: ClusterConfiguration::Single(
-                            hashset![2, 5, 6, 7, 11]
-                        ),
-                        state: (),
-                    },
+                    snapshot: ClusterConfiguration::Single(hashset![
+                        2, 5, 6, 7, 11
+                    ]),
                 },
                 seq: 3,
                 term: 11,
@@ -903,12 +879,7 @@ fn leader_send_new_log_entries() {
                     command: Some(LogEntryCommand::Custom(())),
                 },
             ],
-            Snapshot {
-                cluster_configuration: ClusterConfiguration::Single(hashset![
-                    2, 5, 6, 7, 11
-                ]),
-                state: (),
-            },
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         );
         let (sender, _receiver) = oneshot::channel();
         timeout
@@ -1007,12 +978,13 @@ fn non_leader_should_not_accept_commands() {
             .await
             .unwrap();
         fixture.synchronize().await;
-        verify_log(&mock_log_back_end, 0, 0, [], Snapshot {
-            cluster_configuration: ClusterConfiguration::Single(hashset![
-                2, 5, 6, 7, 11
-            ]),
-            state: (),
-        });
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [],
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
+        );
         fixture.expect_no_messages_now();
     });
 }

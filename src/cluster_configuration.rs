@@ -120,3 +120,11 @@ impl ClusterConfiguration {
         }
     }
 }
+
+// TODO: Look into if we should use `Borrow` instead of `AsRef` to avoid
+// needing this implementation.
+impl AsRef<ClusterConfiguration> for ClusterConfiguration {
+    fn as_ref(&self) -> &ClusterConfiguration {
+        self
+    }
+}
