@@ -1531,10 +1531,8 @@ impl<S, T> Inner<S, T> {
         {
             return None;
         }
-        let timeout_duration = self.rng.gen_range(
-            self.configuration.election_timeout.start,
-            self.configuration.election_timeout.end,
-        );
+        let timeout_duration =
+            self.rng.gen_range(self.configuration.election_timeout.clone());
         debug!(
             "Setting election timer to {:?} ({:?})",
             timeout_duration, self.configuration.election_timeout
