@@ -120,3 +120,44 @@ impl ClusterConfiguration {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maplit::hashset;
+    use serde_json::json;
+
+    #[test]
+    fn deserialize_json_single() {
+        let serialization = json!({
+            "Single": [10, 11, 12]
+        });
+        let deserialization: ClusterConfiguration =
+            serde_json::from_value(serialization).unwrap();
+        assert_eq!(
+            ClusterConfiguration::Single(hashset![10, 11, 12]),
+            deserialization
+        );
+    }
+
+    #[test]
+    fn deserialize_json_joint() {
+        let serialization = json!({
+            "Joint": {
+                "old_ids": [10, 11, 12],
+                "new_ids": [10, 11, 12, 13],
+                "index": 42
+            }
+        });
+        let deserialization: ClusterConfiguration =
+            serde_json::from_value(serialization).unwrap();
+        assert_eq!(
+            ClusterConfiguration::Joint {
+                old_ids: hashset![10, 11, 12],
+                new_ids: hashset![10, 11, 12, 13],
+                index: 42
+            },
+            deserialization
+        );
+    }
+}
