@@ -55,6 +55,21 @@ impl ClusterConfiguration {
         }
     }
 
+    /// Return an iterator of the identifiers of the servers in the cluster.
+    #[must_use]
+    pub fn ids(&self) -> Box<dyn Iterator<Item = usize> + '_> {
+        match self {
+            ClusterConfiguration::Single(configuration) => {
+                Box::new(configuration.iter().copied())
+            },
+            ClusterConfiguration::Joint {
+                old_ids,
+                new_ids,
+                ..
+            } => Box::new(old_ids.union(&new_ids).copied()),
+        }
+    }
+
     /// Return an iterator of the identifiers of the servers in the cluster
     /// which are a peer of the given server (all identifiers *except*
     /// the given one).
@@ -62,18 +77,8 @@ impl ClusterConfiguration {
     pub fn peers(
         &self,
         self_id: usize,
-    ) -> Box<dyn Iterator<Item = &usize> + '_> {
-        let filter = move |id: &&usize| **id != self_id;
-        match self {
-            ClusterConfiguration::Single(configuration) => {
-                Box::new(configuration.iter().filter(filter))
-            },
-            ClusterConfiguration::Joint {
-                old_ids,
-                new_ids,
-                ..
-            } => Box::new(old_ids.union(&new_ids).filter(filter)),
-        }
+    ) -> Box<dyn Iterator<Item = usize> + '_> {
+        Box::new(self.ids().filter(move |id| *id != self_id))
     }
 
     /// Apply the given log entry (if applicable) to a cluster configuration,

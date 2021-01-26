@@ -628,7 +628,7 @@ impl<S, T> Inner<S, T> {
         let peers = log
             .cluster_configuration()
             .peers(id)
-            .map(|id| (*id, Peer::default()))
+            .map(|id| (id, Peer::default()))
             .collect();
         Self {
             cancel_election_timeout: None,
@@ -666,10 +666,8 @@ impl<S, T> Inner<S, T> {
         let cluster_configuration_before = self.log.cluster_configuration();
         let result = operation(self, argument);
         let cluster_configuration_after = self.log.cluster_configuration();
-        let new_ids = cluster_configuration_after
-            .peers(self.id)
-            .copied()
-            .collect::<HashSet<_>>();
+        let new_ids =
+            cluster_configuration_after.peers(self.id).collect::<HashSet<_>>();
         let old_ids = self.peers.keys().copied().collect::<HashSet<_>>();
         for old_peer_id in old_ids.difference(&new_ids) {
             self.peers.remove(old_peer_id);
@@ -1494,7 +1492,6 @@ impl<S, T> Inner<S, T> {
             .log
             .cluster_configuration()
             .peers(self.id)
-            .copied()
             .collect::<HashSet<_>>();
         let all_peers_voting_or_caught_up =
             self.peers.iter().all(|(peer_id, peer)| {

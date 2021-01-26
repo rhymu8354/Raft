@@ -1218,8 +1218,7 @@ impl Fixture {
         log: Box<dyn Log<ClusterConfiguration, Command = ()>>,
         persistent_storage: Box<dyn PersistentStorage>,
     ) {
-        self.peer_ids =
-            log.cluster_configuration().peers(self.id).copied().collect();
+        self.peer_ids = log.cluster_configuration().peers(self.id).collect();
         let (server, scheduled_event_receiver) = Server::new_with_scheduler(
             self.id,
             self.configuration.clone(),
