@@ -298,6 +298,10 @@ impl<S, T> Inner<S, T> {
             self.log.cluster_configuration()
         );
         self.drop_old_peers();
+        if self.election_state == ElectionState::Leader {
+            let _ =
+                self.event_sender.unbounded_send(Event::DropNonVotingMembers);
+        }
     }
 
     fn cancel_retransmission(
@@ -1134,13 +1138,17 @@ impl<S, T> Inner<S, T> {
             .collect::<HashSet<_>>();
         let new_peer_ids = ids
             .difference(&old_ids)
-            .filter(|id| **id != self_id)
-            .collect::<Vec<_>>();
+            .copied()
+            .filter(|id| *id != self_id)
+            .collect::<HashSet<_>>();
         if new_peer_ids.is_empty() {
             self.start_reconfiguration(ids, None);
         } else {
+            let _ = self.event_sender.unbounded_send(
+                Event::AddNonVotingMembers(new_peer_ids.clone()),
+            );
             for new_peer_id in new_peer_ids {
-                debug!("Sending heartbeat to new peer {}", *new_peer_id);
+                debug!("Sending heartbeat to new peer {}", new_peer_id);
                 let mut peer = Peer::default();
                 peer.send_new_request(
                     MessageContent::AppendEntries(AppendEntriesContent {
@@ -1149,14 +1157,14 @@ impl<S, T> Inner<S, T> {
                         prev_log_term,
                         log: vec![],
                     }),
-                    *new_peer_id,
+                    new_peer_id,
                     term,
                     event_sender,
                     rpc_timeout,
                     #[cfg(test)]
                     scheduler,
                 );
-                self.peers.insert(*new_peer_id, peer);
+                self.peers.insert(new_peer_id, peer);
             }
             self.pending_reconfiguration_ids = Some(ids);
         }

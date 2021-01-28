@@ -481,6 +481,12 @@ impl Fixture {
                 Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
+                Event::AddNonVotingMembers(_) => {
+                    panic!("Unexpected non-voting members added")
+                },
+                Event::DropNonVotingMembers => {
+                    panic!("Unexpected non-voting members removed")
+                },
             }
         }
     }
@@ -685,6 +691,12 @@ impl Fixture {
                 Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
+                Event::AddNonVotingMembers(_) => {
+                    panic!("Unexpected non-voting members added")
+                },
+                Event::DropNonVotingMembers => {
+                    panic!("Unexpected non-voting members removed")
+                },
             }
         }
         if args.expect_state_change {
@@ -738,6 +750,12 @@ impl Fixture {
                 },
                 Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
+                },
+                Event::AddNonVotingMembers(_) => {
+                    panic!("Unexpected non-voting members added")
+                },
+                Event::DropNonVotingMembers => {
+                    panic!("Unexpected non-voting members removed")
                 },
             }
         }
@@ -912,6 +930,61 @@ impl Fixture {
         self.expect_no_reconfiguration_now();
     }
 
+    fn expect_non_voting_members_added_now(
+        &mut self,
+        expected_ids: &HashSet<usize>,
+    ) {
+        while let Some(event) = self
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+        {
+            if let Event::AddNonVotingMembers(ids) =
+                event.expect("unexpected end of server events")
+            {
+                assert_eq!(
+                    *expected_ids, ids,
+                    "wrong non-voting members added (expected {:?}, got {:?})",
+                    *expected_ids, ids
+                );
+                return;
+            }
+        }
+        panic!("server did not add non-voting members")
+    }
+
+    async fn expect_non_voting_members_added(
+        &mut self,
+        expected_ids: &HashSet<usize>,
+    ) {
+        self.synchronize().await;
+        self.expect_non_voting_members_added_now(expected_ids);
+    }
+
+    fn expect_non_voting_members_dropped_now(&mut self) {
+        while let Some(event) = self
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+        {
+            if let Event::DropNonVotingMembers =
+                event.expect("unexpected end of server events")
+            {
+                return;
+            }
+        }
+        panic!("server did not drop non-voting members")
+    }
+
+    async fn expect_non_voting_members_dropped(&mut self) {
+        self.synchronize().await;
+        self.expect_non_voting_members_dropped_now();
+    }
+
     async fn cast_vote(
         &mut self,
         args: CastVoteArgs,
@@ -1054,6 +1127,12 @@ impl Fixture {
                 Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
+                Event::AddNonVotingMembers(_) => {
+                    panic!("Unexpected non-voting members added")
+                },
+                Event::DropNonVotingMembers => {
+                    panic!("Unexpected non-voting members removed")
+                },
             }
         }
     }
@@ -1108,6 +1187,12 @@ impl Fixture {
                 Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
+                Event::AddNonVotingMembers(_) => {
+                    panic!("Unexpected non-voting members added")
+                },
+                Event::DropNonVotingMembers => {
+                    panic!("Unexpected non-voting members removed")
+                },
             }
         }
         messages
@@ -1154,6 +1239,12 @@ impl Fixture {
                 },
                 Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
+                },
+                Event::AddNonVotingMembers(_) => {
+                    panic!("Unexpected non-voting members added")
+                },
+                Event::DropNonVotingMembers => {
+                    panic!("Unexpected non-voting members removed")
                 },
             }
         }
@@ -1333,6 +1424,12 @@ impl Fixture {
                 Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
+                Event::AddNonVotingMembers(_) => {
+                    panic!("Unexpected non-voting members added")
+                },
+                Event::DropNonVotingMembers => {
+                    panic!("Unexpected non-voting members removed")
+                },
             }
         }
     }
@@ -1462,6 +1559,12 @@ impl Fixture {
                 Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
                 },
+                Event::AddNonVotingMembers(_) => {
+                    panic!("Unexpected non-voting members added")
+                },
+                Event::DropNonVotingMembers => {
+                    panic!("Unexpected non-voting members removed")
+                },
             }
         }
         if args.expect_state_change {
@@ -1549,6 +1652,12 @@ impl Fixture {
                 },
                 Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
+                },
+                Event::AddNonVotingMembers(_) => {
+                    panic!("Unexpected non-voting members added")
+                },
+                Event::DropNonVotingMembers => {
+                    panic!("Unexpected non-voting members removed")
                 },
             }
         }
