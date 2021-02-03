@@ -35,8 +35,6 @@ popular platforms.
 * Linux -- clang or gcc
 * MacOS -- Xcode (clang)
 
-## Building
-
 This library is not intended to stand alone.  It is intended to be included in
 a larger solution which uses [CMake](https://cmake.org/) to generate the build
 system and build applications which will link with the library.
