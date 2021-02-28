@@ -1310,12 +1310,14 @@ impl Fixture {
         persistent_storage: Box<dyn PersistentStorage>,
     ) {
         self.peer_ids = log.cluster_configuration().peers(self.id).collect();
-        let (server, scheduled_event_receiver) = Server::new_with_scheduler(
+        let mut server = Server::new(
             self.id,
             self.configuration.clone(),
             log,
             persistent_storage,
         );
+        let scheduled_event_receiver =
+            server.take_scheduled_event_receiver().unwrap();
         self.scheduled_event_receiver.replace(scheduled_event_receiver);
         self.server.replace(server);
     }

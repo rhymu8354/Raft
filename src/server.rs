@@ -418,31 +418,14 @@ where
 /// [`Stream`]: https://docs.rs/futures/latest/futures/stream/trait.Stream.html
 /// [`Sink`]: https://docs.rs/futures/latest/futures/sink/trait.Sink.html
 pub struct Server<S, T> {
-    thread_join_handle: Option<thread::JoinHandle<()>>,
     command_sender: CommandSender<S, T>,
     event_receiver: EventReceiver<S, T>,
+    #[cfg(test)]
+    scheduled_event_receiver: Option<ScheduledEventReceiver>,
+    thread_join_handle: Option<thread::JoinHandle<()>>,
 }
 
 impl<S, T> Server<S, T> {
-    #[cfg(test)]
-    pub fn new_with_scheduler<C>(
-        id: usize,
-        configuration: C,
-        log: Box<dyn Log<S, Command = T>>,
-        persistent_storage: Box<dyn PersistentStorage>,
-    ) -> (Self, ScheduledEventReceiver)
-    where
-        C: Into<ServerConfiguration>,
-        S: Clone + Debug + Send + 'static,
-        T: Clone + Debug + Send + 'static,
-    {
-        let (scheduler, scheduled_event_receiver) = Scheduler::new();
-        (
-            Self::new(id, configuration, log, persistent_storage, scheduler),
-            scheduled_event_receiver,
-        )
-    }
-
     /// Create a new server with the given identifier (`id`), local
     /// `configuration` (server-specific), log provider, and persistent storage
     /// provider.
@@ -469,7 +452,6 @@ impl<S, T> Server<S, T> {
         configuration: C,
         log: Box<dyn Log<S, Command = T>>,
         persistent_storage: Box<dyn PersistentStorage>,
-        #[cfg(test)] scheduler: Scheduler,
     ) -> Self
     where
         C: Into<ServerConfiguration>,
@@ -479,6 +461,8 @@ impl<S, T> Server<S, T> {
         let configuration = configuration.into();
         let (command_sender, command_receiver) = mpsc::unbounded();
         let (event_sender, event_receiver) = mpsc::unbounded();
+        #[cfg(test)]
+        let (scheduler, scheduled_event_receiver) = Scheduler::new();
         let inner = Inner::new(
             id,
             configuration,
@@ -491,10 +475,19 @@ impl<S, T> Server<S, T> {
         Self {
             command_sender,
             event_receiver,
+            #[cfg(test)]
+            scheduled_event_receiver: Some(scheduled_event_receiver),
             thread_join_handle: Some(thread::spawn(|| {
                 executor::block_on(inner.serve(command_receiver))
             })),
         }
+    }
+
+    #[cfg(test)]
+    pub fn take_scheduled_event_receiver(
+        &mut self
+    ) -> Option<ScheduledEventReceiver> {
+        self.scheduled_event_receiver.take()
     }
 }
 
