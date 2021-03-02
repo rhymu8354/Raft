@@ -88,6 +88,7 @@ pub enum ElectionState {
 ///
 /// [`Stream`]: https://docs.rs/futures/latest/futures/stream/trait.Stream.html
 /// [`Server`]: struct.Server.html
+#[derive(Debug)]
 pub enum Event<S, T> {
     /// This informs the host that the servers with the given identifiers
     /// should be added to the cluster as non-voting members.
