@@ -592,7 +592,7 @@ fn follower_rejects_appended_entries_with_mismatched_base() {
 }
 
 #[test]
-fn follower_rejects_appended_entries_with_no_common_base() {
+fn follower_rejects_non_heartbeat_appended_entries_with_no_common_base() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
@@ -625,6 +625,61 @@ fn follower_rejects_appended_entries_with_no_common_base() {
                                     command: None,
                                 },
                             ],
+                        },
+                    ),
+                    seq: 42,
+                    term: 4,
+                },
+                6,
+            )
+            .await;
+        fixture
+            .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
+                commit_index: None,
+                expect_state_change: false,
+                success: false,
+                next_log_index: 1,
+                receiver_id: 6,
+                seq: 42,
+                term: 4,
+            })
+            .await;
+        verify_log(
+            &mock_log_back_end,
+            0,
+            0,
+            [],
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
+        );
+        verify_persistent_storage(&mock_persistent_storage_back_end, 4, None);
+    });
+}
+
+#[test]
+fn follower_rejects_heartbeat_appended_entries_with_no_common_base() {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        let (mock_persistent_storage, mock_persistent_storage_back_end) =
+            new_mock_persistent_storage_with_non_defaults(0, None);
+        let (mock_log, mock_log_back_end) = new_mock_log_with_non_defaults(
+            0,
+            0,
+            ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
+        );
+        fixture.mobilize_server_with_log_and_persistent_storage(
+            Box::new(mock_log),
+            Box::new(mock_persistent_storage),
+        );
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 2,
+                            prev_log_term: 3,
+                            log: vec![],
                         },
                     ),
                     seq: 42,

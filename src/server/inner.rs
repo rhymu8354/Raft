@@ -160,43 +160,59 @@ impl<S, T> Inner<S, T> {
         }
         let mut match_index = append_entries.prev_log_index;
         let mut match_term = append_entries.prev_log_term;
-        let success = append_entries.log.into_iter().all(|new_log_entry| {
-            let new_log_term = new_log_entry.term;
+        let mut log = append_entries.log.into_iter();
+        loop {
             match self.determine_log_entry_disposition(match_index) {
-                LogEntryDisposition::Possessed => match self
-                    .compare_log_history(match_index, match_term, new_log_term)
-                {
-                    HistoryComparison::NothingInCommon => {
-                        match_index = 0;
-                        return false;
-                    },
-                    HistoryComparison::SameUpToPrevious => {
-                        self.log.truncate(match_index);
-                        self.log.append_one(new_log_entry);
-                    },
-                    HistoryComparison::Same => (),
+                LogEntryDisposition::Future => {
+                    return (false, self.log.last_index() + 1);
                 },
                 LogEntryDisposition::Next => {
-                    if match_term != self.log.last_term() {
-                        match_index = if match_index > self.log.base_index() {
-                            self.log.last_index() - 1
-                        } else {
-                            0
-                        };
-                        return false;
+                    if match_term == self.log.last_term() {
+                        match log.next() {
+                            Some(entry) => {
+                                match_index += 1;
+                                match_term = entry.term;
+                                self.log.append_one(entry);
+                            },
+                            None => break,
+                        }
+                    } else {
+                        return (
+                            false,
+                            if match_index > self.log.base_index() {
+                                self.log.last_index()
+                            } else {
+                                1
+                            },
+                        );
                     }
-                    self.log.append_one(new_log_entry);
                 },
-                LogEntryDisposition::Future => {
-                    match_index = self.log.last_index();
-                    return false;
+                LogEntryDisposition::Possessed => match log.next() {
+                    Some(entry) => {
+                        let prev_log_index = match_index;
+                        let prev_log_term = match_term;
+                        match_index += 1;
+                        match_term = entry.term;
+                        match self.compare_log_history(
+                            prev_log_index,
+                            prev_log_term,
+                            match_term,
+                        ) {
+                            HistoryComparison::NothingInCommon => {
+                                return (false, 1);
+                            },
+                            HistoryComparison::SameUpToPrevious => {
+                                self.log.truncate(prev_log_index);
+                                self.log.append_one(entry);
+                            },
+                            HistoryComparison::Same => (),
+                        }
+                    },
+                    None => break,
                 },
             }
-            match_index += 1;
-            match_term = new_log_term;
-            true
-        });
-        (success, match_index + 1)
+        }
+        (true, match_index + 1)
     }
 
     fn become_candidate(&mut self)
