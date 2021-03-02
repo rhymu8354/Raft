@@ -15,7 +15,6 @@ fn follower_votes_for_first_candidate() {
         fixture.mobilize_server_with_persistent_storage(Box::new(
             mock_persistent_storage,
         ));
-        fixture.trigger_min_election_timeout().await;
         fixture
             .receive_vote_request(ReceiveVoteRequestArgs {
                 sender_id: 6,
@@ -52,7 +51,6 @@ fn follower_rejects_subsequent_votes_after_first_candidate_same_term() {
         fixture.mobilize_server_with_persistent_storage(Box::new(
             mock_persistent_storage,
         ));
-        fixture.trigger_min_election_timeout().await;
         fixture
             .receive_vote_request(ReceiveVoteRequestArgs {
                 sender_id: 6,
@@ -89,7 +87,6 @@ fn follower_affirm_vote_upon_repeated_request() {
         fixture.mobilize_server_with_persistent_storage(Box::new(
             mock_persistent_storage,
         ));
-        fixture.trigger_min_election_timeout().await;
         fixture
             .receive_vote_request(ReceiveVoteRequestArgs {
                 sender_id: 6,
@@ -126,7 +123,6 @@ fn follower_rejects_vote_from_old_term() {
         fixture.mobilize_server_with_persistent_storage(Box::new(
             mock_persistent_storage,
         ));
-        fixture.trigger_min_election_timeout().await;
         fixture
             .receive_vote_request(ReceiveVoteRequestArgs {
                 sender_id: 6,
@@ -238,7 +234,6 @@ fn vote_rejected_if_candidate_log_old() {
                 ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
             );
             fixture.mobilize_server_with_log(Box::new(mock_log));
-            fixture.trigger_min_election_timeout().await;
             fixture
                 .receive_vote_request(ReceiveVoteRequestArgs {
                     sender_id: 6,
@@ -262,7 +257,97 @@ fn vote_rejected_if_candidate_log_old() {
 }
 
 #[test]
-fn follower_ignores_vote_request_within_minimum_election_time() {
+fn follower_ignores_vote_request_within_minimum_election_time_if_leader_known()
+{
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 0,
+                            prev_log_term: 0,
+                            log: vec![LogEntry {
+                                term: 1,
+                                command: None,
+                            }],
+                        },
+                    ),
+                    seq: 1,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture
+            .receive_vote_request(ReceiveVoteRequestArgs {
+                sender_id: 6,
+                last_log_term: 7,
+                last_log_index: 42,
+                seq: 1,
+                term: 1,
+            })
+            .await;
+        fixture.expect_no_vote().await;
+    });
+}
+
+#[test]
+fn follower_does_not_ignore_vote_request_past_minimum_election_time_if_leader_known(
+) {
+    assert_logger();
+    executor::block_on(async {
+        let mut fixture = Fixture::new();
+        fixture.mobilize_server();
+        fixture
+            .send_server_message(
+                Message {
+                    content: MessageContent::AppendEntries(
+                        AppendEntriesContent {
+                            leader_commit: 0,
+                            prev_log_index: 0,
+                            prev_log_term: 0,
+                            log: vec![LogEntry {
+                                term: 1,
+                                command: None,
+                            }],
+                        },
+                    ),
+                    seq: 1,
+                    term: 1,
+                },
+                2,
+            )
+            .await;
+        fixture.trigger_min_election_timeout().await;
+        fixture
+            .receive_vote_request(ReceiveVoteRequestArgs {
+                sender_id: 6,
+                last_log_term: 7,
+                last_log_index: 42,
+                seq: 1,
+                term: 1,
+            })
+            .await;
+        fixture
+            .expect_vote(&AwaitVoteArgs {
+                expect_state_change: false,
+                receiver_id: 6,
+                seq: 1,
+                term: 1,
+                vote_granted: true,
+            })
+            .await;
+    });
+}
+
+#[test]
+fn follower_does_not_ignore_vote_request_within_minimum_election_time_if_leader_unknown(
+) {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
@@ -276,7 +361,15 @@ fn follower_ignores_vote_request_within_minimum_election_time() {
                 term: 1,
             })
             .await;
-        fixture.expect_no_vote().await;
+        fixture
+            .expect_vote(&AwaitVoteArgs {
+                expect_state_change: false,
+                receiver_id: 6,
+                seq: 1,
+                term: 1,
+                vote_granted: true,
+            })
+            .await;
     });
 }
 

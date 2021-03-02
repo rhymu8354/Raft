@@ -90,6 +90,7 @@ pub struct Inner<S, T> {
     event_sender: EventSender<S, T>,
     id: usize,
     ignore_vote_requests: bool,
+    leader_known: bool,
     log: Box<dyn Log<S, Command = T>>,
     peers: HashMap<usize, Peer<S, T>>,
     pending_reconfiguration_ids: Option<HashSet<usize>>,
@@ -203,6 +204,7 @@ impl<S, T> Inner<S, T> {
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
+        self.leader_known = false;
         let term = self.persistent_storage.term() + 1;
         self.persistent_storage.update(term, Some(self.id));
         self.change_election_state(ElectionState::Candidate);
@@ -646,7 +648,8 @@ impl<S, T> Inner<S, T> {
             election_state: ElectionState::Follower,
             event_sender,
             id,
-            ignore_vote_requests: true,
+            ignore_vote_requests: false,
+            leader_known: false,
             log,
             peers,
             pending_reconfiguration_ids: None,
@@ -771,6 +774,7 @@ impl<S, T> Inner<S, T> {
         let (success, next_log_index) = if decision == RequestDecision::Reject {
             (false, 1)
         } else {
+            self.leader_known = true;
             self.perform_operation_which_may_change_configuration(
                 Self::attempt_accept_append_entries,
                 append_entries,
@@ -947,6 +951,7 @@ impl<S, T> Inner<S, T> {
             self.persistent_storage.update(term, None);
         }
         if decision != RequestDecision::Reject {
+            self.leader_known = true;
             if self.election_state != ElectionState::Follower {
                 self.become_follower();
             }
@@ -1586,6 +1591,7 @@ impl<S, T> Inner<S, T> {
         T: 'static + Clone + Debug + Send,
     {
         if self.election_state == ElectionState::Leader
+            || !self.leader_known
             || self.cancel_min_election_timeout.is_some()
             || self.cancel_election_timeout.is_some()
             || !self.log.cluster_configuration().contains(self.id)
