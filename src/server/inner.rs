@@ -979,7 +979,9 @@ impl<S, T> Inner<S, T> {
             );
         }
         let message = Message {
-            content: MessageContent::InstallSnapshotResponse,
+            content: MessageContent::InstallSnapshotResponse {
+                next_log_index: last_included_index + 1,
+            },
             seq,
             term: self.persistent_storage.term(),
         };
@@ -992,6 +994,7 @@ impl<S, T> Inner<S, T> {
 
     fn process_install_snapshot_response(
         &mut self,
+        next_log_index: usize,
         sender_id: usize,
         term: usize,
         seq: usize,
@@ -1030,7 +1033,7 @@ impl<S, T> Inner<S, T> {
             );
             return;
         }
-        self.send_more_log_entries_to_peer(sender_id, self.log.base_index());
+        self.send_more_log_entries_to_peer(sender_id, next_log_index - 1);
     }
 
     fn process_receive_message(
@@ -1094,8 +1097,11 @@ impl<S, T> Inner<S, T> {
                     snapshot,
                 );
             },
-            MessageContent::InstallSnapshotResponse => {
+            MessageContent::InstallSnapshotResponse {
+                next_log_index,
+            } => {
                 self.process_install_snapshot_response(
+                    next_log_index,
                     sender_id,
                     message.term,
                     message.seq,

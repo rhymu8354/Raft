@@ -675,7 +675,7 @@ fn install_snapshot_if_match_index_before_base() {
         let mut fixture = Fixture::new();
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             new_mock_persistent_storage_with_non_defaults(10, None);
-        let (mock_log, _mock_log_back_end) = new_mock_log_with_non_defaults(
+        let (mock_log, mock_log_back_end) = new_mock_log_with_non_defaults(
             10,
             1,
             ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
@@ -723,13 +723,21 @@ fn install_snapshot_if_match_index_before_base() {
             },
             fixture.expect_message(2).await
         );
+        {
+            let mut log_shared = mock_log_back_end.shared.lock().unwrap();
+            log_shared.base_term = 11;
+            log_shared.base_index = 2;
+            log_shared.entries.clear();
+        }
         let (duration, completer) =
             fixture.expect_retransmission_timer_registration(2).await;
         assert_eq!(fixture.configuration.install_snapshot_timeout, duration);
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::InstallSnapshotResponse,
+                    content: MessageContent::InstallSnapshotResponse {
+                        next_log_index: 1,
+                    },
                     seq: 3,
                     term: 11,
                 },
@@ -744,15 +752,13 @@ fn install_snapshot_if_match_index_before_base() {
         );
         assert_eq!(
             Message {
-                content: MessageContent::AppendEntries(AppendEntriesContent {
-                    leader_commit: 0,
-                    prev_log_index: 1,
-                    prev_log_term: 10,
-                    log: vec![LogEntry {
-                        term: 11,
-                        command: None
-                    }],
-                }),
+                content: MessageContent::InstallSnapshot {
+                    last_included_index: 2,
+                    last_included_term: 11,
+                    snapshot: ClusterConfiguration::Single(hashset![
+                        2, 5, 6, 7, 11
+                    ]),
+                },
                 seq: 4,
                 term: 11,
             },
@@ -809,7 +815,9 @@ fn install_snapshot_ignore_response_if_term_old() {
         fixture
             .send_server_message(
                 Message {
-                    content: MessageContent::InstallSnapshotResponse,
+                    content: MessageContent::InstallSnapshotResponse {
+                        next_log_index: 2,
+                    },
                     seq: 3,
                     term: 10,
                 },

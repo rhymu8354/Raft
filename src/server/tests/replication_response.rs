@@ -757,7 +757,7 @@ fn follower_installs_snapshot_same_configuration() {
         timeout
             .send(timeout_ack_sender)
             .expect_err("server did not cancel election timer");
-        fixture.expect_install_snapshot_response(6, 42, 11).await;
+        fixture.expect_install_snapshot_response(2, 6, 42, 11).await;
         verify_log(
             &mock_log_back_end,
             10,
@@ -815,7 +815,7 @@ fn follower_installs_snapshot_different_configuration() {
                 2, 5, 6, 7, 12
             ]))
             .await;
-        fixture.expect_install_snapshot_response(6, 42, 11).await;
+        fixture.expect_install_snapshot_response(2, 6, 42, 11).await;
         verify_log(
             &mock_log_back_end,
             10,

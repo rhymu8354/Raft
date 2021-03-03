@@ -1588,11 +1588,20 @@ impl Fixture {
     fn is_verified_install_snapshot_response(
         message: &Message<ClusterConfiguration, ()>,
         receiver_id: usize,
+        expected_next_log_index: usize,
         expected_receiver_id: usize,
         expected_seq: usize,
         expected_term: usize,
     ) -> bool {
-        if let MessageContent::InstallSnapshotResponse = message.content {
+        if let MessageContent::InstallSnapshotResponse {
+            next_log_index,
+        } = message.content
+        {
+            assert_eq!(
+                next_log_index, expected_next_log_index,
+                "wrong term in install snapshot response (was {}, should be {})",
+                next_log_index, expected_next_log_index
+            );
             assert_eq!(
                 message.term, expected_term,
                 "wrong term in install snapshot response (was {}, should be {})",
@@ -1616,6 +1625,7 @@ impl Fixture {
 
     fn expect_install_snapshot_response_now(
         &mut self,
+        expected_next_log_index: usize,
         expected_receiver_id: usize,
         expected_seq: usize,
         expected_term: usize,
@@ -1637,6 +1647,7 @@ impl Fixture {
                     if Self::is_verified_install_snapshot_response(
                         &message,
                         receiver_id,
+                        expected_next_log_index,
                         expected_receiver_id,
                         expected_seq,
                         expected_term,
@@ -1667,12 +1678,18 @@ impl Fixture {
 
     async fn expect_install_snapshot_response(
         &mut self,
+        next_log_index: usize,
         receiver_id: usize,
         seq: usize,
         term: usize,
     ) {
         self.synchronize().await;
-        self.expect_install_snapshot_response_now(receiver_id, seq, term);
+        self.expect_install_snapshot_response_now(
+            next_log_index,
+            receiver_id,
+            seq,
+            term,
+        );
     }
 
     async fn send_server_message(

@@ -86,15 +86,16 @@ pub enum Content<S, T> {
         snapshot: S,
     },
 
-    // TODO: This should include `next_log_index` as well, since it's possible
-    // that the leader might compact its log by the time the follower
-    // responds.
     /// The sender is responding to a previous [`InstallSnapshot`] sent by
     /// the receiver, indicating that it's ready to accept more log entries
     /// based on the received snapshot.
     ///
     /// [`InstallSnapshot`]: #variant.InstallSnapshot
-    InstallSnapshotResponse,
+    InstallSnapshotResponse {
+        /// Indicate the index of the next log entry the receiver should
+        /// send back.
+        next_log_index: usize,
+    },
 }
 
 /// This holds information to be sent from one server to another.
