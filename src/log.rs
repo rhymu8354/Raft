@@ -8,13 +8,15 @@ use crate::{
 /// and the log of commands to change that state.
 ///
 /// The cluster state consists of a [`snapshot`] at its base, upon which
-/// is built a sequence of log entries.  The implementation is free to
-/// compact the log entries into the [`snapshot`] at any time, as long
-/// as only committed log entries (those indicated by
-/// [`ServerEvent::LogCommitted`]) are included in the [`snapshot`].
+/// is built a sequence of log entries.  The implementation must not change
+/// any state outside of the calls to the methods of this trait.  The
+/// Raft [`Server`] will occasionally call [`update_snapshot`] to give the
+/// host an opportunity to apply log compaction (which should be prepared
+/// in advance in some other thread/task context).
 ///
 /// [`Server`]: struct.Server.html
 /// [`snapshot`]: #tymethod.snapshot
+/// [`update_snapshot`]: #tymethod.update_snapshot
 /// [`ServerEvent::LogCommitted`]: enum.ServerEvent.html#variant.LogCommitted
 pub trait Log<S>: Send {
     /// This is the type defined by the host to hold any host-specific
@@ -120,4 +122,18 @@ pub trait Log<S>: Send {
         &mut self,
         index: usize,
     );
+
+    /// Optionally update the [`snapshot`], with the [`base_index`] and
+    /// [`base_term`] accordingly, to the latest log compaction results
+    /// the host has available.  It's up to the host whether or not to
+    /// actually update them.  The host should not compute any new snapshot
+    /// during this call, as it may unnecessarily stall other Raft
+    /// operations.  Instead, the host should compute log compaction results
+    /// in the background (another thread or task) and store them somewhere
+    /// else, only updating the actual snapshot when this method is called.
+    ///
+    /// [`snapshot`]: #tymethod.snapshot
+    /// [`base_index`]: #tymethod.base_index
+    /// [`base_term`]: #tymethod.base_term
+    fn update_snapshot(&mut self);
 }

@@ -196,7 +196,8 @@ fn leader_commit_entry_when_majority_match_single_configuration() {
     assert_logger();
     executor::block_on(async {
         let mut fixture = Fixture::new();
-        fixture.mobilize_server();
+        let (mock_log, mock_log_back_end) = MockLog::new();
+        fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
         fixture.expect_election_state_change(ElectionState::Leader).await;
@@ -214,6 +215,14 @@ fn leader_commit_entry_when_majority_match_single_configuration() {
             )
             .await;
         fixture.expect_no_commit().await;
+        let (sender, mut receiver) = oneshot::channel();
+        {
+            let mut log_shared = mock_log_back_end.shared.lock().unwrap();
+            log_shared.on_update_snapshot = Some(Box::new(|_log_shared| {
+                let _ = sender.send(());
+            }));
+        }
+        assert!(receiver.try_recv().unwrap().is_none());
         fixture
             .send_server_message(
                 Message {
@@ -228,6 +237,7 @@ fn leader_commit_entry_when_majority_match_single_configuration() {
             )
             .await;
         fixture.expect_commit(1).await;
+        assert!(receiver.try_recv().unwrap().is_some());
         fixture.trigger_heartbeat_timeout().await;
         assert_eq!(
             Message {

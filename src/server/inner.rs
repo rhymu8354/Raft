@@ -388,6 +388,7 @@ impl<S, T> Inner<S, T> {
                 .event_sender
                 .unbounded_send(Event::LogCommitted(self.commit_index));
         }
+        self.log.update_snapshot();
     }
 
     fn compare_log_history(

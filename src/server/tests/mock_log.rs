@@ -16,6 +16,7 @@ pub struct Shared {
     pub entries: Vec<LogEntry<()>>,
     pub last_term: usize,
     pub last_index: usize,
+    pub on_update_snapshot: Option<Box<dyn FnOnce(&mut Self) + Send>>,
     pub snapshot: ClusterConfiguration,
 }
 
@@ -99,6 +100,12 @@ impl Shared {
             .last()
             .map_or(self.base_term, |last_log_entry| last_log_entry.term);
     }
+
+    fn update_snapshot(&mut self) {
+        if let Some(on_update_snapshot) = self.on_update_snapshot.take() {
+            on_update_snapshot(self);
+        }
+    }
 }
 
 pub struct MockLog {
@@ -118,6 +125,7 @@ impl MockLog {
             entries: vec![],
             last_term: 0,
             last_index: 0,
+            on_update_snapshot: None,
             snapshot: ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
         }));
         (
@@ -212,6 +220,11 @@ impl Log<ClusterConfiguration> for MockLog {
     ) {
         let mut shared = self.shared.lock().unwrap();
         shared.truncate(index);
+    }
+
+    fn update_snapshot(&mut self) {
+        let mut shared = self.shared.lock().unwrap();
+        shared.update_snapshot();
     }
 }
 

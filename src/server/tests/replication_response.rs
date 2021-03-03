@@ -22,6 +22,13 @@ fn follower_receive_append_entries() {
             Box::new(mock_log),
             Box::new(mock_persistent_storage),
         );
+        let (sender, mut receiver) = oneshot::channel();
+        {
+            let mut log_shared = mock_log_back_end.shared.lock().unwrap();
+            log_shared.on_update_snapshot = Some(Box::new(|_log_shared| {
+                let _ = sender.send(());
+            }));
+        }
         fixture
             .send_server_message(
                 Message {
@@ -53,6 +60,7 @@ fn follower_receive_append_entries() {
                 term: 1,
             })
             .await;
+        assert!(receiver.try_recv().unwrap().is_some());
         let (election_timeout_duration, _election_timeout_completer) =
             fixture.expect_election_timer_registrations(2).await;
         assert!(
