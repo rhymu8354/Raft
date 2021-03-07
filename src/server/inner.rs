@@ -959,10 +959,9 @@ impl<S, T> Inner<S, T> {
         S: Debug,
     {
         info!(
-            "Received InstallSnapshot({};{}, {:?}) from {} for term {} (we are {:?} in term {})",
+            "Received InstallSnapshot({};{}) from {} for term {} (we are {:?} in term {})",
             last_included_index,
             last_included_term,
-            snapshot,
             sender_id,
             term,
             self.election_state,
