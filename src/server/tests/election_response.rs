@@ -228,12 +228,17 @@ fn vote_rejected_if_candidate_log_old() {
             &[(1, 199, 1, 42), (2, 199, 1, 399), (2, 199, 1, 42)];
         for (our_term, our_index, their_term, their_index) in combinations {
             let mut fixture = Fixture::new();
+            let (mock_persistent_storage, mock_persistent_storage_back_end) =
+                new_mock_persistent_storage_with_non_defaults(0, None);
             let (mock_log, _mock_log_back_end) = new_mock_log_with_non_defaults(
                 *our_term,
                 *our_index,
                 ClusterConfiguration::Single(hashset![2, 5, 6, 7, 11]),
             );
-            fixture.mobilize_server_with_log(Box::new(mock_log));
+            fixture.mobilize_server_with_log_and_persistent_storage(
+                Box::new(mock_log),
+                Box::new(mock_persistent_storage),
+            );
             fixture
                 .receive_vote_request(ReceiveVoteRequestArgs {
                     sender_id: 6,
@@ -248,10 +253,15 @@ fn vote_rejected_if_candidate_log_old() {
                     expect_state_change: false,
                     receiver_id: 6,
                     seq: 1,
-                    term: 0,
+                    term: 1,
                     vote_granted: false,
                 })
                 .await;
+            verify_persistent_storage(
+                &mock_persistent_storage_back_end,
+                1,
+                None,
+            );
         }
     });
 }

@@ -455,20 +455,25 @@ impl<S, T> Inner<S, T> {
             },
             Ordering::Greater => (),
         };
-        match candidate_last_log_term.cmp(&self.log.last_term()) {
-            Ordering::Less => return false,
+        let grant = match candidate_last_log_term.cmp(&self.log.last_term()) {
+            Ordering::Less => false,
             Ordering::Equal => {
-                if candidate_last_log_index < self.log.last_index() {
-                    return false;
-                }
+                candidate_last_log_index >= self.log.last_index()
             },
-            Ordering::Greater => (),
-        }
-        self.persistent_storage.update(candidate_term, Some(candidate_id));
+            Ordering::Greater => true,
+        };
+        self.persistent_storage.update(
+            candidate_term,
+            if grant {
+                Some(candidate_id)
+            } else {
+                None
+            },
+        );
         if self.election_state != ElectionState::Follower {
             self.become_follower();
         }
-        true
+        grant
     }
 
     fn determine_log_entry_disposition(
