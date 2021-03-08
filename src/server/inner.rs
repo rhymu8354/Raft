@@ -802,8 +802,11 @@ impl<S, T> Inner<S, T> {
                 append_entries,
             )
         };
-        if leader_commit > self.commit_index {
-            self.commit_log(leader_commit);
+        if success {
+            let new_commit_index = leader_commit.min(next_log_index - 1);
+            if new_commit_index > self.commit_index {
+                self.commit_log(new_commit_index);
+            }
         }
         let message = Message {
             content: MessageContent::AppendEntriesResponse {

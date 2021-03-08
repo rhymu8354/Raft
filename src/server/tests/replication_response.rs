@@ -320,7 +320,7 @@ fn follower_match_appended_entries() {
                 Message {
                     content: MessageContent::AppendEntries(
                         AppendEntriesContent {
-                            leader_commit: 0,
+                            leader_commit: 3,
                             prev_log_index: 0,
                             prev_log_term: 0,
                             log: vec![
@@ -343,7 +343,7 @@ fn follower_match_appended_entries() {
             .await;
         fixture
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
-                commit_index: None,
+                commit_index: Some(2),
                 expect_state_change: false,
                 success: true,
                 next_log_index: 3,
@@ -483,7 +483,7 @@ fn follower_rejects_appended_entries_with_mismatched_previous_term() {
                 Message {
                     content: MessageContent::AppendEntries(
                         AppendEntriesContent {
-                            leader_commit: 0,
+                            leader_commit: 3,
                             prev_log_index: 2,
                             prev_log_term: 3,
                             log: vec![
