@@ -487,6 +487,9 @@ impl Fixture {
                 Event::DropNonVotingMembers => {
                     panic!("Unexpected non-voting members removed")
                 },
+                Event::LeadershipChange(_) => {
+                    panic!("Unexpected leadership change")
+                },
             }
         }
     }
@@ -511,6 +514,7 @@ impl Fixture {
         &mut self,
         args: AwaitElectionTimeoutArgs,
     ) {
+        self.expect_leadership_change(None).await;
         let mut awaiting_vote_requests = self.peer_ids.clone();
         while !awaiting_vote_requests.is_empty() {
             let receiver_id = self
@@ -555,6 +559,7 @@ impl Fixture {
         &mut self,
         expected_term: usize,
     ) {
+        let mut got_election_state_change = false;
         loop {
             let event = self
                 .server
@@ -563,30 +568,42 @@ impl Fixture {
                 .next()
                 .now_or_never()
                 .flatten()
-                .expect("no election state change");
-            if let Event::ElectionStateChange {
-                election_state: new_election_state,
-                term,
-                voted_for,
-            } = event
-            {
-                assert_eq!(ElectionState::Leader, new_election_state);
-                assert_eq!(
+                .expect("no leadership change");
+            match event {
+                Event::ElectionStateChange {
+                    election_state: new_election_state,
                     term,
-                    expected_term,
-                    "wrong term in election state change (was {}, should be {})",
-                    term,
-                    expected_term
-                );
-                assert!(
-                    matches!(voted_for, Some(id) if id == self.id),
-                    "server voted for {:?}, not itself ({})",
                     voted_for,
-                    self.id
-                );
-                break;
+                } => {
+                    assert_eq!(ElectionState::Leader, new_election_state);
+                    assert_eq!(
+                        term,
+                        expected_term,
+                        "wrong term in election state change (was {}, should be {})",
+                        term,
+                        expected_term
+                    );
+                    assert!(
+                        matches!(voted_for, Some(id) if id == self.id),
+                        "server voted for {:?}, not itself ({})",
+                        voted_for,
+                        self.id
+                    );
+                    got_election_state_change = true;
+                },
+                Event::LeadershipChange(leader_id) => {
+                    assert!(
+                        matches!(leader_id, Some(id) if id == self.id),
+                        "new leader is {:?}, not self ({})",
+                        leader_id,
+                        self.id
+                    );
+                    break;
+                },
+                _ => {},
             }
         }
+        assert!(got_election_state_change);
     }
 
     async fn expect_assume_leadership(
@@ -595,6 +612,39 @@ impl Fixture {
     ) {
         self.synchronize().await;
         self.expect_assume_leadership_now(term);
+    }
+
+    fn expect_leadership_change_now(
+        &mut self,
+        expected_leader_id: Option<usize>,
+    ) {
+        loop {
+            let event = self
+                .server
+                .as_mut()
+                .expect("no server mobilized")
+                .next()
+                .now_or_never()
+                .flatten()
+                .expect("no leadership change");
+            if let Event::LeadershipChange(leader_id) = event {
+                assert!(
+                    matches!(leader_id, id if id == expected_leader_id),
+                    "new leader is {:?}, not expected ({:?})",
+                    leader_id,
+                    expected_leader_id
+                );
+                break;
+            }
+        }
+    }
+
+    async fn expect_leadership_change(
+        &mut self,
+        leader_id: Option<usize>,
+    ) {
+        self.synchronize().await;
+        self.expect_leadership_change_now(leader_id);
     }
 
     fn verify_vote(args: &VerifyVoteArgs) {
@@ -697,6 +747,9 @@ impl Fixture {
                 Event::DropNonVotingMembers => {
                     panic!("Unexpected non-voting members removed")
                 },
+                Event::LeadershipChange(_) => {
+                    panic!("Unexpected leadership change")
+                },
             }
         }
         if args.expect_state_change {
@@ -757,6 +810,9 @@ impl Fixture {
                 Event::DropNonVotingMembers => {
                     panic!("Unexpected non-voting members removed")
                 },
+                Event::LeadershipChange(_) => {
+                    panic!("Unexpected leadership change")
+                },
             }
         }
     }
@@ -769,6 +825,7 @@ impl Fixture {
     fn expect_election_state_change_now(
         &mut self,
         election_state: ElectionState,
+        expected_term: usize,
     ) {
         while let Some(event) = self
             .server
@@ -779,10 +836,18 @@ impl Fixture {
         {
             if let Event::ElectionStateChange {
                 election_state: new_election_state,
+                term,
                 ..
             } = event.expect("unexpected end of server events")
             {
                 assert_eq!(election_state, new_election_state);
+                assert_eq!(
+                    term,
+                    expected_term,
+                    "wrong term in election state change (was {}, should be {})",
+                    term,
+                    expected_term
+                );
                 return;
             }
         }
@@ -792,9 +857,17 @@ impl Fixture {
     async fn expect_election_state_change(
         &mut self,
         election_state: ElectionState,
+        expected_term: usize,
     ) {
         self.synchronize().await;
-        self.expect_election_state_change_now(election_state);
+        if let ElectionState::Leader = election_state {
+            self.expect_assume_leadership_now(expected_term);
+        } else {
+            self.expect_election_state_change_now(
+                election_state,
+                expected_term,
+            );
+        }
     }
 
     fn expect_no_election_state_changes_now(&mut self) {
@@ -1133,6 +1206,9 @@ impl Fixture {
                 Event::DropNonVotingMembers => {
                     panic!("Unexpected non-voting members removed")
                 },
+                Event::LeadershipChange(_) => {
+                    panic!("Unexpected leadership change")
+                },
             }
         }
     }
@@ -1193,6 +1269,9 @@ impl Fixture {
                 Event::DropNonVotingMembers => {
                     panic!("Unexpected non-voting members removed")
                 },
+                Event::LeadershipChange(_) => {
+                    panic!("Unexpected leadership change")
+                },
             }
         }
         messages
@@ -1245,6 +1324,9 @@ impl Fixture {
                 },
                 Event::DropNonVotingMembers => {
                     panic!("Unexpected non-voting members removed")
+                },
+                Event::LeadershipChange(_) => {
+                    panic!("Unexpected leadership change")
                 },
             }
         }
@@ -1432,6 +1514,9 @@ impl Fixture {
                 Event::DropNonVotingMembers => {
                     panic!("Unexpected non-voting members removed")
                 },
+                Event::LeadershipChange(_) => {
+                    panic!("Unexpected leadership change")
+                },
             }
         }
     }
@@ -1567,6 +1652,9 @@ impl Fixture {
                 Event::DropNonVotingMembers => {
                     panic!("Unexpected non-voting members removed")
                 },
+                Event::LeadershipChange(_) => {
+                    panic!("Unexpected leadership change")
+                },
             }
         }
         if args.expect_state_change {
@@ -1671,6 +1759,9 @@ impl Fixture {
                 },
                 Event::DropNonVotingMembers => {
                     panic!("Unexpected non-voting members removed")
+                },
+                Event::LeadershipChange(_) => {
+                    panic!("Unexpected leadership change")
                 },
             }
         }

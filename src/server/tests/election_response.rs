@@ -293,6 +293,7 @@ fn follower_ignores_vote_request_within_minimum_election_time_if_leader_known()
                 2,
             )
             .await;
+        fixture.expect_leadership_change(Some(2)).await;
         fixture
             .receive_vote_request(ReceiveVoteRequestArgs {
                 sender_id: 6,
@@ -333,6 +334,7 @@ fn follower_does_not_ignore_vote_request_past_minimum_election_time_if_leader_kn
                 2,
             )
             .await;
+        fixture.expect_leadership_change(Some(2)).await;
         fixture.trigger_min_election_timeout().await;
         fixture
             .receive_vote_request(ReceiveVoteRequestArgs {

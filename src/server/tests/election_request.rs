@@ -79,6 +79,7 @@ fn new_election_after_new_server_config() {
                 2,
             )
             .await;
+        fixture.expect_leadership_change(Some(2)).await;
         fixture
             .expect_election(AwaitElectionTimeoutArgs {
                 last_log_term: 1,
@@ -247,7 +248,7 @@ fn candidate_revert_to_follower_on_request_vote_response_newer_term() {
             })
             .await;
         fixture
-            .expect_election_state_change(ServerElectionState::Follower)
+            .expect_election_state_change(ServerElectionState::Follower, 2)
             .await;
         let (_duration, completer) =
             fixture.expect_retransmission_timer_registration(6).await;
@@ -383,7 +384,7 @@ fn leader_no_retransmit_vote_request_after_election() {
                 vote: true,
             })
             .await;
-        fixture.expect_election_state_change(ServerElectionState::Leader).await;
+        fixture.expect_assume_leadership(1).await;
         let (sender, _receiver) = oneshot::channel();
         assert!(
             completers.remove(&2).unwrap().send(sender).is_err(),

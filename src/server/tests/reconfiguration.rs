@@ -15,7 +15,7 @@ fn delay_start_reconfiguration_until_new_member_catches_up() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_election_state_change(ElectionState::Leader, 1).await;
         fixture.expect_messages_now(hashset![2, 6, 7, 11]);
         fixture
             .server
@@ -228,7 +228,7 @@ fn start_reconfiguration_immediately_if_no_new_members() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(1).await;
         fixture.expect_messages_now(hashset![2, 6, 7, 11]);
         fixture
             .send_server_message(
@@ -295,7 +295,7 @@ fn reconfiguration_overrides_pending_previous_reconfiguration() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(1).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture
             .server
@@ -479,7 +479,7 @@ fn no_reconfiguration_if_reconfiguration_requested_is_current_configuration() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(1).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture
             .server
@@ -512,7 +512,7 @@ fn no_reconfiguration_if_in_joint_configuration() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(1).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture
             .server
@@ -611,7 +611,7 @@ fn reconfiguration_cancelled_if_reconfigured_back_to_original_configuration() {
         fixture.mobilize_server_with_log(Box::new(mock_log));
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(1).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture
             .server
@@ -717,7 +717,7 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
         fixture.expect_election_timer_registrations(1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(1).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture
             .server
@@ -791,7 +791,7 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
             })
             .await;
         fixture.expect_non_voting_members_dropped().await;
-        fixture.expect_election_state_change(ElectionState::Follower).await;
+        fixture.expect_election_state_change(ElectionState::Follower, 2).await;
         fixture.expect_message(6).await;
         fixture
             .expect_election(AwaitElectionTimeoutArgs {
@@ -802,7 +802,7 @@ fn reconfiguration_cancelled_if_revert_to_follower() {
             .await;
         fixture.expect_no_messages().await;
         fixture.cast_votes(3, 3).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(3).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture.expect_no_messages().await;
         verify_log(
@@ -872,7 +872,7 @@ fn follower_add_peers_in_joint_configuration() {
             .await;
         fixture.cast_votes(1, 2).await;
         fixture.expect_election_timer_registrations(1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(2).await;
         fixture.expect_messages(hashset![2, 6, 7, 11, 12]).await;
         fixture.expect_no_messages_now();
     });
@@ -951,7 +951,7 @@ fn truncate_log_should_remove_old_peers() {
             .await;
         fixture.cast_votes(1, 3).await;
         fixture.expect_election_timer_registrations(1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(3).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture.expect_no_messages_now();
     });
@@ -979,7 +979,7 @@ fn leader_finish_reconfiguration() {
             .await;
         fixture.expect_retransmission_timer_registration(6).await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(1).await;
         fixture.expect_messages(hashset![2, 6, 7]).await;
         let (_duration, retransmit) =
             fixture.expect_retransmission_timer_registration(6).await;
@@ -1109,7 +1109,7 @@ fn follower_finish_reconfiguration() {
             })
             .await;
         fixture.cast_votes(1, 2).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(2).await;
         fixture.expect_messages(hashset![2, 7]).await;
         fixture.expect_no_messages_now();
     });
@@ -1136,7 +1136,7 @@ fn leader_step_down_after_reconfiguration() {
             })
             .await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(1).await;
         fixture.expect_messages(hashset![2, 6]).await;
         fixture
             .send_server_message(

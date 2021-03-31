@@ -135,6 +135,10 @@ pub enum Event<S, T> {
         voted_for: Option<usize>,
     },
 
+    /// This indicates that the server has recognized some leader or
+    /// no leader for the cluster at the current time.
+    LeadershipChange(Option<usize>),
+
     /// This indicates that the server has determined all log entries up
     /// to and including the one at the given index in the log have been
     /// successfully replicated to a majority of the servers in the cluster,

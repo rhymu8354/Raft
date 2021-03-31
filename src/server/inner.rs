@@ -221,6 +221,7 @@ impl<S, T> Inner<S, T> {
         T: 'static + Clone + Debug + Send,
     {
         self.leader_known = false;
+        let _ = self.event_sender.unbounded_send(Event::LeadershipChange(None));
         let term = self.persistent_storage.term() + 1;
         self.persistent_storage.update(term, Some(self.id));
         self.change_election_state(ElectionState::Candidate);
@@ -250,6 +251,9 @@ impl<S, T> Inner<S, T> {
         T: 'static + Clone + Debug + Send,
     {
         self.change_election_state(ElectionState::Leader);
+        let _ = self
+            .event_sender
+            .unbounded_send(Event::LeadershipChange(Some(self.id)));
         let no_op = LogEntry {
             term: self.persistent_storage.term(),
             command: None,
@@ -797,6 +801,9 @@ impl<S, T> Inner<S, T> {
             (false, 1)
         } else {
             self.leader_known = true;
+            let _ = self
+                .event_sender
+                .unbounded_send(Event::LeadershipChange(Some(sender_id)));
             self.perform_operation_which_may_change_configuration(
                 Self::attempt_accept_append_entries,
                 append_entries,
@@ -979,6 +986,9 @@ impl<S, T> Inner<S, T> {
             if self.election_state != ElectionState::Follower {
                 self.become_follower();
             }
+            let _ = self
+                .event_sender
+                .unbounded_send(Event::LeadershipChange(Some(sender_id)));
             self.cancel_election_timers();
             self.perform_operation_which_may_change_configuration(
                 Self::install_snapshot,

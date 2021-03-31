@@ -49,6 +49,7 @@ fn follower_receive_append_entries() {
                 2,
             )
             .await;
+        fixture.expect_leadership_change(Some(2)).await;
         fixture
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: Some(1),
@@ -105,7 +106,7 @@ fn leader_revert_to_follower_on_append_entries_new_term() {
         fixture.expect_election_with_defaults().await;
         fixture.expect_election_timer_registrations(1).await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(1).await;
         fixture
             .send_server_message(
                 Message {
@@ -126,6 +127,7 @@ fn leader_revert_to_follower_on_append_entries_new_term() {
                 6,
             )
             .await;
+        fixture.expect_leadership_change(Some(6)).await;
         fixture
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
@@ -186,7 +188,7 @@ fn leader_ignores_append_entries_same_term() {
         );
         fixture.expect_election_with_defaults().await;
         fixture.cast_votes(1, 1).await;
-        fixture.expect_election_state_change(ElectionState::Leader).await;
+        fixture.expect_assume_leadership(1).await;
         fixture.expect_messages(hashset![2, 6, 7, 11]).await;
         fixture
             .send_server_message(
@@ -265,6 +267,7 @@ fn candidate_reverts_to_follower_on_append_entries_same_term() {
                 6,
             )
             .await;
+        fixture.expect_leadership_change(Some(6)).await;
         fixture
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
@@ -341,6 +344,7 @@ fn follower_match_appended_entries() {
                 6,
             )
             .await;
+        fixture.expect_leadership_change(Some(6)).await;
         fixture
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: Some(2),
@@ -418,6 +422,7 @@ fn follower_replaces_mismatched_appended_entries() {
                 6,
             )
             .await;
+        fixture.expect_leadership_change(Some(6)).await;
         fixture
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: Some(1),
@@ -504,6 +509,7 @@ fn follower_rejects_appended_entries_with_mismatched_previous_term() {
                 6,
             )
             .await;
+        fixture.expect_leadership_change(Some(6)).await;
         fixture
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
@@ -577,6 +583,7 @@ fn follower_rejects_appended_entries_with_mismatched_base() {
                 6,
             )
             .await;
+        fixture.expect_leadership_change(Some(6)).await;
         fixture
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
@@ -641,6 +648,7 @@ fn follower_rejects_non_heartbeat_appended_entries_with_no_common_base() {
                 6,
             )
             .await;
+        fixture.expect_leadership_change(Some(6)).await;
         fixture
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
@@ -696,6 +704,7 @@ fn follower_rejects_heartbeat_appended_entries_with_no_common_base() {
                 6,
             )
             .await;
+        fixture.expect_leadership_change(Some(6)).await;
         fixture
             .expect_append_entries_response(&AwaitAppendEntriesResponseArgs {
                 commit_index: None,
@@ -752,7 +761,7 @@ fn follower_installs_snapshot_same_configuration() {
                 6,
             )
             .await;
-        fixture.synchronize().await;
+        fixture.expect_leadership_change(Some(6)).await;
         let (timeout_ack_sender, _timeout_ack_receiver) = oneshot::channel();
         timeout
             .send(timeout_ack_sender)
