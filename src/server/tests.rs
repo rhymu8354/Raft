@@ -647,6 +647,26 @@ impl Fixture {
         self.expect_leadership_change_now(leader_id);
     }
 
+    fn expect_no_leadership_change_now(&mut self) {
+        while let Some(event) = self
+            .server
+            .as_mut()
+            .expect("no server mobilized")
+            .next()
+            .now_or_never()
+            .flatten()
+        {
+            if let Event::LeadershipChange(leader_id) = event {
+                panic!("unexpected leadership change to {:?}", leader_id);
+            }
+        }
+    }
+
+    async fn expect_no_leadership_change(&mut self) {
+        self.synchronize().await;
+        self.expect_no_leadership_change_now();
+    }
+
     fn verify_vote(args: &VerifyVoteArgs) {
         assert_eq!(
             args.vote, args.expected.vote_granted,

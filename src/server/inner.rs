@@ -90,7 +90,7 @@ pub struct Inner<S, T> {
     event_sender: EventSender<S, T>,
     id: usize,
     ignore_vote_requests: bool,
-    leader_known: bool,
+    leader_known: Option<usize>,
     log: Box<dyn Log<S, Command = T>>,
     peers: HashMap<usize, Peer<S, T>>,
     pending_reconfiguration_ids: Option<HashSet<usize>>,
@@ -220,7 +220,7 @@ impl<S, T> Inner<S, T> {
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
     {
-        self.leader_known = false;
+        self.leader_known = None;
         let _ = self.event_sender.unbounded_send(Event::LeadershipChange(None));
         let term = self.persistent_storage.term() + 1;
         self.persistent_storage.update(term, Some(self.id));
@@ -675,7 +675,7 @@ impl<S, T> Inner<S, T> {
             event_sender,
             id,
             ignore_vote_requests: false,
-            leader_known: false,
+            leader_known: None,
             log,
             peers,
             pending_reconfiguration_ids: None,
@@ -800,10 +800,13 @@ impl<S, T> Inner<S, T> {
         let (success, next_log_index) = if decision == RequestDecision::Reject {
             (false, 1)
         } else {
-            self.leader_known = true;
-            let _ = self
-                .event_sender
-                .unbounded_send(Event::LeadershipChange(Some(sender_id)));
+            let leader = Some(sender_id);
+            if leader != self.leader_known {
+                self.leader_known = leader;
+                let _ = self
+                    .event_sender
+                    .unbounded_send(Event::LeadershipChange(leader));
+            }
             self.perform_operation_which_may_change_configuration(
                 Self::attempt_accept_append_entries,
                 append_entries,
@@ -982,13 +985,16 @@ impl<S, T> Inner<S, T> {
             self.persistent_storage.update(term, None);
         }
         if decision != RequestDecision::Reject {
-            self.leader_known = true;
             if self.election_state != ElectionState::Follower {
                 self.become_follower();
             }
-            let _ = self
-                .event_sender
-                .unbounded_send(Event::LeadershipChange(Some(sender_id)));
+            let leader = Some(sender_id);
+            if leader != self.leader_known {
+                self.leader_known = leader;
+                let _ = self
+                    .event_sender
+                    .unbounded_send(Event::LeadershipChange(leader));
+            }
             self.cancel_election_timers();
             self.perform_operation_which_may_change_configuration(
                 Self::install_snapshot,
@@ -1631,7 +1637,7 @@ impl<S, T> Inner<S, T> {
         T: 'static + Clone + Debug + Send,
     {
         if self.election_state == ElectionState::Leader
-            || !self.leader_known
+            || self.leader_known.is_none()
             || self.cancel_min_election_timeout.is_some()
             || self.cancel_election_timeout.is_some()
             || !self.log.cluster_configuration().contains(self.id)
