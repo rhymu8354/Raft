@@ -1000,6 +1000,7 @@ impl<S, T> Inner<S, T> {
                 Self::install_snapshot,
                 (last_included_index, last_included_term, snapshot),
             );
+            self.commit_log(last_included_index);
         }
         let message = Message {
             content: MessageContent::InstallSnapshotResponse {

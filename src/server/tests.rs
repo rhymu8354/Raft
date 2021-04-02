@@ -1738,6 +1738,7 @@ impl Fixture {
         expected_seq: usize,
         expected_term: usize,
     ) {
+        let mut log_committed = false;
         loop {
             let event = self
                 .server
@@ -1768,8 +1769,15 @@ impl Fixture {
                 } => {
                     panic!("Unexpected election state change");
                 },
-                Event::LogCommitted(_) => {
-                    panic!("Unexpectedly committed log entries")
+                Event::LogCommitted(commit_index) => {
+                    assert_eq!(
+                        commit_index,
+                        expected_next_log_index - 1,
+                        "Expected commit to {}, got commit to {}",
+                        expected_next_log_index - 1,
+                        commit_index
+                    );
+                    log_committed = true;
                 },
                 Event::Reconfiguration(_) => {
                     panic!("Unexpected reconfiguration")
@@ -1785,6 +1793,7 @@ impl Fixture {
                 },
             }
         }
+        assert!(log_committed, "Log not committed on snapshot install");
     }
 
     async fn expect_install_snapshot_response(
