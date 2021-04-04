@@ -7,28 +7,32 @@ use futures::{
     FutureExt,
 };
 use log::trace;
-use std::time::Duration;
+use std::{
+    fmt::Debug,
+    time::Duration,
+};
 
 #[derive(Debug)]
-pub enum ScheduledEvent {
+pub enum ScheduledEvent<Id> {
     ElectionTimeout,
     Heartbeat,
     MinElectionTimeout,
-    Retransmit(usize),
+    Retransmit(Id),
 }
 
-pub struct ScheduledEventWithCompleter {
-    pub scheduled_event: ScheduledEvent,
+pub struct ScheduledEventWithCompleter<Id> {
+    pub scheduled_event: ScheduledEvent<Id>,
     pub duration: Duration,
     pub completer: oneshot::Sender<oneshot::Sender<()>>,
 }
 
-pub type ScheduledEventReceiver =
-    mpsc::UnboundedReceiver<ScheduledEventWithCompleter>;
-type ScheduledEventSender = mpsc::UnboundedSender<ScheduledEventWithCompleter>;
+pub type ScheduledEventReceiver<Id> =
+    mpsc::UnboundedReceiver<ScheduledEventWithCompleter<Id>>;
+type ScheduledEventSender<Id> =
+    mpsc::UnboundedSender<ScheduledEventWithCompleter<Id>>;
 
-pub struct Scheduler {
-    sender: ScheduledEventSender,
+pub struct Scheduler<Id> {
+    sender: ScheduledEventSender<Id>,
 }
 
 async fn await_receiver(
@@ -41,8 +45,8 @@ async fn await_receiver(
     }
 }
 
-impl Scheduler {
-    pub fn new() -> (Self, ScheduledEventReceiver) {
+impl<Id> Scheduler<Id> {
+    pub fn new() -> (Self, ScheduledEventReceiver<Id>) {
         let (sender, receiver) = mpsc::unbounded();
         (
             Self {
@@ -54,9 +58,12 @@ impl Scheduler {
 
     pub fn schedule(
         &self,
-        event: ScheduledEvent,
+        event: ScheduledEvent<Id>,
         duration: Duration,
-    ) -> BoxFuture<'static, oneshot::Sender<()>> {
+    ) -> BoxFuture<'static, oneshot::Sender<()>>
+    where
+        Id: Debug,
+    {
         trace!("Scheduling {:?} in {:?}", event, duration);
         let (sender, receiver) = oneshot::channel();
         let _ = self.sender.unbounded_send(ScheduledEventWithCompleter {

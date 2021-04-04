@@ -6,17 +6,23 @@ use serde::{
     Deserialize,
     Serialize,
 };
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    hash::Hash,
+};
 
 /// This holds the identifiers of the servers in the Raft cluster,
 /// and indicates whether or not the cluster is in a "joint" configuration
 /// (transitioning from one set of servers to another).
 #[derive(Debug, Deserialize, Clone, Eq, PartialEq, Serialize)]
-pub enum ClusterConfiguration {
+pub enum ClusterConfiguration<Id>
+where
+    Id: Eq + Hash,
+{
     /// This holds the set of identifiers of servers in the cluster, and
     /// indicates that the cluster is not transitioning from one set of
     /// servers to another.
-    Single(HashSet<usize>),
+    Single(HashSet<Id>),
 
     /// This holds the sets of identifiers of servers in the cluster, both
     /// before and after the current configuration change, and indicates
@@ -25,11 +31,11 @@ pub enum ClusterConfiguration {
     Joint {
         /// This is the set of identifiers of servers in the cluster
         /// before the configuration change.
-        old_ids: HashSet<usize>,
+        old_ids: HashSet<Id>,
 
         /// This is the set of identifiers of servers in the cluster
         /// after the configuration change.
-        new_ids: HashSet<usize>,
+        new_ids: HashSet<Id>,
 
         /// This is the index of the log entry which started the change
         /// in cluster configuration.
@@ -37,14 +43,20 @@ pub enum ClusterConfiguration {
     },
 }
 
-impl ClusterConfiguration {
+impl<Id> ClusterConfiguration<Id>
+where
+    Id: Eq + Hash,
+{
     /// Determine if the server with the given identifier is a member
     /// of the cluster.
     #[must_use]
     pub fn contains(
         &self,
-        id: usize,
-    ) -> bool {
+        id: Id,
+    ) -> bool
+    where
+        Id: Copy,
+    {
         match self {
             ClusterConfiguration::Single(ids) => ids.contains(&id),
             ClusterConfiguration::Joint {
@@ -57,7 +69,10 @@ impl ClusterConfiguration {
 
     /// Return an iterator of the identifiers of the servers in the cluster.
     #[must_use]
-    pub fn ids(&self) -> Box<dyn Iterator<Item = usize> + '_> {
+    pub fn ids(&self) -> Box<dyn Iterator<Item = Id> + '_>
+    where
+        Id: Copy,
+    {
         match self {
             ClusterConfiguration::Single(configuration) => {
                 Box::new(configuration.iter().copied())
@@ -76,8 +91,11 @@ impl ClusterConfiguration {
     #[must_use]
     pub fn peers(
         &self,
-        self_id: usize,
-    ) -> Box<dyn Iterator<Item = usize> + '_> {
+        self_id: Id,
+    ) -> Box<dyn Iterator<Item = Id> + '_>
+    where
+        Id: Copy,
+    {
         Box::new(self.ids().filter(move |id| *id != self_id))
     }
 
@@ -98,8 +116,11 @@ impl ClusterConfiguration {
     /// [`Single`]: #variant.Single
     pub fn update<T>(
         self,
-        (index, log_entry): (usize, &LogEntry<T>),
-    ) -> Self {
+        (index, log_entry): (usize, &LogEntry<T, Id>),
+    ) -> Self
+    where
+        Id: Clone,
+    {
         match &log_entry.command {
             Some(LogEntryCommand::FinishReconfiguration) => match self {
                 ClusterConfiguration::Single(new_ids)
@@ -137,8 +158,7 @@ mod tests {
         let serialization = json!({
             "Single": [10, 11, 12]
         });
-        let deserialization: ClusterConfiguration =
-            serde_json::from_value(serialization).unwrap();
+        let deserialization = serde_json::from_value(serialization).unwrap();
         assert_eq!(
             ClusterConfiguration::Single(hashset![10, 11, 12]),
             deserialization
@@ -154,8 +174,7 @@ mod tests {
                 "index": 42
             }
         });
-        let deserialization: ClusterConfiguration =
-            serde_json::from_value(serialization).unwrap();
+        let deserialization = serde_json::from_value(serialization).unwrap();
         assert_eq!(
             ClusterConfiguration::Joint {
                 old_ids: hashset![10, 11, 12],

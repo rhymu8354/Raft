@@ -2,6 +2,7 @@ use crate::{
     ClusterConfiguration,
     LogEntry,
 };
+use std::hash::Hash;
 
 /// This represents the set of requirements that a Raft [`Server`]
 /// has on its host in terms of maintaining its copy of the cluster state
@@ -18,7 +19,10 @@ use crate::{
 /// [`snapshot`]: #tymethod.snapshot
 /// [`update_snapshot`]: #tymethod.update_snapshot
 /// [`ServerEvent::LogCommitted`]: enum.ServerEvent.html#variant.LogCommitted
-pub trait Log<S>: Send {
+pub trait Log<S, Id>: Send
+where
+    Id: Eq + Hash,
+{
     /// This is the type defined by the host to hold any host-specific
     /// command added to the log in order to change the cluster state.
     type Command;
@@ -29,7 +33,7 @@ pub trait Log<S>: Send {
     /// configuration with the command in this entry, if applicable.
     fn append_one(
         &mut self,
-        entry: LogEntry<Self::Command>,
+        entry: LogEntry<Self::Command, Id>,
     );
 
     /// Add commands to the end of the log, provided by the given iterator.
@@ -38,7 +42,7 @@ pub trait Log<S>: Send {
     /// configuration with the commands in these entries, if applicable.
     fn append(
         &mut self,
-        entries: Box<dyn Iterator<Item = LogEntry<Self::Command>>>,
+        entries: Box<dyn Iterator<Item = LogEntry<Self::Command, Id>>>,
     );
 
     /// Return the cluster leadership term that was in effect when the
@@ -61,14 +65,14 @@ pub trait Log<S>: Send {
     /// The returned configuration should be match the result of taking
     /// the configuration in the snapshot and updating it with each command
     /// in the log in sequence from first to last.
-    fn cluster_configuration(&self) -> ClusterConfiguration;
+    fn cluster_configuration(&self) -> ClusterConfiguration<Id>;
 
     /// Return a copy of all entries in the log immediately following the
     /// log entry with the given index.
     fn entries(
         &self,
         prev_log_index: usize,
-    ) -> Vec<LogEntry<Self::Command>>;
+    ) -> Vec<LogEntry<Self::Command, Id>>;
 
     /// Return the cluster leadership term that was in effect when the log
     /// entry having the given index was created.

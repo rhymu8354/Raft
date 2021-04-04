@@ -36,7 +36,7 @@ impl MockPersistentStorage {
     }
 }
 
-impl PersistentStorage for MockPersistentStorage {
+impl PersistentStorage<usize> for MockPersistentStorage {
     fn term(&self) -> usize {
         let shared = self.shared.lock().unwrap();
         shared.term

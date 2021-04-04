@@ -54,7 +54,11 @@ use std::{
         HashMap,
         HashSet,
     },
-    fmt::Debug,
+    fmt::{
+        Debug,
+        Display,
+    },
+    hash::Hash,
     iter::once,
 };
 
@@ -77,7 +81,10 @@ enum RequestDecision {
     Reject,
 }
 
-pub struct Inner<S, T> {
+pub struct Inner<S, T, Id>
+where
+    Id: Eq + Hash,
+{
     cancel_election_timeout: Option<oneshot::Sender<()>>,
     cancel_heartbeat: Option<oneshot::Sender<()>>,
     cancel_min_election_timeout: Option<oneshot::Sender<()>>,
@@ -87,29 +94,33 @@ pub struct Inner<S, T> {
     commit_index: usize,
     configuration: ServerConfiguration,
     election_state: ElectionState,
-    event_sender: EventSender<S, T>,
-    id: usize,
+    event_sender: EventSender<S, T, Id>,
+    id: Id,
     ignore_vote_requests: bool,
-    leader_known: Option<usize>,
-    log: Box<dyn Log<S, Command = T>>,
-    peers: HashMap<usize, Peer<S, T>>,
-    pending_reconfiguration_ids: Option<HashSet<usize>>,
-    persistent_storage: Box<dyn PersistentStorage>,
+    leader_known: Option<Id>,
+    log: Box<dyn Log<S, Id, Command = T>>,
+    peers: HashMap<Id, Peer<S, T, Id>>,
+    pending_reconfiguration_ids: Option<HashSet<Id>>,
+    persistent_storage: Box<dyn PersistentStorage<Id>>,
     rng: StdRng,
     #[cfg(test)]
-    scheduler: Scheduler,
+    scheduler: Scheduler<Id>,
     #[cfg(test)]
     synchronize_ack: Option<oneshot::Sender<()>>,
 }
 
-impl<S, T> Inner<S, T> {
+impl<S, T, Id> Inner<S, T, Id>
+where
+    Id: Eq + Hash,
+{
     fn append_reconfiguration_command(
         &mut self,
-        command: LogEntryCommand<T>,
-        skip_peer_id: Option<usize>,
+        command: LogEntryCommand<T, Id>,
+        skip_peer_id: Option<Id>,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Eq + Send,
     {
         self.cancel_heartbeat_timer();
         let term = self.persistent_storage.term();
@@ -153,8 +164,11 @@ impl<S, T> Inner<S, T> {
 
     fn attempt_accept_append_entries(
         &mut self,
-        append_entries: AppendEntriesContent<T>,
-    ) -> (bool, usize) {
+        append_entries: AppendEntriesContent<T, Id>,
+    ) -> (bool, usize)
+    where
+        Id: Copy + Debug,
+    {
         if self.election_state != ElectionState::Follower {
             self.become_follower();
         }
@@ -219,6 +233,7 @@ impl<S, T> Inner<S, T> {
     where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         self.leader_known = None;
         let _ = self.event_sender.unbounded_send(Event::LeadershipChange(None));
@@ -237,7 +252,10 @@ impl<S, T> Inner<S, T> {
         });
     }
 
-    fn become_follower(&mut self) {
+    fn become_follower(&mut self)
+    where
+        Id: Copy + Debug,
+    {
         if self.pending_reconfiguration_ids.take().is_some() {
             self.cancel_reconfiguration();
         }
@@ -249,6 +267,7 @@ impl<S, T> Inner<S, T> {
     where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         self.change_election_state(ElectionState::Leader);
         let _ = self
@@ -314,7 +333,10 @@ impl<S, T> Inner<S, T> {
         }
     }
 
-    fn cancel_reconfiguration(&mut self) {
+    fn cancel_reconfiguration(&mut self)
+    where
+        Id: Copy + Debug,
+    {
         info!(
             "Reconfiguration cancelled; back to {:?}",
             self.log.cluster_configuration()
@@ -328,8 +350,10 @@ impl<S, T> Inner<S, T> {
 
     fn cancel_retransmission(
         &mut self,
-        peer_id: usize,
-    ) {
+        peer_id: Id,
+    ) where
+        Id: Copy,
+    {
         if let Some(peer) = self.peers.get_mut(&peer_id) {
             #[cfg(not(test))]
             peer.cancel_retransmission();
@@ -442,11 +466,14 @@ impl<S, T> Inner<S, T> {
 
     fn decide_vote_grant(
         &mut self,
-        candidate_id: usize,
+        candidate_id: Id,
         candidate_term: usize,
         candidate_last_log_term: usize,
         candidate_last_log_index: usize,
-    ) -> bool {
+    ) -> bool
+    where
+        Id: Copy + Debug,
+    {
         match candidate_term.cmp(&self.persistent_storage.term()) {
             Ordering::Less => return false,
             Ordering::Equal => {
@@ -491,7 +518,10 @@ impl<S, T> Inner<S, T> {
         }
     }
 
-    fn drop_old_peers(&mut self) {
+    fn drop_old_peers(&mut self)
+    where
+        Id: Copy,
+    {
         let current_configuration = self.log.cluster_configuration();
         if let ClusterConfiguration::Single(current_ids) =
             &current_configuration
@@ -512,6 +542,7 @@ impl<S, T> Inner<S, T> {
     where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         self.cancel_election_timeout.take();
         self.ignore_vote_requests = false;
@@ -522,7 +553,7 @@ impl<S, T> Inner<S, T> {
 
     fn find_majority_match_index_among(
         &self,
-        ids: &HashSet<usize>,
+        ids: &HashSet<Id>,
     ) -> usize {
         let mut match_indices = ids
             .iter()
@@ -561,10 +592,11 @@ impl<S, T> Inner<S, T> {
 
     fn finish_reconfiguration(
         &mut self,
-        skip_peer_id: usize,
+        skip_peer_id: Id,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         self.append_reconfiguration_command(
             LogEntryCommand::FinishReconfiguration,
@@ -578,8 +610,9 @@ impl<S, T> Inner<S, T> {
 
     fn heartbeat(&mut self)
     where
-        S: Clone + Debug + Send + 'static,
-        T: Clone + Debug + Send + 'static,
+        S: 'static + Clone + Debug + Send,
+        T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         self.cancel_heartbeat.take();
         if self.election_state == ElectionState::Leader {
@@ -627,7 +660,7 @@ impl<S, T> Inner<S, T> {
 
     fn majority_vote(
         &self,
-        ids: &HashSet<usize>,
+        ids: &HashSet<Id>,
     ) -> bool {
         let votes = ids
             .iter()
@@ -650,13 +683,16 @@ impl<S, T> Inner<S, T> {
     }
 
     pub fn new(
-        id: usize,
+        id: Id,
         configuration: ServerConfiguration,
-        log: Box<dyn Log<S, Command = T>>,
-        persistent_storage: Box<dyn PersistentStorage>,
-        event_sender: EventSender<S, T>,
-        #[cfg(test)] scheduler: Scheduler,
-    ) -> Self {
+        log: Box<dyn Log<S, Id, Command = T>>,
+        persistent_storage: Box<dyn PersistentStorage<Id>>,
+        event_sender: EventSender<S, T, Id>,
+        #[cfg(test)] scheduler: Scheduler<Id>,
+    ) -> Self
+    where
+        Id: Copy,
+    {
         let peers = log
             .cluster_configuration()
             .peers(id)
@@ -695,6 +731,7 @@ impl<S, T> Inner<S, T> {
     ) -> R
     where
         O: FnOnce(&mut Self, A) -> R,
+        Id: Copy + Debug,
     {
         let cluster_configuration_before = self.log.cluster_configuration();
         let result = operation(self, argument);
@@ -723,6 +760,7 @@ impl<S, T> Inner<S, T> {
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         if self.election_state != ElectionState::Leader {
             warn!(
@@ -772,12 +810,13 @@ impl<S, T> Inner<S, T> {
 
     fn process_append_entries(
         &mut self,
-        sender_id: usize,
+        sender_id: Id,
         seq: usize,
         term: usize,
-        append_entries: AppendEntriesContent<T>,
+        append_entries: AppendEntriesContent<T, Id>,
     ) where
         T: 'static + Debug,
+        Id: Copy + Debug + Display,
     {
         debug!(
             "Received AppendEntries({} on top of {};{}, {} committed) from {} for term {} (we are {:?} in term {})",
@@ -841,12 +880,13 @@ impl<S, T> Inner<S, T> {
         &mut self,
         success: bool,
         next_log_index: usize,
-        sender_id: usize,
+        sender_id: Id,
         sender_term: usize,
         seq: usize,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         let term = self.persistent_storage.term();
         debug!(
@@ -923,10 +963,11 @@ impl<S, T> Inner<S, T> {
 
     fn process_command(
         &mut self,
-        command: Command<S, T>,
+        command: Command<S, T, Id>,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Ord + Send,
     {
         match command {
             Command::AddCommands(commands) => {
@@ -962,7 +1003,7 @@ impl<S, T> Inner<S, T> {
 
     fn process_install_snapshot(
         &mut self,
-        sender_id: usize,
+        sender_id: Id,
         seq: usize,
         term: usize,
         last_included_index: usize,
@@ -970,6 +1011,7 @@ impl<S, T> Inner<S, T> {
         snapshot: S,
     ) where
         S: Debug,
+        Id: Copy + Debug + Display,
     {
         info!(
             "Received InstallSnapshot({};{}) from {} for term {} (we are {:?} in term {})",
@@ -1019,12 +1061,13 @@ impl<S, T> Inner<S, T> {
     fn process_install_snapshot_response(
         &mut self,
         next_log_index: usize,
-        sender_id: usize,
+        sender_id: Id,
         term: usize,
         seq: usize,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         info!(
             "Received InstallSnapshotResponse from {} for term {} (we are {:?} in term {})",
@@ -1062,11 +1105,12 @@ impl<S, T> Inner<S, T> {
 
     fn process_receive_message(
         &mut self,
-        message: Message<S, T>,
-        sender_id: usize,
+        message: Message<S, T, Id>,
+        sender_id: Id,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         match message.content {
             MessageContent::RequestVoteResponse {
@@ -1136,10 +1180,11 @@ impl<S, T> Inner<S, T> {
 
     fn process_reconfigure_cluster(
         &mut self,
-        ids: HashSet<usize>,
+        ids: HashSet<Id>,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Ord + Send,
     {
         let current_configuration = self.log.cluster_configuration();
         match &current_configuration {
@@ -1232,13 +1277,14 @@ impl<S, T> Inner<S, T> {
 
     fn process_request_vote(
         &mut self,
-        sender_id: usize,
+        sender_id: Id,
         seq: usize,
         term: usize,
         last_log_index: usize,
         last_log_term: usize,
     ) where
         T: Debug,
+        Id: Copy + Debug + Display,
     {
         info!(
             "Received RequestVote({};{}) from {} for term {} (we are {:?} in term {})",
@@ -1282,13 +1328,14 @@ impl<S, T> Inner<S, T> {
 
     fn process_request_vote_response(
         &mut self,
-        sender_id: usize,
+        sender_id: Id,
         vote_granted: bool,
         term: usize,
         seq: usize,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         info!(
             "Received vote {} from {} for term {} (we are {:?} in term {})",
@@ -1341,10 +1388,11 @@ impl<S, T> Inner<S, T> {
 
     fn retransmit(
         &mut self,
-        peer_id: usize,
+        peer_id: Id,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         if let Some(peer) = self.peers.get_mut(&peer_id) {
             if let Some(message) = peer.cancel_retransmission() {
@@ -1362,11 +1410,12 @@ impl<S, T> Inner<S, T> {
 
     fn send_more_log_entries_to_peer(
         &mut self,
-        peer_id: usize,
+        peer_id: Id,
         prev_log_index: usize,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         if let Some(peer) = self.peers.get_mut(&peer_id) {
             if prev_log_index < self.log.last_index() {
@@ -1422,10 +1471,11 @@ impl<S, T> Inner<S, T> {
 
     fn send_new_message_broadcast(
         &mut self,
-        content: MessageContent<S, T>,
+        content: MessageContent<S, T, Id>,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         let term = self.persistent_storage.term();
         let event_sender = &self.event_sender;
@@ -1447,10 +1497,11 @@ impl<S, T> Inner<S, T> {
 
     pub async fn serve(
         mut self,
-        command_receiver: CommandReceiver<S, T>,
+        command_receiver: CommandReceiver<S, T, Id>,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Ord + Send,
     {
         let mut command_receiver = Some(command_receiver);
         let mut futures = Vec::new();
@@ -1528,11 +1579,12 @@ impl<S, T> Inner<S, T> {
 
     fn start_reconfiguration(
         &mut self,
-        new_ids: HashSet<usize>,
-        skip_peer_id: Option<usize>,
+        new_ids: HashSet<Id>,
+        skip_peer_id: Option<Id>,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         self.append_reconfiguration_command(
             LogEntryCommand::StartReconfiguration(new_ids),
@@ -1542,11 +1594,12 @@ impl<S, T> Inner<S, T> {
 
     fn start_reconfiguration_if_ready(
         &mut self,
-        pending_reconfiguration_ids: HashSet<usize>,
-        skip_peer_id: Option<usize>,
+        pending_reconfiguration_ids: HashSet<Id>,
+        skip_peer_id: Option<Id>,
     ) where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Display + Send,
     {
         let voting_peers = self
             .log
@@ -1571,16 +1624,19 @@ impl<S, T> Inner<S, T> {
 
     fn take_retransmission_futures(
         &mut self
-    ) -> impl Iterator<Item = WorkItemFuture<S, T>> + '_ {
+    ) -> impl Iterator<Item = WorkItemFuture<S, T, Id>> + '_ {
         self.peers
             .values_mut()
             .filter_map(|peer| peer.retransmission_future.take())
     }
 
-    fn upkeep_election_timeout_future(&mut self) -> Option<WorkItemFuture<S, T>>
+    fn upkeep_election_timeout_future(
+        &mut self
+    ) -> Option<WorkItemFuture<S, T, Id>>
     where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Send,
     {
         if self.election_state == ElectionState::Leader
             || self.cancel_election_timeout.is_some()
@@ -1606,10 +1662,11 @@ impl<S, T> Inner<S, T> {
         Some(future)
     }
 
-    fn upkeep_heartbeat_future(&mut self) -> Option<WorkItemFuture<S, T>>
+    fn upkeep_heartbeat_future(&mut self) -> Option<WorkItemFuture<S, T, Id>>
     where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Send,
     {
         if self.election_state != ElectionState::Leader
             || self.cancel_heartbeat.is_some()
@@ -1632,10 +1689,11 @@ impl<S, T> Inner<S, T> {
 
     fn upkeep_min_election_timeout_future(
         &mut self
-    ) -> Option<WorkItemFuture<S, T>>
+    ) -> Option<WorkItemFuture<S, T, Id>>
     where
         S: 'static + Clone + Debug + Send,
         T: 'static + Clone + Debug + Send,
+        Id: 'static + Copy + Debug + Send,
     {
         if self.election_state == ElectionState::Leader
             || self.leader_known.is_none()
@@ -1663,9 +1721,12 @@ impl<S, T> Inner<S, T> {
     }
 }
 
-async fn process_command_receiver<S, T>(
-    command_receiver: CommandReceiver<S, T>
-) -> WorkItem<S, T> {
+async fn process_command_receiver<S, T, Id>(
+    command_receiver: CommandReceiver<S, T, Id>
+) -> WorkItem<S, T, Id>
+where
+    Id: Eq + Hash,
+{
     let (command, command_receiver) = command_receiver.into_future().await;
     let content = if let Some(command) = command {
         WorkItemContent::Command {

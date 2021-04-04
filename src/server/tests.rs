@@ -54,7 +54,7 @@ struct AwaitElectionTimeoutArgs {
 }
 
 struct VerifyVoteRequestArgs<'a> {
-    message: &'a Message<ClusterConfiguration, ()>,
+    message: &'a Message<ClusterConfiguration<usize>, (), usize>,
     expected_last_log_term: usize,
     expected_last_log_index: usize,
     expected_seq: Option<usize>,
@@ -98,15 +98,15 @@ struct AwaitAppendEntriesArgs {
     leader_commit: usize,
     prev_log_term: usize,
     prev_log_index: usize,
-    log: Vec<LogEntry<()>>,
+    log: Vec<LogEntry<(), usize>>,
 }
 
 struct VerifyAppendEntriesArgs<'a, 'b> {
-    message: &'a Message<ClusterConfiguration, ()>,
+    message: &'a Message<ClusterConfiguration<usize>, (), usize>,
     expected_leader_commit: usize,
     expected_prev_log_index: usize,
     expected_prev_log_term: usize,
-    expected_log: &'b Vec<LogEntry<()>>,
+    expected_log: &'b Vec<LogEntry<(), usize>>,
     expected_seq: Option<usize>,
     expected_term: usize,
 }
@@ -139,8 +139,8 @@ struct Fixture {
     // because the mock scheduler produces futures which will
     // complete immediately if `scheduled_event_receiver` is dropped,
     // causing `server` to get stuck in a constant loop of timeout processing.
-    server: Option<Server<ClusterConfiguration, ()>>,
-    scheduled_event_receiver: Option<ScheduledEventReceiver>,
+    server: Option<Server<ClusterConfiguration<usize>, (), usize>>,
+    scheduled_event_receiver: Option<ScheduledEventReceiver<usize>>,
 }
 
 impl Fixture {
@@ -691,7 +691,7 @@ impl Fixture {
     }
 
     fn is_verified_vote(
-        message: &Message<ClusterConfiguration, ()>,
+        message: &Message<ClusterConfiguration<usize>, (), usize>,
         receiver_id: usize,
         args: &AwaitVoteArgs,
     ) -> bool {
@@ -972,7 +972,7 @@ impl Fixture {
 
     fn expect_reconfiguration_now(
         &mut self,
-        expected_configuration: &ClusterConfiguration,
+        expected_configuration: &ClusterConfiguration<usize>,
     ) {
         while let Some(event) = self
             .server
@@ -997,7 +997,7 @@ impl Fixture {
 
     async fn expect_reconfiguration(
         &mut self,
-        expected_configuration: &ClusterConfiguration,
+        expected_configuration: &ClusterConfiguration<usize>,
     ) {
         self.synchronize().await;
         self.expect_reconfiguration_now(expected_configuration);
@@ -1186,7 +1186,7 @@ impl Fixture {
     fn expect_message_now(
         &mut self,
         expected_receiver_id: usize,
-    ) -> Message<ClusterConfiguration, ()> {
+    ) -> Message<ClusterConfiguration<usize>, (), usize> {
         loop {
             let event = self
                 .server
@@ -1236,7 +1236,7 @@ impl Fixture {
     async fn expect_message(
         &mut self,
         receiver_id: usize,
-    ) -> Message<ClusterConfiguration, ()> {
+    ) -> Message<ClusterConfiguration<usize>, (), usize> {
         self.synchronize().await;
         self.expect_message_now(receiver_id)
     }
@@ -1244,7 +1244,7 @@ impl Fixture {
     fn expect_messages_now(
         &mut self,
         mut expected_receiver_ids: HashSet<usize>,
-    ) -> HashMap<usize, Message<ClusterConfiguration, ()>> {
+    ) -> HashMap<usize, Message<ClusterConfiguration<usize>, (), usize>> {
         let mut messages = HashMap::new();
         while !expected_receiver_ids.is_empty() {
             let event = self
@@ -1300,7 +1300,7 @@ impl Fixture {
     async fn expect_messages(
         &mut self,
         receiver_ids: HashSet<usize>,
-    ) -> HashMap<usize, Message<ClusterConfiguration, ()>> {
+    ) -> HashMap<usize, Message<ClusterConfiguration<usize>, (), usize>> {
         self.synchronize().await;
         self.expect_messages_now(receiver_ids)
     }
@@ -1360,7 +1360,7 @@ impl Fixture {
     async fn expect_retransmission(
         &mut self,
         expected_receiver_id: usize,
-    ) -> Message<ClusterConfiguration, ()> {
+    ) -> Message<ClusterConfiguration<usize>, (), usize> {
         let (retransmit_duration, completer) = self
             .expect_retransmission_timer_registration(expected_receiver_id)
             .await;
@@ -1396,7 +1396,7 @@ impl Fixture {
 
     fn mobilize_server_with_log(
         &mut self,
-        log: Box<dyn Log<ClusterConfiguration, Command = ()>>,
+        log: Box<dyn Log<ClusterConfiguration<usize>, usize, Command = ()>>,
     ) {
         let (mock_persistent_storage, _mock_persistent_storage_back_end) =
             MockPersistentStorage::new();
@@ -1408,8 +1408,8 @@ impl Fixture {
 
     fn mobilize_server_with_log_and_persistent_storage(
         &mut self,
-        log: Box<dyn Log<ClusterConfiguration, Command = ()>>,
-        persistent_storage: Box<dyn PersistentStorage>,
+        log: Box<dyn Log<ClusterConfiguration<usize>, usize, Command = ()>>,
+        persistent_storage: Box<dyn PersistentStorage<usize>>,
     ) {
         self.peer_ids = log.cluster_configuration().peers(self.id).collect();
         let mut server = Server::new(
@@ -1426,7 +1426,7 @@ impl Fixture {
 
     fn mobilize_server_with_persistent_storage(
         &mut self,
-        persistent_storage: Box<dyn PersistentStorage>,
+        persistent_storage: Box<dyn PersistentStorage<usize>>,
     ) {
         let (mock_log, _mock_log_back_end) = MockLog::new();
         self.mobilize_server_with_log_and_persistent_storage(
@@ -1586,7 +1586,7 @@ impl Fixture {
     }
 
     fn is_verified_append_entries_response(
-        message: &Message<ClusterConfiguration, ()>,
+        message: &Message<ClusterConfiguration<usize>, (), usize>,
         receiver_id: usize,
         args: &AwaitAppendEntriesResponseArgs,
     ) -> bool {
@@ -1694,7 +1694,7 @@ impl Fixture {
     }
 
     fn is_verified_install_snapshot_response(
-        message: &Message<ClusterConfiguration, ()>,
+        message: &Message<ClusterConfiguration<usize>, (), usize>,
         receiver_id: usize,
         expected_next_log_index: usize,
         expected_receiver_id: usize,
@@ -1814,7 +1814,7 @@ impl Fixture {
 
     async fn send_server_message(
         &mut self,
-        message: Message<ClusterConfiguration, ()>,
+        message: Message<ClusterConfiguration<usize>, (), usize>,
         sender_id: usize,
     ) {
         send_server_message(
@@ -1836,7 +1836,7 @@ fn new_mock_log_with_non_defaults<T>(
     snapshot: T,
 ) -> (MockLog, MockLogBackEnd)
 where
-    T: Into<ClusterConfiguration>,
+    T: Into<ClusterConfiguration<usize>>,
 {
     let (mock_log, mock_log_back_end) = MockLog::new();
     {
@@ -1872,8 +1872,8 @@ fn verify_log<L, S>(
     entries: L,
     snapshot: S,
 ) where
-    L: AsRef<[LogEntry<()>]>,
-    S: Borrow<ClusterConfiguration>,
+    L: AsRef<[LogEntry<(), usize>]>,
+    S: Borrow<ClusterConfiguration<usize>>,
 {
     let log_shared = mock_log_back_end.shared.lock().unwrap();
     assert_eq!(
@@ -1920,8 +1920,8 @@ fn verify_persistent_storage(
 }
 
 async fn send_server_message(
-    server: &mut Server<ClusterConfiguration, ()>,
-    message: Message<ClusterConfiguration, ()>,
+    server: &mut Server<ClusterConfiguration<usize>, (), usize>,
+    message: Message<ClusterConfiguration<usize>, (), usize>,
     sender_id: usize,
 ) {
     server
@@ -1933,14 +1933,16 @@ async fn send_server_message(
         .unwrap();
 }
 
-async fn synchronize(server: &mut Server<ClusterConfiguration, ()>) {
+async fn synchronize(
+    server: &mut Server<ClusterConfiguration<usize>, (), usize>
+) {
     let (completed_sender, completed_receiver) = oneshot::channel();
     server.send(Command::Synchronize(completed_sender)).await.unwrap();
     let _ = completed_receiver.await;
 }
 
 async fn cast_vote(
-    server: &mut Server<ClusterConfiguration, ()>,
+    server: &mut Server<ClusterConfiguration<usize>, (), usize>,
     CastVoteArgs {
         sender_id,
         seq,
@@ -1963,7 +1965,7 @@ async fn cast_vote(
 }
 
 async fn receive_vote_request(
-    server: &mut Server<ClusterConfiguration, ()>,
+    server: &mut Server<ClusterConfiguration<usize>, (), usize>,
     ReceiveVoteRequestArgs {
         sender_id,
         last_log_term,

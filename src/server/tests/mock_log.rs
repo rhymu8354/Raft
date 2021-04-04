@@ -13,17 +13,17 @@ pub struct Shared {
     pub base_term: usize,
     pub base_index: usize,
     pub dropped: bool,
-    pub entries: Vec<LogEntry<()>>,
+    pub entries: Vec<LogEntry<(), usize>>,
     pub last_term: usize,
     pub last_index: usize,
     pub on_update_snapshot: Option<Box<dyn FnOnce(&mut Self) + Send>>,
-    pub snapshot: ClusterConfiguration,
+    pub snapshot: ClusterConfiguration<usize>,
 }
 
 impl Shared {
     fn append_one(
         &mut self,
-        entry: LogEntry<()>,
+        entry: LogEntry<(), usize>,
     ) {
         self.last_index += 1;
         self.last_term = entry.term;
@@ -34,14 +34,14 @@ impl Shared {
         &mut self,
         entries: T,
     ) where
-        T: IntoIterator<Item = LogEntry<()>>,
+        T: IntoIterator<Item = LogEntry<(), usize>>,
     {
         for entry in entries {
             self.append_one(entry);
         }
     }
 
-    fn cluster_configuration(&self) -> ClusterConfiguration {
+    fn cluster_configuration(&self) -> ClusterConfiguration<usize> {
         let offset = self.base_index + 1;
         self.entries
             .iter()
@@ -53,7 +53,7 @@ impl Shared {
     fn entries(
         &self,
         prev_log_index: usize,
-    ) -> Vec<LogEntry<()>> {
+    ) -> Vec<LogEntry<(), usize>> {
         self.entries
             .iter()
             .skip(prev_log_index - self.base_index)
@@ -79,7 +79,7 @@ impl Shared {
         &mut self,
         base_index: usize,
         base_term: usize,
-        snapshot: ClusterConfiguration,
+        snapshot: ClusterConfiguration<usize>,
     ) {
         self.base_index = base_index;
         self.base_term = base_term;
@@ -139,12 +139,12 @@ impl MockLog {
     }
 }
 
-impl Log<ClusterConfiguration> for MockLog {
+impl Log<ClusterConfiguration<usize>, usize> for MockLog {
     type Command = ();
 
     fn append_one(
         &mut self,
-        entry: LogEntry<Self::Command>,
+        entry: LogEntry<Self::Command, usize>,
     ) {
         let mut shared = self.shared.lock().unwrap();
         shared.append_one(entry)
@@ -152,7 +152,7 @@ impl Log<ClusterConfiguration> for MockLog {
 
     fn append(
         &mut self,
-        entries: Box<dyn Iterator<Item = LogEntry<Self::Command>>>,
+        entries: Box<dyn Iterator<Item = LogEntry<Self::Command, usize>>>,
     ) {
         let mut shared = self.shared.lock().unwrap();
         shared.append(entries)
@@ -168,7 +168,7 @@ impl Log<ClusterConfiguration> for MockLog {
         shared.base_index
     }
 
-    fn cluster_configuration(&self) -> ClusterConfiguration {
+    fn cluster_configuration(&self) -> ClusterConfiguration<usize> {
         let shared = self.shared.lock().unwrap();
         shared.cluster_configuration()
     }
@@ -176,7 +176,7 @@ impl Log<ClusterConfiguration> for MockLog {
     fn entries(
         &self,
         prev_log_index: usize,
-    ) -> Vec<LogEntry<Self::Command>> {
+    ) -> Vec<LogEntry<Self::Command, usize>> {
         let shared = self.shared.lock().unwrap();
         shared.entries(prev_log_index)
     }
@@ -193,7 +193,7 @@ impl Log<ClusterConfiguration> for MockLog {
         &mut self,
         base_index: usize,
         base_term: usize,
-        snapshot: ClusterConfiguration,
+        snapshot: ClusterConfiguration<usize>,
     ) {
         let mut shared = self.shared.lock().unwrap();
         shared.install_snapshot(base_index, base_term, snapshot);
@@ -209,7 +209,7 @@ impl Log<ClusterConfiguration> for MockLog {
         shared.last_index
     }
 
-    fn snapshot(&self) -> ClusterConfiguration {
+    fn snapshot(&self) -> ClusterConfiguration<usize> {
         let shared = self.shared.lock().unwrap();
         shared.snapshot.clone()
     }

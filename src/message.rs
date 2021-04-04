@@ -3,13 +3,17 @@ use serde::{
     Deserialize,
     Serialize,
 };
+use std::hash::Hash;
 
 /// This holds the information contained in an [`AppendEntries`]
 /// message from one server to another.
 ///
 /// [`AppendEntries`]: enum.MessageContent.html#variant.AppendEntries
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct AppendEntriesContent<T> {
+pub struct AppendEntriesContent<T, Id>
+where
+    Id: Eq + Hash,
+{
     /// This is the index of the last log entry which the leader of
     /// the cluster has committed at the time this message was sent.
     pub leader_commit: usize,
@@ -24,12 +28,15 @@ pub struct AppendEntriesContent<T> {
     pub prev_log_term: usize,
 
     /// This holds the entries to be appended to the log.
-    pub log: Vec<LogEntry<T>>,
+    pub log: Vec<LogEntry<T, Id>>,
 }
 
 /// This holds the content of a message sent from one server to another.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub enum Content<S, T> {
+pub enum Content<S, T, Id>
+where
+    Id: Eq + Hash,
+{
     /// The sender is running for cluster leadership and is requesting
     /// the receiver vote for the sender.
     RequestVote {
@@ -56,7 +63,7 @@ pub enum Content<S, T> {
     /// Either append new entries to the receiver's copy of the log,
     /// or (if no log entries are provided) serve as a "heartbeat" to prevent
     /// the receiver from starting a new election.
-    AppendEntries(AppendEntriesContent<T>),
+    AppendEntries(AppendEntriesContent<T, Id>),
 
     /// The sender is responding to a previous [`AppendEntries`] sent by
     /// the receiver.
@@ -100,10 +107,13 @@ pub enum Content<S, T> {
 
 /// This holds information to be sent from one server to another.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Message<S, T> {
+pub struct Message<S, T, Id>
+where
+    Id: Eq + Hash,
+{
     /// This holds information which varies according to the intention
     /// of the message.
-    pub content: Content<S, T>,
+    pub content: Content<S, T, Id>,
 
     /// This is a number used to correlate request messages with responses.
     /// It should be different for each separate request sent from the
