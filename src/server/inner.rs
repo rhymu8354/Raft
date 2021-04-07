@@ -407,9 +407,11 @@ where
         let new_commit_index =
             std::cmp::min(leader_commit, self.log.last_index());
         if new_commit_index > self.commit_index {
-            info!(
+            trace!(
                 "{:?}: Committing log from {} to {}",
-                self.election_state, self.commit_index, new_commit_index
+                self.election_state,
+                self.commit_index,
+                new_commit_index
             );
             self.commit_index = new_commit_index;
             let _ = self
@@ -774,7 +776,7 @@ where
         let term = self.persistent_storage.term();
         let prev_log_index = self.log.last_index();
         let prev_log_term = self.log.last_term();
-        info!(
+        trace!(
             "Adding {} commands from index {}",
             commands.len(),
             prev_log_index
@@ -788,7 +790,12 @@ where
             .collect::<Vec<_>>();
         for (&peer_id, peer) in &mut self.peers {
             if !peer.awaiting_response() {
-                info!("Sending new commands to {}", peer_id);
+                debug!(
+                    "Sending {} new entries from {} to {}",
+                    new_entries.len(),
+                    prev_log_index,
+                    peer_id
+                );
                 peer.send_new_request(
                     MessageContent::AppendEntries(AppendEntriesContent {
                         leader_commit: self.commit_index,
@@ -818,7 +825,7 @@ where
         T: 'static + Debug,
         Id: Copy + Debug + Display,
     {
-        debug!(
+        trace!(
             "Received AppendEntries({} on top of {};{}, {} committed) from {} for term {} (we are {:?} in term {})",
             append_entries.log.len(),
             append_entries.prev_log_index,
@@ -865,9 +872,10 @@ where
             seq,
             term: self.persistent_storage.term(),
         };
-        debug!(
+        trace!(
             "Sending AppendEntriesResponse ({}) to {}",
-            next_log_index, sender_id
+            next_log_index,
+            sender_id
         );
         let _ = self.event_sender.unbounded_send(Event::SendMessage {
             message,
@@ -889,7 +897,7 @@ where
         Id: 'static + Copy + Debug + Display + Send,
     {
         let term = self.persistent_storage.term();
-        debug!(
+        trace!(
             "Received AppendEntriesResponse ({}/{}) from {} for term {} (we are {:?} in term {})",
             success,
             next_log_index,
@@ -929,9 +937,11 @@ where
             if let Some(peer) = self.peers.get_mut(&sender_id) {
                 let match_index = next_log_index - 1;
                 if match_index > peer.match_index {
-                    info!(
+                    trace!(
                         "{} advanced match index {} -> {}",
-                        sender_id, peer.match_index, match_index
+                        sender_id,
+                        peer.match_index,
+                        match_index
                     );
                     peer.match_index = match_index;
                 }
@@ -1013,7 +1023,7 @@ where
         S: Debug,
         Id: Copy + Debug + Display,
     {
-        info!(
+        debug!(
             "Received InstallSnapshot({};{}) from {} for term {} (we are {:?} in term {})",
             last_included_index,
             last_included_term,
@@ -1069,7 +1079,7 @@ where
         T: 'static + Clone + Debug + Send,
         Id: 'static + Copy + Debug + Display + Send,
     {
-        info!(
+        debug!(
             "Received InstallSnapshotResponse from {} for term {} (we are {:?} in term {})",
             sender_id,
             term,
@@ -1286,7 +1296,7 @@ where
         T: Debug,
         Id: Copy + Debug + Display,
     {
-        info!(
+        debug!(
             "Received RequestVote({};{}) from {} for term {} (we are {:?} in term {})",
             last_log_index,
             last_log_term,
@@ -1337,7 +1347,7 @@ where
         T: 'static + Clone + Debug + Send,
         Id: 'static + Copy + Debug + Display + Send,
     {
-        info!(
+        debug!(
             "Received vote {} from {} for term {} (we are {:?} in term {})",
             vote_granted,
             sender_id,
@@ -1429,7 +1439,7 @@ where
                 };
                 if let Some(prev_log_term) = prev_log_term {
                     let log = self.log.entries(prev_log_index);
-                    info!(
+                    debug!(
                         "Sending {} entries from {} to {}",
                         log.len(),
                         prev_log_index,
@@ -1646,9 +1656,10 @@ where
         }
         let timeout_duration =
             self.rng.gen_range(self.configuration.election_timeout.clone());
-        debug!(
+        trace!(
             "Setting election timer to {:?} ({:?})",
-            timeout_duration, self.configuration.election_timeout
+            timeout_duration,
+            self.configuration.election_timeout
         );
         let (future, cancel_future) = make_cancellable_timeout_future(
             WorkItemContent::ElectionTimeout,
@@ -1703,7 +1714,7 @@ where
         {
             return None;
         }
-        debug!(
+        trace!(
             "Setting minimum election timer to {:?}",
             self.configuration.election_timeout.start
         );

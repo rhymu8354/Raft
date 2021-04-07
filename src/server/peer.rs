@@ -15,10 +15,7 @@ use crate::{
     Scheduler,
 };
 use futures::channel::oneshot;
-use log::{
-    debug,
-    trace,
-};
+use log::trace;
 use std::{
     fmt::{
         Debug,
@@ -80,7 +77,7 @@ where
         );
         self.retransmission_future = Some(future);
         self.cancel_retransmission = Some(cancel_future);
-        debug!("Sending request to {}: {:?}", peer_id, message);
+        trace!("Sending request to {}: {:?}", peer_id, message);
         let _ = event_sender.unbounded_send(Event::SendMessage {
             message,
             receiver_id: peer_id,
