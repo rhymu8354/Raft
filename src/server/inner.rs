@@ -418,7 +418,6 @@ where
                 .event_sender
                 .unbounded_send(Event::LogCommitted(self.commit_index));
         }
-        self.log.update_snapshot();
     }
 
     fn compare_log_history(
@@ -1580,6 +1579,7 @@ where
                     break;
                 },
             }
+            self.log.update_snapshot();
             #[cfg(test)]
             if let Some(ack) = work_item.ack {
                 let _ = ack.send(());
